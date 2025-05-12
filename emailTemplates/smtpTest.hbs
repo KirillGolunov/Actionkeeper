@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <title>{{appName}} SMTP Test Email</title>
+    <style>
+      body {
+        font-family: 'Segoe UI', Arial, sans-serif;
+        background: #F7F8FA;
+        color: #222;
+        margin: 0;
+        padding: 0;
+      }
+      .container {
+        max-width: 480px;
+        margin: 40px auto;
+        background: #fff;
+        border-radius: 10px;
+        box-shadow: 0 2px 8px rgba(86,115,220,0.07);
+        padding: 32px 32px 24px 32px;
+      }
+      .header {
+        font-size: 22px;
+        font-weight: 700;
+        color: #5673DC;
+        margin-bottom: 18px;
+        text-align: center;
+      }
+      .footer {
+        font-size: 13px;
+        color: #888;
+        margin-top: 32px;
+        text-align: center;
+      }
+      .plain-text {
+        margin-top: 40px;
+        font-size: 12px;
+        color: #aaa;
+        border-top: 1px solid #eee;
+        padding-top: 16px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">SMTP Test Email</div>
+      <div style="font-size: 16px; color: #333; text-align: center;">
+        This is a test email sent from your <strong>{{appName}}</strong> SMTP settings.<br>
+        If you received this, your SMTP configuration is working!
+      </div>
+      <div class="footer">&copy; {{year}} {{appName}}</div>
+      <div class="plain-text">
+        <strong>Plain-text version:</strong><br>
+        This is a test email from your {{appName}} SMTP settings.
+      </div>
+    </div>
+  </body>
+</html> 

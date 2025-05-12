@@ -13,12 +13,12 @@ const lineStyle = {
 };
 
 export default function DayHourBar({ hours = 0, isWeekend = false }) {
-  let color = '#1976d2'; // blue
+  let color = '#5673DC'; // blue
   if (hours > 8) color = '#d32f2f'; // red
 
   // Border color logic
   let borderColor = '#bdbdbd'; // grey
-  if (hours >= 8) borderColor = '#1976d2'; // blue
+  if (hours >= 8) borderColor = '#5673DC'; // blue
 
   if (isWeekend) {
     return (

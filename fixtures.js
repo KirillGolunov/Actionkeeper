@@ -37,8 +37,8 @@ async function createTables() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       project_id INTEGER NOT NULL,
       user_id INTEGER NOT NULL,
-      start_time DATETIME NOT NULL,
-      end_time DATETIME NOT NULL,
+      date TEXT NOT NULL,
+      hours INTEGER NOT NULL,
       description TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (project_id) REFERENCES projects (id),
@@ -60,107 +60,32 @@ async function createTables() {
   console.log('Tables created successfully');
 }
 
-// Generate 30 users
-const users = Array.from({ length: 30 }, (_, i) => ({
-  name: `User ${i + 1}`,
-  email: `user${i + 1}@example.com`,
-  role: i === 0 ? 'admin' : 'user',
-}));
-
-const clients = [
-  { name: 'Internal Projects', type: 'internal' },
-  { name: 'Acme Corp', type: 'external' },
-  { name: 'Tech Solutions', type: 'external' },
-  { name: 'Research Division', type: 'internal' }
+const users = [
+  { name: 'Alice', email: 'alice@example.com', role: 'user' },
+  { name: 'Bob', email: 'bob@example.com', role: 'user' },
+  { name: 'Manager', email: 'manager@example.com', role: 'admin' }
 ];
 
-// Generate 30 projects
-const projects = Array.from({ length: 30 }, (_, i) => ({
-  name: `Project ${i + 1}`,
-  description: `Description for project ${i + 1}`,
-  client_id: (i % 4) + 1, // rotate through 4 clients
-}));
+const clients = [
+  { name: 'Acme Corp', type: 'external' },
+  { name: 'Internal Ops', type: 'internal' }
+];
 
-// Helper to get periods
-function getPeriods() {
-  const now = new Date();
-  const periods = [];
-  // December 2024
-  periods.push({
-    label: 'dec2024',
-    start: new Date('2024-12-01T00:00:00Z'),
-    end: new Date('2024-12-31T23:59:59Z'),
-  });
-  // Q1 2025
-  periods.push({
-    label: 'q1_2025',
-    start: new Date('2025-01-01T00:00:00Z'),
-    end: new Date('2025-03-31T23:59:59Z'),
-  });
-  // Q2 2025
-  periods.push({
-    label: 'q2_2025',
-    start: new Date('2025-04-01T00:00:00Z'),
-    end: new Date('2025-06-30T23:59:59Z'),
-  });
-  // This month
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  periods.push({
-    label: 'this_month',
-    start: monthStart,
-    end: now,
-  });
-  // This week (Monday to now)
-  const weekStart = new Date(now);
-  weekStart.setDate(now.getDate() - ((now.getDay() + 6) % 7));
-  periods.push({
-    label: 'this_week',
-    start: weekStart,
-    end: now,
-  });
-  return periods;
-}
+const projects = [
+  { name: 'Website Redesign', description: 'Redesign the Acme Corp website', clientIndex: 0 },
+  { name: 'Mobile App', description: 'Develop a new mobile app for Acme', clientIndex: 0 },
+  { name: 'Internal Dashboard', description: 'Build dashboard for internal ops', clientIndex: 1 }
+];
 
-// Generate time entries for all periods
-function generateTimeEntries(users, projects) {
-  const periods = getPeriods();
-  const timeEntries = [];
-  const now = new Date();
-  for (const period of periods) {
-    for (const project of projects) {
-      // Pick 5 unique users for this project in this period
-      const userIndices = Array.from({ length: users.length }, (_, i) => i).sort(() => 0.5 - Math.random()).slice(0, 5);
-      for (const userIdx of userIndices) {
-        const user = users[userIdx];
-        // Each user logs hours for at least 3 projects per period
-        for (let p = 0; p < 3; p++) {
-          const proj = projects[(project.id + p) % projects.length];
-          // Pick a random day in the period, not in the future
-          let entryDate;
-          let attempts = 0;
-          do {
-            const time = period.start.getTime() + Math.random() * (Math.min(period.end.getTime(), now.getTime()) - period.start.getTime());
-            entryDate = new Date(time);
-            attempts++;
-          } while (entryDate > now && attempts < 10);
-          // Random whole hours between 2 and 8
-          const durationHours = Math.floor(Math.random() * 7) + 2;
-          const startTime = new Date(entryDate);
-          const endTime = new Date(entryDate.getTime() + durationHours * 60 * 60 * 1000);
-          if (endTime > now) continue; // Don't log future hours
-          timeEntries.push({
-            user_id: user.id,
-            project_id: proj.id,
-            description: `Work on ${proj.name}`,
-            start_time: startTime.toISOString(),
-            end_time: endTime.toISOString(),
-          });
-        }
-      }
-    }
-  }
-  return timeEntries;
-}
+const weekStart = new Date('2025-05-05T00:00:00.000Z');
+const timeEntries = [
+  // Alice logs 8h Mon, 6h Tue for Website Redesign
+  { userIndex: 0, projectIndex: 0, days: [{ offset: 0, hours: 8 }, { offset: 1, hours: 6 }] },
+  // Alice logs 4h Wed for Mobile App
+  { userIndex: 0, projectIndex: 1, days: [{ offset: 2, hours: 4 }] },
+  // Bob logs 7h Mon for Internal Dashboard
+  { userIndex: 1, projectIndex: 2, days: [{ offset: 0, hours: 7 }] }
+];
 
 // Clear existing data
 async function clearTables() {
@@ -211,7 +136,8 @@ async function insertFixtures() {
 
     console.log('Inserting clients...');
     // Insert clients and collect their IDs
-    for (const client of clients) {
+    for (let i = 0; i < clients.length; i++) {
+      const client = clients[i];
       await new Promise((resolve, reject) => {
         db.run(
           'INSERT INTO clients (name, type) VALUES (?, ?)',
@@ -233,12 +159,11 @@ async function insertFixtures() {
     // Insert projects and collect their IDs
     for (let i = 0; i < projects.length; i++) {
       const project = projects[i];
-      const clientIndex = i % clients.length;
-      project.client_id = clients[clientIndex].id;
+      const client = clients[project.clientIndex];
       await new Promise((resolve, reject) => {
         db.run(
           'INSERT INTO projects (name, description, client_id) VALUES (?, ?, ?)',
-          [project.name, project.description, project.client_id],
+          [project.name, project.description, client.id],
           function(err) {
             if (err) {
               console.error(`Error inserting project ${project.name}:`, err);
@@ -252,26 +177,30 @@ async function insertFixtures() {
       });
     }
 
-    console.log('Generating and inserting time entries...');
-    // Generate and insert time entries AFTER all IDs are set
-    const timeEntries = generateTimeEntries(users, projects);
+    console.log('Inserting time entries...');
     for (const entry of timeEntries) {
-      await new Promise((resolve, reject) => {
-        db.run(
-          'INSERT INTO time_entries (user_id, project_id, description, start_time, end_time) VALUES (?, ?, ?, ?, ?)',
-          [entry.user_id, entry.project_id, entry.description, entry.start_time, entry.end_time],
-          function(err) {
-            if (err) {
-              console.error('Error inserting time entry:', err);
-              reject(err);
+      const user = users[entry.userIndex];
+      const project = projects[entry.projectIndex];
+      for (const day of entry.days) {
+        const start = new Date(weekStart);
+        start.setDate(start.getDate() + day.offset);
+        start.setHours(9, 0, 0, 0);
+        const end = new Date(start.getTime() + day.hours * 60 * 60 * 1000);
+        await new Promise((resolve, reject) => {
+          db.run(
+            'INSERT INTO time_entries (user_id, project_id, date, hours, description) VALUES (?, ?, ?, ?, ?)',
+            [user.id, project.id, start.toISOString(), day.hours, ''],
+            function(err) {
+              if (err) {
+                console.error('Error inserting time entry:', err);
+                reject(err);
+              }
+              resolve();
             }
-            resolve();
-          }
-        );
-      });
+          );
+        });
+      }
     }
-    console.log(`Inserted ${timeEntries.length} time entries`);
-
     console.log('All fixtures loaded successfully');
     db.close(() => {
       console.log('Database connection closed');

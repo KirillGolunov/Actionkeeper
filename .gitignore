@@ -31,3 +31,9 @@ yarn-error.log*
 .vscode/
 *.swp
 *.swo
+
+# SQLite/Windows executables
+sqldiff.exe
+sqlite3_analyzer.exe
+sqlite3_rsync.exe
+sqlite3.exe

@@ -1,0 +1,10 @@
+{
+  "host": "sandbox.smtp.mailtrap.io",
+  "port": "587",
+  "auth": {
+    "user": "9226f864010601",
+    "pass": "6e62c8fce87ec9"
+  },
+  "from": "info@actionkeeper.ru",
+  "secure": false
+}

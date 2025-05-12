@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <title>{{appName}} Invitation</title>
+    <style>
+      body {
+        font-family: 'Segoe UI', Arial, sans-serif;
+        background: #F7F8FA;
+        color: #222;
+        margin: 0;
+        padding: 0;
+      }
+      .container {
+        max-width: 480px;
+        margin: 40px auto;
+        background: #fff;
+        border-radius: 10px;
+        box-shadow: 0 2px 8px rgba(86,115,220,0.07);
+        padding: 32px 32px 24px 32px;
+      }
+      .header {
+        font-size: 22px;
+        font-weight: 700;
+        color: #5673DC;
+        margin-bottom: 18px;
+        text-align: center;
+      }
+      .cta {
+        display: block;
+        width: 100%;
+        text-align: center;
+        margin: 32px 0 24px 0;
+      }
+      .cta-button {
+        background: #5673DC;
+        color: #fff !important;
+        padding: 14px 32px;
+        border-radius: 6px;
+        font-size: 17px;
+        font-weight: 600;
+        text-decoration: none;
+        display: inline-block;
+        margin: 0 auto;
+      }
+      .footer {
+        font-size: 13px;
+        color: #888;
+        margin-top: 32px;
+        text-align: center;
+      }
+      .plain-text {
+        margin-top: 40px;
+        font-size: 12px;
+        color: #aaa;
+        border-top: 1px solid #eee;
+        padding-top: 16px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">You're Invited to Join {{appName}}</div>
+      <div style="font-size: 16px; color: #333; text-align: center;">
+        {{#if inviter}}
+          <strong>{{inviter}}</strong> has invited you to join {{appName}}.<br>
+        {{else}}
+          You have been invited to join {{appName}}.<br>
+        {{/if}}
+        Click the button below to accept your invitation and set up your account.
+      </div>
+      <div class="cta">
+        <a href="{{inviteLink}}" class="cta-button">Accept Invitation</a>
+      </div>
+      <div style="font-size: 14px; color: #555; text-align: center;">If you did not expect this invitation, you can safely ignore this email.</div>
+      <div class="footer">&copy; {{year}} {{appName}}</div>
+      <div class="plain-text">
+        <strong>Plain-text version:</strong><br>
+        Accept your invitation: {{inviteLink}}
+      </div>
+    </div>
+  </body>
+</html> 
