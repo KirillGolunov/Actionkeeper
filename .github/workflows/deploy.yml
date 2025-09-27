@@ -12,8 +12,6 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_BACKEND: ghcr.io/${{ github.repository_owner }}/actionkeeper-backend
-  IMAGE_FRONTEND: ghcr.io/${{ github.repository_owner }}/actionkeeper-frontend
 
 jobs:
   build-and-push:
@@ -32,30 +30,35 @@ jobs:
           password: ${{ secrets.GHCR_TOKEN }}
 
       - name: Prepare build metadata
-        run: echo "SHORT_SHA=${GITHUB_SHA::7}" >> $GITHUB_ENV
+        run: |
+          echo "SHORT_SHA=${GITHUB_SHA::7}" >> $GITHUB_ENV
+          OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "OWNER_LC=$OWNER_LC" >> $GITHUB_ENV
+          echo "IMAGE_BACKEND=ghcr.io/$OWNER_LC/actionkeeper-backend" >> $GITHUB_ENV
+          echo "IMAGE_FRONTEND=ghcr.io/$OWNER_LC/actionkeeper-frontend" >> $GITHUB_ENV
 
       - name: Build backend image
         run: |
           docker build \
             -f Dockerfile \
-            -t ${{ env.IMAGE_BACKEND }}:${SHORT_SHA} \
-            -t ${{ env.IMAGE_BACKEND }}:latest \
+            -t $IMAGE_BACKEND:${SHORT_SHA} \
+            -t $IMAGE_BACKEND:latest \
             .
 
       - name: Build frontend image
         run: |
           docker build \
             -f client/Dockerfile \
-            -t ${{ env.IMAGE_FRONTEND }}:${SHORT_SHA} \
-            -t ${{ env.IMAGE_FRONTEND }}:latest \
+            -t $IMAGE_FRONTEND:${SHORT_SHA} \
+            -t $IMAGE_FRONTEND:latest \
             client
 
       - name: Push images
         run: |
-          docker push ${{ env.IMAGE_BACKEND }}:${SHORT_SHA}
-          docker push ${{ env.IMAGE_BACKEND }}:latest
-          docker push ${{ env.IMAGE_FRONTEND }}:${SHORT_SHA}
-          docker push ${{ env.IMAGE_FRONTEND }}:latest
+          docker push $IMAGE_BACKEND:${SHORT_SHA}
+          docker push $IMAGE_BACKEND:latest
+          docker push $IMAGE_FRONTEND:${SHORT_SHA}
+          docker push $IMAGE_FRONTEND:latest
 
   deploy:
     needs: build-and-push
@@ -74,4 +77,3 @@ jobs:
             docker compose pull backend frontend
             docker compose up -d --remove-orphans
             docker image prune -f
-
