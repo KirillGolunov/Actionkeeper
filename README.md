@@ -112,7 +112,7 @@ This project is currently unlicensed. You may add a license of your choice.
    ```
 
 3. **Access the app:**
-   - Application (served via Caddy with HTTPS): [https://actionlog.ru](https://actionlog.ru)
+   - Application (served via Caddy; if another service already uses 443, configure its fallback to forward SNI actionlog.ru to 127.0.0.1:8443): [https://actionlog.ru](https://actionlog.ru)
    - API requests are automatically proxied by Caddy under the `/api` path.
 
 4. **Database Persistence:**
