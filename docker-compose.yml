@@ -29,6 +29,7 @@ services:
       - "3001"
     volumes:
       - ./data:/app/data
+      - ./smtp_settings.json:/app/smtp_settings.json:ro
     restart: unless-stopped
     networks:
       - timetracker-net
