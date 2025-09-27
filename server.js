@@ -13,12 +13,31 @@ const multer = require('multer');
 const handlebars = require('handlebars');
 
 const app = express();
+app.set('trust proxy', true);
 const port = process.env.PORT || 3001;
 
 // Middleware
 app.use(cors());
 app.use(bodyParser.json());
 
+const normalizeBaseUrl = (url = '') => (url ? url.replace(/\/+$/, '') : '');
+const resolveAppBaseUrl = (req) => {
+  const envBase = normalizeBaseUrl(process.env.APP_BASE_URL);
+  if (envBase) {
+    return envBase;
+  }
+
+  const protoHeader = req.headers['x-forwarded-proto'];
+  const proto = Array.isArray(protoHeader) ? protoHeader[0] : protoHeader;
+  const protocol = proto || (req.secure ? 'https' : req.protocol || 'http');
+
+  const host = req.headers['x-forwarded-host'] || req.headers.host;
+  if (host) {
+    return normalizeBaseUrl(`${protocol}://${host}`);
+  }
+
+  return 'http://localhost:3000';
+};
 // Setup-required middleware (must be before all API/static routes)
 app.use((req, res, next) => {
   console.log('[Middleware] setupRequired:', setupRequired, 'path:', req.path);
@@ -26,7 +45,9 @@ app.use((req, res, next) => {
     setupRequired &&
     req.path.startsWith('/api') &&
     req.path !== '/api/setup' &&
-    req.path !== '/api/smtp-test'
+    req.path !== '/api/smtp-test' &&
+    req.path !== '/api/env' &&
+    req.path !== '/api/setup-required'
   ) {
     return res.status(403).json({ error: 'Initial setup required. Visit /setup.' });
   }
@@ -48,6 +69,35 @@ const SMTP_SETTINGS_FILE = './smtp_settings.json';
 
 // Helper to load SMTP settings
 function loadSmtpSettings() {
+  const required = [
+    'SMTP_HOST',
+    'SMTP_PORT',
+    'SMTP_USER',
+    'SMTP_PASS',
+    'SMTP_FROM'
+  ];
+  const allSet = required.every((key) => process.env[key]);
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  if (allSet) {
+    return {
+      host: process.env.SMTP_HOST,
+      port: parseInt(process.env.SMTP_PORT, 10) || 587,
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+      from: process.env.SMTP_FROM,
+      secure: process.env.SMTP_SECURE === 'true' || process.env.SMTP_SECURE === '1',
+    };
+  }
+
+  if (isProduction) {
+    console.error('[SMTP] FATAL: All SMTP environment variables must be set in production.');
+    process.exit(1);
+  }
+
+  // In development, fallback to file
   if (fs.existsSync(SMTP_SETTINGS_FILE)) {
     try {
       const data = fs.readFileSync(SMTP_SETTINGS_FILE, 'utf8');
@@ -1254,7 +1304,8 @@ app.post('/api/auth/magic-link', (req, res) => {
         secure: !!settings.secure,
         auth: settings.auth,
       });
-      const magicLink = `${process.env.APP_BASE_URL || 'http://localhost:3000'}/auth/magic-link/${token}`;
+      const baseUrl = resolveAppBaseUrl(req);
+      const magicLink = `${baseUrl}/auth/magic-link/${token}`;
       // Render Handlebars template
       let html = '';
       try {
@@ -1420,6 +1471,16 @@ app.get('/api/analytics/test', (req, res) => {
   res.json({ ok: true });
 });
 
+// Endpoint to get current NODE_ENV for frontend
+app.get('/api/env', (req, res) => {
+  res.json({ NODE_ENV: process.env.NODE_ENV || 'development' });
+});
+
+// Endpoint to check if setup is required
+app.get('/api/setup-required', (req, res) => {
+  res.json({ setupRequired });
+});
+
 // Serve static files from the React app (adjust path if needed)
 app.use(express.static(path.join(__dirname, 'client', 'build')));
 
@@ -1452,7 +1513,8 @@ async function checkFirstRun() {
 app.post('/api/setup', async (req, res) => {
   if (!setupRequired) return res.status(400).json({ error: 'Setup already completed.' });
   const { name, surname, email, smtp } = req.body;
-  if (!name || !surname || !email || !smtp) {
+  const isProduction = process.env.NODE_ENV === 'production';
+  if (!name || !surname || !email || (!isProduction && !smtp)) {
     return res.status(400).json({ error: 'Missing required fields.' });
   }
   // Create admin user
@@ -1462,18 +1524,20 @@ app.post('/api/setup', async (req, res) => {
       if (err) {
         return res.status(500).json({ error: err.message });
       }
-      // Always save in correct structure
-      const settings = {
-        host: smtp.host,
-        port: smtp.port,
-        auth: {
-          user: smtp.user,
-          pass: smtp.pass
-        },
-        from: smtp.from,
-        secure: !!smtp.secure
-      };
-      saveSmtpSettings(settings);
+      // Only save SMTP settings in development
+      if (process.env.NODE_ENV !== 'production') {
+        const settings = {
+          host: smtp.host,
+          port: smtp.port,
+          auth: {
+            user: smtp.user,
+            pass: smtp.pass
+          },
+          from: smtp.from,
+          secure: !!smtp.secure
+        };
+        saveSmtpSettings(settings);
+      }
       // Re-check admin user existence
       await checkFirstRun();
       res.json({ success: true });
@@ -1515,3 +1579,5 @@ app.post('/api/upload-avatar', authenticateJWT, upload.single('avatar'), (req, r
   const publicUrl = `/avatars/${req.file.filename}`;
   res.json({ url: publicUrl });
 });
+
+

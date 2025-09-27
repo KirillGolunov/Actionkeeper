@@ -1,0 +1,30 @@
+version: "3.8"
+
+services:
+  backend:
+    image: ghcr.io/kirillgolunov/actionkeeper-backend:latest
+    container_name: timetracker-backend
+    env_file:
+      - .env
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+    networks:
+      - timetracker-net
+
+  frontend:
+    image: ghcr.io/kirillgolunov/actionkeeper-frontend:latest
+    container_name: timetracker-frontend
+    ports:
+      - "3003:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - timetracker-net
+
+networks:
+  timetracker-net:
+    driver: bridge
