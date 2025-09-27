@@ -74,6 +74,8 @@ jobs:
           script: |
             docker login ${{ env.REGISTRY }} -u ${{ github.repository_owner }} -p ${{ secrets.GHCR_TOKEN }}
             cd /root/TimeTracker
-            docker compose pull backend frontend
+            git fetch origin
+            git reset --hard origin/main
+            docker compose pull
             docker compose up -d --remove-orphans
             docker image prune -f
