@@ -1,8 +1,9 @@
 {
     email {$ACME_EMAIL}
+    auto_https off
 }
 
-actionlog.ru, www.actionlog.ru {
+http://actionlog.ru, http://www.actionlog.ru {
     encode gzip
 
     @api path /api/*
@@ -12,9 +13,5 @@ actionlog.ru, www.actionlog.ru {
 
     handle {
         reverse_proxy frontend:80
-    }
-
-    header {
-        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
     }
 }
