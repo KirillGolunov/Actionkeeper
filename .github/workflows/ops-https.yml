@@ -1,0 +1,48 @@
+name: Ops - Finalize HTTPS via Xray fallback
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_host:
+        description: Domain to verify (SNI)
+        required: true
+        default: actionlog.ru
+
+jobs:
+  ops:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Restart x-ui and verify Caddy/HTTPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          password: ${{ secrets.SSH_PASSWORD }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          script: |
+            set -euxo pipefail
+            # Restart x-ui panel/service
+            systemctl restart x-ui || true
+            sleep 3 || true
+            systemctl is-active x-ui || true
+
+            # Try to find deployment directory for docker compose (best-effort)
+            if [ -d /var/www/time-tracker ]; then cd /var/www/time-tracker; fi
+            if [ -f docker-compose.yml ] || [ -f docker-compose.yaml ] || [ -f compose.yaml ]; then
+              docker compose ps || true
+              echo '--- Last proxy logs ---'
+              docker compose logs -n 100 proxy | tail -n 200 || true
+            fi
+
+            echo '--- Check Caddy on local 8443 ---'
+            curl -kI https://127.0.0.1:8443 || true
+
+            echo '--- Check via Xray SNI fallback (127.0.0.1) ---'
+            curl -kI --resolve ${{ github.event.inputs.test_host }}:443:127.0.0.1 https://${{ github.event.inputs.test_host }} || true
+
+            echo '--- External DNS check ---'
+            curl -I https://${{ github.event.inputs.test_host }} || true
+
+            echo 'DONE'
+
+
