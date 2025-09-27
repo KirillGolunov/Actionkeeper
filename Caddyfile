@@ -1,9 +1,8 @@
 {
     email {$ACME_EMAIL}
-    auto_https off
 }
 
-http://actionlog.ru, http://www.actionlog.ru {
+actionlog.ru, www.actionlog.ru {
     encode gzip
 
     @api path /api/*
