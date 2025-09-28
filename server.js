@@ -23,6 +23,17 @@ app.use(bodyParser.json());
 const normalizeBaseUrl = (url = '') => (url ? url.replace(/\/+$/, '') : '');
 const resolveAppBaseUrl = (req) => {
   const envBase = normalizeBaseUrl(process.env.APP_BASE_URL);
+  const originHeader = req.headers.origin;
+  const origin = normalizeBaseUrl(Array.isArray(originHeader) ? originHeader[0] : originHeader);
+
+  if (envBase && !/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(envBase)) {
+    return envBase;
+  }
+
+  if (origin) {
+    return origin;
+  }
+
   if (envBase) {
     return envBase;
   }
@@ -1579,5 +1590,3 @@ app.post('/api/upload-avatar', authenticateJWT, upload.single('avatar'), (req, r
   const publicUrl = `/avatars/${req.file.filename}`;
   res.json({ url: publicUrl });
 });
-
-
