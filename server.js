@@ -1302,21 +1302,37 @@ app.post('/api/auth/magic-link', (req, res) => {
         console.error('[Magic Link] Error inserting magic link:', err2);
         return res.status(500).json({ error: err2.message });
       }
-      // Send email
+      // Send email or return link in development
       const settings = loadSmtpSettings();
+      const baseUrl = resolveAppBaseUrl(req);
+      const magicLink = `${baseUrl}/auth/magic-link/${token}`;
       console.log('[Magic Link] Using SMTP settings:', settings);
-      if (!settings.host || !settings.port || !settings.auth || !settings.auth.user || !settings.auth.pass || !settings.from) {
+
+      const hasSmtp = Boolean(
+        settings &&
+        settings.host &&
+        settings.port &&
+        settings.auth &&
+        settings.auth.user &&
+        settings.auth.pass &&
+        settings.from
+      );
+
+      if (!hasSmtp) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn('[Magic Link] SMTP settings missing; returning link directly for development:', magicLink);
+          return res.json({ success: true, magicLink, token });
+        }
         console.error('[Magic Link] SMTP settings are not configured. Settings:', settings);
         return res.status(500).json({ error: 'SMTP settings are not configured.' });
       }
+
       const transporter = nodemailer.createTransport({
         host: settings.host,
         port: settings.port,
         secure: !!settings.secure,
         auth: settings.auth,
       });
-      const baseUrl = resolveAppBaseUrl(req);
-      const magicLink = `${baseUrl}/auth/magic-link/${token}`;
       // Render Handlebars template
       let html = '';
       try {
@@ -1525,9 +1541,16 @@ app.post('/api/setup', async (req, res) => {
   if (!setupRequired) return res.status(400).json({ error: 'Setup already completed.' });
   const { name, surname, email, smtp } = req.body;
   const isProduction = process.env.NODE_ENV === 'production';
-  if (!name || !surname || !email || (!isProduction && !smtp)) {
+  if (!name || !surname || !email) {
     return res.status(400).json({ error: 'Missing required fields.' });
   }
+  const sanitizedSmtp = smtp || {};
+  const hasSmtp = sanitizedSmtp.host && sanitizedSmtp.port && sanitizedSmtp.user && sanitizedSmtp.pass && sanitizedSmtp.from;
+
+  if (isProduction && !hasSmtp) {
+    return res.status(400).json({ error: 'SMTP settings are required in production.' });
+  }
+
   // Create admin user
   db.run('INSERT INTO users (name, surname, email, role, invited, deleted) VALUES (?, ?, ?, ?, 0, 0)',
     [name, surname, email, 'admin'],
@@ -1535,19 +1558,20 @@ app.post('/api/setup', async (req, res) => {
       if (err) {
         return res.status(500).json({ error: err.message });
       }
-      // Only save SMTP settings in development
-      if (process.env.NODE_ENV !== 'production') {
+      if (!isProduction && hasSmtp) {
         const settings = {
-          host: smtp.host,
-          port: smtp.port,
+          host: sanitizedSmtp.host,
+          port: sanitizedSmtp.port,
           auth: {
-            user: smtp.user,
-            pass: smtp.pass
+            user: sanitizedSmtp.user,
+            pass: sanitizedSmtp.pass
           },
-          from: smtp.from,
-          secure: !!smtp.secure
+          from: sanitizedSmtp.from,
+          secure: !!sanitizedSmtp.secure
         };
         saveSmtpSettings(settings);
+      } else if (!isProduction && !hasSmtp) {
+        console.log('[Setup] SMTP settings not provided; skipping save for development.');
       }
       // Re-check admin user existence
       await checkFirstRun();

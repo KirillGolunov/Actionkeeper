@@ -8,6 +8,7 @@ export default function SignIn() {
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [devMagicLink, setDevMagicLink] = useState(null);
   const [error, setError] = useState(null);
   const sessionError = location.state && location.state.message;
   const [cooldown, setCooldown] = useState(0);
@@ -28,10 +29,14 @@ export default function SignIn() {
     setLoading(true);
     setError(null);
     setSuccess(false);
+    setDevMagicLink(null);
     try {
-      await axios.post('/api/auth/magic-link', { email });
+      const res = await axios.post('/api/auth/magic-link', { email });
       setSuccess(true);
       setCooldown(60);
+      if (res.data?.magicLink) {
+        setDevMagicLink(res.data.magicLink);
+      }
     } catch (err) {
       // If rate limited, start cooldown anyway
       if (err.response?.status === 429) {
@@ -47,10 +52,14 @@ export default function SignIn() {
     setResendLoading(true);
     setResendError(null);
     setResendSuccess(false);
+    setDevMagicLink(null);
     try {
-      await axios.post('/api/auth/magic-link', { email });
+      const res = await axios.post('/api/auth/magic-link', { email });
       setResendSuccess(true);
       setCooldown(60);
+      if (res.data?.magicLink) {
+        setDevMagicLink(res.data.magicLink);
+      }
     } catch (err) {
       // If rate limited, start cooldown anyway
       if (err.response?.status === 429) {
@@ -100,6 +109,14 @@ export default function SignIn() {
           </Box>
         </form>
         {success && <Alert severity="success" sx={{ mt: 2, width: '100%' }}>Check your email for a login link!</Alert>}
+        {devMagicLink && (
+          <Alert severity="info" sx={{ mt: 2, width: '100%' }}>
+            Local testing shortcut:{' '}
+            <Link href={devMagicLink} target="_blank" rel="noopener">
+              Open magic link
+            </Link>
+          </Alert>
+        )}
         {error && <Alert severity="error" sx={{ mt: 2, width: '100%' }}>{error}</Alert>}
         <Typography sx={{ fontSize: 13, color: '#888', mt: 3, textAlign: 'center' }}>
           A login link will be sent to your email address.<br />
@@ -113,4 +130,4 @@ export default function SignIn() {
       {/* <Box sx={{ mt: 6, color: '#5673DC', fontWeight: 700, fontSize: 18 }}>TimeTracker</Box> */}
     </Box>
   );
-} 
+}

@@ -22,6 +22,7 @@ export default function Setup() {
   const [loading, setLoading] = useState(false);
   const [testEmailStatus, setTestEmailStatus] = useState(null);
   const [testEmailLoading, setTestEmailLoading] = useState(false);
+  const isProduction = process.env.NODE_ENV === 'production';
 
   const handleAdminChange = (e) => {
     setAdmin({ ...admin, [e.target.name]: e.target.value });
@@ -76,6 +77,11 @@ export default function Setup() {
         You can test your email settings before finishing.<br />
         When you're all set, hit <b>Complete Setup</b> and you're good to go!
         </Typography>
+        {!isProduction && (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Local development tip: you can leave SMTP blank and finish setup.
+          </Alert>
+        )}
         {error && <Alert severity="error" sx={{ mb: 1 }}>{error}</Alert>}
         {success && <Alert severity="success" sx={{ mb: 1 }}>{success}</Alert>}
         <form onSubmit={handleSubmit}>
@@ -88,11 +94,11 @@ export default function Setup() {
             </Grid>
             <Grid item xs={12} sm={6}>
               <Typography variant="subtitle1" sx={{ mb: 1, color: '#5673DC' }}>SMTP Settings</Typography>
-              <TextField label="Host" name="host" value={smtp.host} onChange={handleSmtpChange} fullWidth required size="small" sx={{ mb: 1 }} />
-              <TextField label="Port" name="port" value={smtp.port} onChange={handleSmtpChange} fullWidth required size="small" sx={{ mb: 1 }} />
-              <TextField label="User" name="user" value={smtp.user} onChange={handleSmtpChange} fullWidth required size="small" sx={{ mb: 1 }} />
-              <TextField label="Password" name="pass" value={smtp.pass} onChange={handleSmtpChange} type="password" fullWidth required size="small" sx={{ mb: 1 }} />
-              <TextField label="From Email" name="from" value={smtp.from} onChange={handleSmtpChange} fullWidth required size="small" sx={{ mb: 1 }} />
+              <TextField label="Host" name="host" value={smtp.host} onChange={handleSmtpChange} fullWidth required={isProduction} size="small" sx={{ mb: 1 }} />
+              <TextField label="Port" name="port" value={smtp.port} onChange={handleSmtpChange} fullWidth required={isProduction} size="small" sx={{ mb: 1 }} />
+              <TextField label="User" name="user" value={smtp.user} onChange={handleSmtpChange} fullWidth required={isProduction} size="small" sx={{ mb: 1 }} />
+              <TextField label="Password" name="pass" value={smtp.pass} onChange={handleSmtpChange} type="password" fullWidth required={isProduction} size="small" sx={{ mb: 1 }} />
+              <TextField label="From Email" name="from" value={smtp.from} onChange={handleSmtpChange} fullWidth required={isProduction} size="small" sx={{ mb: 1 }} />
               <FormControlLabel
                 control={<Checkbox name="secure" checked={smtp.secure} onChange={handleSmtpChange} size="small" />}
                 label={<span style={{ fontSize: 14 }}>Use SSL/TLS (secure connection)</span>}
@@ -102,7 +108,7 @@ export default function Setup() {
                 variant="outlined"
                 sx={{ mt: 0.5, mb: 0.5, borderRadius: 2, color: '#5673DC', borderColor: '#8196E4', background: '#F5F7FE', '&:hover': { background: '#E2E4E9' }, fontSize: 14, py: 0.5 }}
                 onClick={handleTestEmail}
-                disabled={testEmailLoading}
+                disabled={testEmailLoading || !isProduction}
                 fullWidth
                 size="small"
               >
@@ -131,3 +137,4 @@ export default function Setup() {
     </Box>
   );
 } 
+
