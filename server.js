@@ -14,6 +14,7 @@ const handlebars = require('handlebars');
 
 const app = express();
 app.set('trust proxy', true);
+let setupRequired = false;
 const port = process.env.PORT || 3001;
 
 // Middleware
@@ -50,16 +51,23 @@ const resolveAppBaseUrl = (req) => {
   return 'http://localhost:3000';
 };
 // Setup-required middleware (must be before all API/static routes)
-app.use((req, res, next) => {
-  console.log('[Middleware] setupRequired:', setupRequired, 'path:', req.path);
-  if (
-    setupRequired &&
-    req.path.startsWith('/api') &&
-    req.path !== '/api/setup' &&
-    req.path !== '/api/smtp-test' &&
-    req.path !== '/api/env' &&
-    req.path !== '/api/setup-required'
-  ) {
+const setupBypassPaths = new Set([
+  '/api/setup',
+  '/api/smtp-test',
+  '/api/env',
+  '/api/setup-required'
+]);
+
+app.use(async (req, res, next) => {
+  try {
+    await checkFirstRun();
+  } catch (err) {
+    console.error('[Setup] Failed to evaluate setup state:', err);
+    return res.status(500).json({ error: 'Failed to verify setup state.' });
+  }
+
+  const isBypassed = setupBypassPaths.has(req.path) || req.path.startsWith('/api/auth/');
+  if (setupRequired && req.path.startsWith('/api') && !isBypassed) {
     return res.status(403).json({ error: 'Initial setup required. Visit /setup.' });
   }
   next();
@@ -1520,8 +1528,6 @@ app.get('*', (req, res) => {
   }
 });
 
-let setupRequired = false;
-
 // On server start, check if any users exist and if an admin exists
 async function checkFirstRun() {
   return new Promise((resolve) => {
@@ -1559,8 +1565,26 @@ app.post('/api/setup', async (req, res) => {
     async function(err) {
       if (err) {
         if (err.message && err.message.includes('UNIQUE constraint failed')) {
-          await checkFirstRun();
-          return res.status(409).json({ error: 'Admin already exists. Please sign in.', setupRequired });
+          return db.get('SELECT id, deleted FROM users WHERE email = ?', [email], (lookupErr, existing) => {
+            if (lookupErr || !existing) {
+              return checkFirstRun().then(() => {
+                res.status(409).json({ error: 'Admin already exists. Please sign in.', setupRequired });
+              });
+            }
+            db.run(
+              'UPDATE users SET name = ?, surname = ?, role = ?, deleted = 0, invited = 0 WHERE id = ?',
+              [name, surname, 'admin', existing.id],
+              async function(updateErr) {
+                if (updateErr) {
+                  console.error('[Setup] Failed to update existing admin:', updateErr);
+                  return res.status(500).json({ error: updateErr.message });
+                }
+                console.log('[Setup] Re-activated existing admin account for', email);
+                await checkFirstRun();
+                res.json({ success: true, revived: true });
+              }
+            );
+          });
         }
         return res.status(500).json({ error: err.message });
       }
@@ -1620,6 +1644,4 @@ app.post('/api/upload-avatar', authenticateJWT, upload.single('avatar'), (req, r
   const publicUrl = `/avatars/${req.file.filename}`;
   res.json({ url: publicUrl });
 });
-
-
 
