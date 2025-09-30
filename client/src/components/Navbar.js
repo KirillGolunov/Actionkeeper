@@ -16,6 +16,7 @@ import IconButton from '@mui/material/IconButton';
 
 export default function Navbar() {
   const { user, logout } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const navigate = useNavigate();
   const handleLogout = () => {
     logout();
@@ -51,30 +52,34 @@ export default function Navbar() {
           >
             Dashboard
           </Button>
-          <Button
-            color="inherit"
-            component={RouterLink}
-            to="/projects"
-            startIcon={<ListAltIcon />}
-          >
-            Projects
-          </Button>
-          <Button
-            color="inherit"
-            component={RouterLink}
-            to="/clients"
-            startIcon={<PeopleIcon />}
-          >
-            Clients
-          </Button>
-          <Button
-            color="inherit"
-            component={RouterLink}
-            to="/users"
-            startIcon={<GroupIcon />}
-          >
-            Users
-          </Button>
+          {isAdmin && (
+            <>
+              <Button
+                color="inherit"
+                component={RouterLink}
+                to="/projects"
+                startIcon={<ListAltIcon />}
+              >
+                Projects
+              </Button>
+              <Button
+                color="inherit"
+                component={RouterLink}
+                to="/clients"
+                startIcon={<PeopleIcon />}
+              >
+                Clients
+              </Button>
+              <Button
+                color="inherit"
+                component={RouterLink}
+                to="/users"
+                startIcon={<GroupIcon />}
+              >
+                Users
+              </Button>
+            </>
+          )}
           <Button
             color="inherit"
             component={RouterLink}
