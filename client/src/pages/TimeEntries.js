@@ -400,6 +400,10 @@ function TimeEntries() {
 
   const handleWeeklySubmit = async () => {
     setError(null);
+    if (!selectedUser) {
+      setError('Please select a user before submitting.');
+      return;
+    }
     if (weeklyProjects.length === 0) {
       setError('Please add at least one project.');
       return;
@@ -695,11 +699,22 @@ function TimeEntries() {
     const entry = weeklyProjects[idx];
     try {
       if (entry.submitted) {
-        await axios.post('/api/time-entries/bulk-delete', {
-          user_id: selectedUser,
-          project_id: entry.project_id,
-          week_start: weekStart.toISOString(),
-        });
+        const hourIds = Object.values(entry.hours || {})
+          .map(day => day && day.id)
+          .filter(Boolean);
+        if (hourIds.length > 0) {
+          await Promise.all(hourIds.map(id => axios.delete(`/api/time-entries/${id}`)));
+        } else if (entry.project_id) {
+          const userForDelete = entry.user_id || selectedUser;
+          if (!userForDelete) {
+            throw new Error('Missing user for deletion');
+          }
+          await axios.post('/api/time-entries/bulk-delete', {
+            user_id: userForDelete,
+            project_id: entry.project_id,
+            week_start: weekStart.toISOString(),
+          });
+        }
       }
       // Remove from order in localStorage
       const orderKey = getOrderStorageKey(selectedUser, weekStart);
@@ -710,7 +725,7 @@ function TimeEntries() {
       await fetchTimeEntries();
     } catch (err) {
       console.error('Error deleting project entries:', err);
-      setError('Failed to delete project entries. Please try again.');
+      setError(err.response?.data?.error || err.message || 'Failed to delete project entries. Please try again.');
     }
   };
 
