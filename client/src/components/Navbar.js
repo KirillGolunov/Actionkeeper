@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import { AppBar, Toolbar, Typography, Button, Box } from '@mui/material';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import TimerIcon from '@mui/icons-material/Timer';
@@ -52,34 +52,30 @@ export default function Navbar() {
           >
             Dashboard
           </Button>
-          {isAdmin && (
-            <>
-              <Button
-                color="inherit"
-                component={RouterLink}
-                to="/projects"
-                startIcon={<ListAltIcon />}
-              >
-                Projects
-              </Button>
-              <Button
-                color="inherit"
-                component={RouterLink}
-                to="/clients"
-                startIcon={<PeopleIcon />}
-              >
-                Clients
-              </Button>
-              <Button
-                color="inherit"
-                component={RouterLink}
-                to="/users"
-                startIcon={<GroupIcon />}
-              >
-                Users
-              </Button>
-            </>
-          )}
+          <Button
+            color="inherit"
+            component={RouterLink}
+            to="/projects"
+            startIcon={<ListAltIcon />}
+          >
+            Projects
+          </Button>
+          <Button
+            color="inherit"
+            component={RouterLink}
+            to="/clients"
+            startIcon={<PeopleIcon />}
+          >
+            Clients
+          </Button>
+          <Button
+            color="inherit"
+            component={RouterLink}
+            to="/users"
+            startIcon={<GroupIcon />}
+          >
+            Users
+          </Button>
           <Button
             color="inherit"
             component={RouterLink}
@@ -124,7 +120,7 @@ export default function Navbar() {
               <MenuItem onClick={() => { handleMenuClose(); navigate('/profile'); }} sx={{ fontSize: 14, py: 1, px: 1.5 }}>
                 Profile
               </MenuItem>
-              {user.role === 'admin' && (
+              {isAdmin && (
                 <MenuItem onClick={() => { handleMenuClose(); navigate('/settings/smtp'); }} sx={{ fontSize: 14, py: 1, px: 1.5 }}>
                   Settings
                 </MenuItem>

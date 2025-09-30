@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import {
   Box,
   Button,
@@ -54,6 +54,7 @@ function Projects() {
   const [expandedProjectIds, setExpandedProjectIds] = useState([]);
   const [filters, setFilters] = useState({ active: false, closed: false, external: false, internal: false });
   const { user: currentUser } = useAuth();
+  const canEdit = currentUser?.role === 'admin';
   console.log('[Projects] currentUser:', currentUser);
 
   // Helper to normalize strings: remove all whitespace and lowercase
@@ -98,6 +99,7 @@ function Projects() {
   };
 
   const handleOpen = () => {
+    if (!canEdit) return;
     setError(null);
     setOpen(true);
   };
@@ -120,6 +122,7 @@ function Projects() {
   };
 
   const handleSubmit = async () => {
+    if (!canEdit) return;
     try {
       if (!newProject.name.trim()) {
         setError('Project name is required');
@@ -176,6 +179,7 @@ function Projects() {
   };
 
   const handleEditOpen = (project) => {
+    if (!canEdit) return;
     setError(null);
     setEditProject({ ...project });
     setEditOpen(true);
@@ -188,6 +192,7 @@ function Projects() {
   };
 
   const handleEditSave = async () => {
+    if (!canEdit) return;
     try {
       if (!editProject.name.trim()) {
         setError('Project name is required');
@@ -221,6 +226,7 @@ function Projects() {
   };
 
   const handleDeleteProject = (project) => {
+    if (!canEdit) return;
     setProjectToDelete(project);
     setDeleteDialogOpen(true);
   };
@@ -303,23 +309,25 @@ function Projects() {
             ))}
           </Box>
         </Box>
-        <Button variant="contained" color="primary" onClick={handleOpen}
-          sx={{
-            backgroundColor: '#8196E4',
-            color: '#FFFFFF',
-            borderRadius: '8px',
-            px: 2,
-            py: 0.8,
-            fontSize: 16,
-            textTransform: 'none',
-            boxShadow: 3,
-            '&:hover': {
-              backgroundColor: '#4A69D9',
-            },
-          }}
-        >
-          Add Project
-        </Button>
+        {canEdit && (
+          <Button variant="contained" color="primary" onClick={handleOpen}
+            sx={{
+              backgroundColor: '#8196E4',
+              color: '#FFFFFF',
+              borderRadius: '8px',
+              px: 2,
+              py: 0.8,
+              fontSize: 16,
+              textTransform: 'none',
+              boxShadow: 3,
+              '&:hover': {
+                backgroundColor: '#4A69D9',
+              },
+            }}
+          >
+            Add Project
+          </Button>
+        )}
       </Box>
 
       {error && (
@@ -349,6 +357,7 @@ function Projects() {
                         size="small"
                         checked={!!project.active}
                         onChange={async (e) => {
+                          if (!canEdit) return;
                           try {
                             await axios.patch(`/api/projects/${project.id}/active`, { active: e.target.checked ? 1 : 0 });
                             fetchProjects();
@@ -356,6 +365,7 @@ function Projects() {
                             setError('Failed to update project status.');
                           }
                         }}
+                        disabled={!canEdit}
                         sx={{
                           '& .MuiSwitch-switchBase.Mui-checked': {
                             color: '#fff',
@@ -808,3 +818,6 @@ function Projects() {
 }
 
 export default Projects; 
+
+
+

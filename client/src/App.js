@@ -92,10 +92,10 @@ function App() {
             <Box component="main" sx={{ mt: 4, mb: 4, flex: 1, width: '100%', px: 4 }}>
               <Routes>
                 <Route path="/" element={<ProtectedRoute><DashboardsNew /></ProtectedRoute>} />
-                <Route path="/projects" element={<ProtectedRoute><AdminRoute><Projects /></AdminRoute></ProtectedRoute>} />
+                <Route path="/projects" element={<ProtectedRoute><Projects /></ProtectedRoute>} />
                 <Route path="/time-entries" element={<ProtectedRoute><TimeEntries /></ProtectedRoute>} />
-                <Route path="/clients" element={<ProtectedRoute><AdminRoute><Clients /></AdminRoute></ProtectedRoute>} />
-                <Route path="/users" element={<ProtectedRoute><AdminRoute><Users /></AdminRoute></ProtectedRoute>} />
+                <Route path="/clients" element={<ProtectedRoute><Clients /></ProtectedRoute>} />
+                <Route path="/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />
                 <Route path="/settings/smtp" element={<ProtectedRoute><AdminRoute><SMTPSettings /></AdminRoute></ProtectedRoute>} />
                 <Route path="/profile" element={
                   <ProtectedRoute>
@@ -113,3 +113,4 @@ function App() {
 }
 
 export default App; 
+
