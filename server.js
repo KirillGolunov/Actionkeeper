@@ -1180,7 +1180,8 @@ app.post('/api/invitations', async (req, res) => {
           secure: !!settings.secure,
           auth: settings.auth,
         });
-        const inviteLink = `${process.env.APP_BASE_URL || 'http://localhost:3000'}/invite/accept/${token}`;
+        const baseUrl = resolveAppBaseUrl(req);
+        const inviteLink = `${baseUrl}/invite/accept/${token}`;
         // Render Handlebars template
         let html = '';
         try {
@@ -1614,3 +1615,4 @@ app.post('/api/upload-avatar', authenticateJWT, upload.single('avatar'), (req, r
   const publicUrl = `/avatars/${req.file.filename}`;
   res.json({ url: publicUrl });
 });
+
