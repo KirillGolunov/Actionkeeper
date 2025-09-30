@@ -1,4 +1,4 @@
-require('dotenv').config();
+﻿require('dotenv').config();
 
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
@@ -1505,7 +1505,8 @@ app.get('/api/env', (req, res) => {
 });
 
 // Endpoint to check if setup is required
-app.get('/api/setup-required', (req, res) => {
+app.get('/api/setup-required', async (req, res) => {
+  await checkFirstRun();
   res.json({ setupRequired });
 });
 
@@ -1557,6 +1558,10 @@ app.post('/api/setup', async (req, res) => {
     [name, surname, email, 'admin'],
     async function(err) {
       if (err) {
+        if (err.message && err.message.includes('UNIQUE constraint failed')) {
+          await checkFirstRun();
+          return res.status(409).json({ error: 'Admin already exists. Please sign in.', setupRequired });
+        }
         return res.status(500).json({ error: err.message });
       }
       if (!isProduction && hasSmtp) {
@@ -1615,4 +1620,6 @@ app.post('/api/upload-avatar', authenticateJWT, upload.single('avatar'), (req, r
   const publicUrl = `/avatars/${req.file.filename}`;
   res.json({ url: publicUrl });
 });
+
+
 
