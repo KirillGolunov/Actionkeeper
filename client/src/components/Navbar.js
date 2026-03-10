@@ -1,13 +1,11 @@
 ﻿import React from 'react';
-import { AppBar, Toolbar, Typography, Button, Box } from '@mui/material';
+import { AppBar, Toolbar, Typography, Button, Box, Tooltip } from '@mui/material';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import TimerIcon from '@mui/icons-material/Timer';
 import ListAltIcon from '@mui/icons-material/ListAlt';
 import PeopleIcon from '@mui/icons-material/People';
 import GroupIcon from '@mui/icons-material/Group';
 import InsightsIcon from '@mui/icons-material/Insights';
-import SettingsIcon from '@mui/icons-material/Settings';
-import LogoutIcon from '@mui/icons-material/Logout';
 import { useAuth } from '../context/AuthContext';
 import Avatar from '@mui/material/Avatar';
 import Menu from '@mui/material/Menu';
@@ -15,7 +13,7 @@ import MenuItem from '@mui/material/MenuItem';
 import IconButton from '@mui/material/IconButton';
 
 export default function Navbar() {
-  const { user, logout } = useAuth();
+  const { user, logout, sessionStatus } = useAuth();
   const isAdmin = user?.role === 'admin';
   const navigate = useNavigate();
   const handleLogout = () => {
@@ -35,15 +33,45 @@ export default function Navbar() {
   // Avatar logic
   const avatarUrl = user?.avatar_url || '';
   const initials = user ? ((user.name?.[0] || '') + (user.surname?.[0] || '')).toUpperCase() : '';
+  const progress = sessionStatus?.progress;
 
   return (
     <AppBar position="static" sx={{ backgroundColor: '#5673DC' }}>
       <Toolbar>
-        <TimerIcon sx={{ mr: 2 }} />
-        <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-          Time Tracker
-        </Typography>
-        <Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', mr: 1.5, flexShrink: 0 }}>
+          <TimerIcon sx={{ mr: 1.25 }} />
+          <Typography variant="h6" component="div" sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>
+            Time Tracker
+          </Typography>
+        </Box>
+        {user && progress && (
+          <Tooltip title={sessionStatus?.message || ''} arrow>
+            <Box sx={{ ml: 2, px: 1.5, py: 0.75, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.14)', minWidth: 220 }}>
+              <Typography sx={{ fontSize: 11, fontWeight: 700, lineHeight: 1.1 }}>Autologin</Typography>
+              <Typography sx={{ fontSize: 12, opacity: 0.95, mt: 0.35 }}>
+                {progress.completedDays}/{progress.requiredDays} days completed
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 0.5, mt: 0.75 }}>
+                {progress.days.map((day) => (
+                  <Box key={day.date} sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 28 }}>
+                    <Box
+                      sx={{
+                        width: 20,
+                        height: 8,
+                        borderRadius: 999,
+                        backgroundColor: day.complete ? '#9BE7B1' : day.isToday ? '#FFD36E' : 'rgba(255,255,255,0.38)',
+                        outline: day.isToday ? '1px solid rgba(255,255,255,0.9)' : 'none',
+                        outlineOffset: 1,
+                      }}
+                    />
+                    <Typography sx={{ fontSize: 10, mt: 0.35, opacity: 0.95 }}>{day.label}</Typography>
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+          </Tooltip>
+        )}
+        <Box sx={{ flexGrow: 1, display: 'flex', justifyContent: 'flex-end', ml: 2 }}>
           <Button
             color="inherit"
             component={RouterLink}

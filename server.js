@@ -11,6 +11,7 @@ const jwt = require('jsonwebtoken');
 const path = require('path');
 const multer = require('multer');
 const handlebars = require('handlebars');
+const { endOfNextWeekSession, endOfWeekSession, getWeekProgress } = require('./weeklyProgress');
 
 const app = express();
 app.set('trust proxy', true);
@@ -158,6 +159,7 @@ async function loadFixtures() {
   await createTables();
   await createInvitationsTable();
   await createMagicLinksTable();
+  await createAuthSessionsTable();
   console.log('Tables verified');
 }
 
@@ -390,6 +392,113 @@ async function createMagicLinksTable() {
 }
 createMagicLinksTable();
 
+async function createAuthSessionsTable() {
+  await new Promise((resolve, reject) => {
+    db.run(
+      `CREATE TABLE IF NOT EXISTS auth_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      token_id TEXT UNIQUE NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      expires_at DATETIME NOT NULL,
+      revoked INTEGER DEFAULT 0,
+      granted_week_start TEXT,
+      granted_week_end TEXT,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )`,
+      err => {
+        if (err) reject(err); else resolve();
+      }
+    );
+  });
+}
+
+function generateSessionTokenId() {
+  return crypto.randomBytes(16).toString('hex');
+}
+
+function runDb(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.run(sql, params, function(err) {
+      if (err) reject(err); else resolve(this);
+    });
+  });
+}
+
+function getDb(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.get(sql, params, (err, row) => {
+      if (err) reject(err); else resolve(row);
+    });
+  });
+}
+
+function getAutoLoginMessage(progress) {
+  if (progress.qualified) {
+    return 'All 5 workdays are complete. Your login is saved for next week.';
+  }
+  if (progress.remainingDays === 1) {
+    return 'Fill 1 more day with 8 hours to keep your login next week.';
+  }
+  return `Fill ${progress.remainingDays} more days with 8 hours to keep your login next week.`;
+}
+
+async function issueSessionForUser(user, referenceDate = new Date()) {
+  const tokenId = generateSessionTokenId();
+  const expiresAt = endOfWeekSession(referenceDate);
+  const progress = await getWeekProgress(db, user.id, referenceDate);
+
+  await runDb(
+    'INSERT INTO auth_sessions (user_id, token_id, expires_at, granted_week_start, granted_week_end) VALUES (?, ?, ?, ?, ?)',
+    [user.id, tokenId, expiresAt.toISOString(), progress.weekStart, progress.weekEnd]
+  );
+
+  const payload = {
+    sid: tokenId,
+    id: user.id,
+    email: user.email,
+    role: user.role,
+    name: user.name,
+    surname: user.surname,
+    avatar_url: user.avatar_url,
+  };
+
+  const jwtToken = jwt.sign(payload, process.env.MAGIC_LINK_SECRET || 'changeme-magic-link-secret', { expiresIn: '30d' });
+  return { token: jwtToken, payload };
+}
+
+async function extendSessionIfEligible(userId) {
+  if (!userId) {
+    return null;
+  }
+
+  const progress = await getWeekProgress(db, userId);
+  if (!progress.qualified) {
+    return progress;
+  }
+
+  const nextExpiry = endOfNextWeekSession(new Date()).toISOString();
+  await runDb(
+    'UPDATE auth_sessions SET expires_at = ?, granted_week_start = ?, granted_week_end = ? WHERE user_id = ? AND revoked = 0 AND expires_at < ?',
+    [nextExpiry, progress.weekStart, progress.weekEnd, userId, nextExpiry]
+  );
+
+  return progress;
+}
+
+async function buildSessionStatus(user) {
+  const progress = await extendSessionIfEligible(user.id) || await getWeekProgress(db, user.id);
+  const session = await getDb('SELECT expires_at FROM auth_sessions WHERE token_id = ? AND revoked = 0', [user.sid]);
+
+  return {
+    authenticated: true,
+    sessionValidUntil: session ? session.expires_at : null,
+    autoLoginQualified: progress.qualified,
+    progress,
+    message: getAutoLoginMessage(progress),
+  };
+}
+
 // JWT verification middleware
 function authenticateJWT(req, res, next) {
   console.log('[JWT] Checking Authorization for', req.path, req.headers['authorization']);
@@ -399,13 +508,29 @@ function authenticateJWT(req, res, next) {
     return res.status(401).json({ error: 'Missing or invalid Authorization header' });
   }
   const token = authHeader.split(' ')[1];
-  jwt.verify(token, process.env.MAGIC_LINK_SECRET || 'changeme-magic-link-secret', (err, user) => {
-    if (err) {
+  jwt.verify(token, process.env.MAGIC_LINK_SECRET || 'changeme-magic-link-secret', async (err, user) => {
+    if (err || !user.sid) {
       console.log('[JWT] Invalid or expired token');
       return res.status(401).json({ error: 'Invalid or expired token' });
     }
-    req.user = user;
-    next();
+
+    try {
+      const session = await getDb('SELECT * FROM auth_sessions WHERE token_id = ? AND revoked = 0', [user.sid]);
+      if (!session) {
+        return res.status(401).json({ error: 'Session not found' });
+      }
+      if (new Date(session.expires_at) < new Date()) {
+        await runDb('UPDATE auth_sessions SET revoked = 1 WHERE id = ?', [session.id]);
+        return res.status(401).json({ error: 'Session expired' });
+      }
+
+      req.user = user;
+      req.session = session;
+      next();
+    } catch (sessionError) {
+      console.error('[JWT] Failed to validate session', sessionError);
+      return res.status(500).json({ error: 'Failed to validate session' });
+    }
   });
 }
 
@@ -793,6 +918,7 @@ app.post('/api/time-entries', authenticateJWT, (req, res) => {
         }
         return;
       }
+      extendSessionIfEligible(user_id).catch((sessionErr) => console.error('[AutoLogin] Failed after single insert:', sessionErr));
       res.json({ id: this.lastID, project_id, user_id, date, hours, description, submission_time });
     }
   );
@@ -836,17 +962,16 @@ app.get('/api/time-entries', authenticateJWT, (req, res) => {
   });
 });
 
-app.patch('/api/time-entries/:id', (req, res) => {
+app.patch('/api/time-entries/:id', authenticateJWT, (req, res) => {
   const { id } = req.params;
   const { date, hours, description, project_id } = req.body;
-  // Only update fields that are provided
   const fields = [];
   const values = [];
   if (date) {
     fields.push('date = ?');
     values.push(date);
   }
-  if (hours) {
+  if (hours !== undefined) {
     fields.push('hours = ?');
     values.push(hours);
   }
@@ -861,11 +986,39 @@ app.patch('/api/time-entries/:id', (req, res) => {
   if (fields.length === 0) {
     return res.status(400).json({ error: 'No fields to update.' });
   }
-  values.push(id);
-  db.run(
-    `UPDATE time_entries SET ${fields.join(', ')} WHERE id = ?`,
-    values,
-    function (err) {
+
+  db.get('SELECT user_id FROM time_entries WHERE id = ?', [id], (lookupErr, existingEntry) => {
+    if (lookupErr) {
+      return res.status(500).json({ error: lookupErr.message });
+    }
+    values.push(id);
+    db.run(
+      `UPDATE time_entries SET ${fields.join(', ')} WHERE id = ?`,
+      values,
+      function (err) {
+        if (err) {
+          res.status(500).json({ error: err.message });
+          return;
+        }
+        if (this.changes === 0) {
+          res.status(404).json({ error: 'Time entry not found' });
+          return;
+        }
+        extendSessionIfEligible(existingEntry && existingEntry.user_id).catch((sessionErr) => console.error('[AutoLogin] Failed after patch:', sessionErr));
+        res.json({ id, ...req.body });
+      }
+    );
+  });
+});
+
+// Add DELETE route for time entries
+app.delete('/api/time-entries/:id', authenticateJWT, (req, res) => {
+  const { id } = req.params;
+  db.get('SELECT user_id FROM time_entries WHERE id = ?', [id], (lookupErr, entry) => {
+    if (lookupErr) {
+      return res.status(500).json({ error: lookupErr.message });
+    }
+    db.run('DELETE FROM time_entries WHERE id = ?', [id], function(err) {
       if (err) {
         res.status(500).json({ error: err.message });
         return;
@@ -874,24 +1027,9 @@ app.patch('/api/time-entries/:id', (req, res) => {
         res.status(404).json({ error: 'Time entry not found' });
         return;
       }
-      res.json({ id, ...req.body });
-    }
-  );
-});
-
-// Add DELETE route for time entries
-app.delete('/api/time-entries/:id', (req, res) => {
-  const { id } = req.params;
-  db.run('DELETE FROM time_entries WHERE id = ?', [id], function(err) {
-    if (err) {
-      res.status(500).json({ error: err.message });
-      return;
-    }
-    if (this.changes === 0) {
-      res.status(404).json({ error: 'Time entry not found' });
-      return;
-    }
-    res.json({ success: true });
+      extendSessionIfEligible(entry && entry.user_id).catch((sessionErr) => console.error('[AutoLogin] Failed after delete:', sessionErr));
+      res.json({ success: true });
+    });
   });
 });
 
@@ -916,6 +1054,7 @@ app.post('/api/time-entries/bulk-delete', authenticateJWT, (req, res) => {
         res.status(500).json({ error: err.message });
         return;
       }
+      extendSessionIfEligible(user_id).catch((sessionErr) => console.error('[AutoLogin] Failed after bulk delete:', sessionErr));
       res.json({ deleted: this.changes });
     }
   );
@@ -1061,6 +1200,9 @@ app.post('/api/time-entries/batch', authenticateJWT, (req, res) => {
         db.run('ROLLBACK');
         return res.status(500).json({ error: errorMsg || (err && err.message) || 'Failed to insert batch.' });
       }
+      const touchedUsers = [...new Set(entries.map((entry) => entry.user_id).filter(Boolean))];
+      Promise.all(touchedUsers.map((userId) => extendSessionIfEligible(userId)))
+        .catch((sessionErr) => console.error('[AutoLogin] Failed after batch:', sessionErr));
       return res.json({ success: true });
     });
   });
@@ -1386,16 +1528,37 @@ app.get('/api/auth/magic-link/:token', (req, res) => {
     db.get('SELECT * FROM users WHERE id = ? AND deleted = 0', [link.user_id], (err2, user) => {
       if (err2) return res.status(500).json({ error: err2.message });
       if (!user) return res.status(404).json({ error: 'User not found or deleted.' });
-      // Mark link as used
       db.run('UPDATE magic_links SET used = 1 WHERE id = ?', [link.id], err3 => {
         if (err3) return res.status(500).json({ error: err3.message });
-        // Issue JWT
-        const payload = { id: user.id, email: user.email, role: user.role, name: user.name, surname: user.surname };
-        const jwtToken = jwt.sign(payload, process.env.MAGIC_LINK_SECRET || 'changeme-magic-link-secret', { expiresIn: '1h' });
-        res.json({ token: jwtToken, user: payload });
+        issueSessionForUser(user)
+          .then(({ token: jwtToken, payload }) => res.json({ token: jwtToken, user: payload }))
+          .catch((issueError) => {
+            console.error('[Magic Link] Failed to issue session:', issueError);
+            res.status(500).json({ error: 'Failed to create session.' });
+          });
       });
     });
   });
+});
+
+app.get('/api/auth/session-status', authenticateJWT, async (req, res) => {
+  try {
+    const status = await buildSessionStatus(req.user);
+    res.json(status);
+  } catch (err) {
+    console.error('[Session Status] Failed to build status:', err);
+    res.status(500).json({ error: 'Failed to load session status.' });
+  }
+});
+
+app.post('/api/auth/logout', authenticateJWT, async (req, res) => {
+  try {
+    await runDb('UPDATE auth_sessions SET revoked = 1 WHERE token_id = ?', [req.user.sid]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[Logout] Failed to revoke session:', err);
+    res.status(500).json({ error: 'Failed to logout.' });
+  }
 });
 
 // --- NEW ANALYTICS ENDPOINTS: TRUE TOTALS ---
