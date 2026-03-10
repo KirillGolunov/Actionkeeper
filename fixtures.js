@@ -1,10 +1,13 @@
+require('dotenv').config();
+
 const sqlite3 = require('sqlite3').verbose();
-const db = new sqlite3.Database('./time_tracker.db', (err) => {
+const dbPath = process.env.DB_PATH || './time_tracker.db';
+const db = new sqlite3.Database(dbPath, (err) => {
   if (err) {
     console.error('Error connecting to database:', err);
     process.exit(1);
   }
-  console.log('Connected to database');
+  console.log(`Connected to database: ${dbPath}`);
 });
 
 // Create tables if they don't exist
@@ -87,18 +90,24 @@ const timeEntries = [
   { userIndex: 1, projectIndex: 2, days: [{ offset: 0, hours: 7 }] }
 ];
 
-// Clear existing data
+// Clear existing data, but keep existing admin users for local access.
 async function clearTables() {
   console.log('Clearing existing data...');
-  const tables = ['time_entries', 'projects', 'clients', 'users'];
-  for (const table of tables) {
+  const statements = [
+    { label: 'time_entries', sql: 'DELETE FROM time_entries' },
+    { label: 'projects', sql: 'DELETE FROM projects' },
+    { label: 'clients', sql: 'DELETE FROM clients' },
+    { label: 'users (non-admin)', sql: "DELETE FROM users WHERE role != 'admin'" }
+  ];
+  for (const statement of statements) {
     await new Promise((resolve, reject) => {
-      db.run(`DELETE FROM ${table}`, (err) => {
+      db.run(statement.sql, (err) => {
         if (err) {
-          console.error(`Error clearing ${table}:`, err);
+          console.error(`Error clearing ${statement.label}:`, err);
           reject(err);
+          return;
         }
-        console.log(`Cleared ${table} table`);
+        console.log(`Cleared ${statement.label}`);
         resolve();
       });
     });
@@ -118,19 +127,33 @@ async function insertFixtures() {
     for (let i = 0; i < users.length; i++) {
       const user = users[i];
       await new Promise((resolve, reject) => {
-        db.run(
-          'INSERT INTO users (name, email, role) VALUES (?, ?, ?)',
-          [user.name, user.email, user.role],
-          function(err) {
-            if (err) {
-              console.error(`Error inserting user ${user.name}:`, err);
-              reject(err);
-            }
-            user.id = this.lastID;
-            console.log(`Inserted user ${user.name} with ID ${this.lastID}`);
-            resolve();
+        db.get('SELECT id FROM users WHERE email = ?', [user.email], (lookupErr, existingUser) => {
+          if (lookupErr) {
+            console.error(`Error looking up user ${user.name}:`, lookupErr);
+            reject(lookupErr);
+            return;
           }
-        );
+          if (existingUser) {
+            user.id = existingUser.id;
+            console.log(`Reused existing user ${user.name} with ID ${existingUser.id}`);
+            resolve();
+            return;
+          }
+          db.run(
+            'INSERT INTO users (name, email, role) VALUES (?, ?, ?)',
+            [user.name, user.email, user.role],
+            function(err) {
+              if (err) {
+                console.error(`Error inserting user ${user.name}:`, err);
+                reject(err);
+                return;
+              }
+              user.id = this.lastID;
+              console.log(`Inserted user ${user.name} with ID ${this.lastID}`);
+              resolve();
+            }
+          );
+        });
       });
     }
 

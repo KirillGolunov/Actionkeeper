@@ -4,6 +4,7 @@ import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import { Container, Box } from '@mui/material';
 import Navbar from './components/Navbar';
+import AutoLoginInfoDialog from './components/AutoLoginInfoDialog';
 import Projects from './pages/Projects';
 import TimeEntries from './pages/TimeEntries';
 import Clients from './pages/Clients';
@@ -89,6 +90,7 @@ function App() {
         ) : (
           <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
             <Navbar />
+            <AutoLoginInfoDialog />
             <Box component="main" sx={{ mt: 4, mb: 4, flex: 1, width: '100%', px: 4 }}>
               <Routes>
                 <Route path="/" element={<ProtectedRoute><DashboardsNew /></ProtectedRoute>} />

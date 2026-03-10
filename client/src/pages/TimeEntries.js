@@ -6,8 +6,6 @@ import {
   TextField,
   Dialog,
   DialogTitle,
-  DialogContent,
-  DialogActions,
   MenuItem,
   Table,
   TableBody,
@@ -129,7 +127,6 @@ function TimeEntries() {
   const [timeEntries, setTimeEntries] = useState([]);
   const [projects, setProjects] = useState([]);
   const [users, setUsers] = useState([]);
-  const [open, setOpen] = useState(false);
   const [error, setError] = useState(null);
   const [newEntry, setNewEntry] = useState({
     project_id: '',
@@ -150,9 +147,9 @@ function TimeEntries() {
   const [allWeeks, setAllWeeks] = useState([]); // [{start, end, loggedHours, isCurrent, isSelected, isComplete}]
   const [weeksToShow, setWeeksToShow] = useState(4);
   const [carouselRef, setCarouselRef] = useState(null);
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, refreshSessionStatus } = useAuth();
 
-  const { projects: weeklyProjectsFromHook, loading: entriesLoading, error: entriesError } = useTimeEntries({
+  const { projects: weeklyProjectsFromHook } = useTimeEntries({
     userId: selectedUser,
     weekStart,
   });
@@ -173,6 +170,8 @@ function TimeEntries() {
     if (currentUser && users.length > 0 && !selectedUser) {
       setSelectedUser(currentUser.id);
     }
+  // selectedUser is intentionally omitted to avoid resetting a manual admin selection.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser, users]);
 
   useEffect(() => {
@@ -198,6 +197,8 @@ function TimeEntries() {
     if (selectedUser && weekStart) {
       refreshWeeklyProjects();
     }
+  // refreshWeeklyProjects is intentionally excluded because the function is recreated on render.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedUser, weekStart]);
 
   useEffect(() => {
@@ -277,14 +278,8 @@ function TimeEntries() {
     }
   };
 
-  const handleOpen = () => {
-    setError(null);
-    setOpen(true);
-  };
-
   const handleClose = () => {
     setError(null);
-    setOpen(false);
   };
 
   const handleSubmit = async () => {
@@ -314,6 +309,7 @@ function TimeEntries() {
       console.log('Time entry created:', response.data);
       
       fetchTimeEntries();
+      refreshSessionStatus().catch(() => {});
       handleClose();
       setNewEntry({
         project_id: '',
@@ -326,15 +322,6 @@ function TimeEntries() {
       console.error('Error creating time entry:', error);
       setError(error.response?.data?.error || 'Failed to create time entry. Please try again.');
     }
-  };
-
-  const calculateDuration = (startTime, endTime) => {
-    const start = new Date(startTime);
-    const end = new Date(endTime);
-    const diffInMilliseconds = end - start;
-    const hours = Math.floor(diffInMilliseconds / (1000 * 60 * 60));
-    const minutes = Math.floor((diffInMilliseconds % (1000 * 60 * 60)) / (1000 * 60));
-    return `${hours}h ${minutes}m`;
   };
 
   const dayTotals = daysOfWeek.map(day =>
@@ -478,6 +465,7 @@ function TimeEntries() {
       localStorage.setItem(orderKey, JSON.stringify(order));
       await fetchTimeEntries();
       await refreshWeeklyProjects();
+      refreshSessionStatus().catch(() => {});
       setWeeklyProjects(prev => prev.map(row => ({ ...row, submitted: true, editing: false })));
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to submit time entries.');
@@ -511,6 +499,7 @@ function TimeEntries() {
   // In the log table, assign numbers so the most recent entry gets the largest number
   groupedEntries.forEach((entry, idx, arr) => entry.displayNumber = arr.length - idx);
 
+  // eslint-disable-next-line no-unused-vars
   const handleEditOpen = (entry) => {
     // Find all entries for this project and submission_time
     const weekEntries = timeEntries.filter(e => e.project_name === entry.project_name && e.date === entry.date);
@@ -654,6 +643,7 @@ function TimeEntries() {
         axios.delete(`/api/time-entries/${e.id}`)
       ));
       await fetchTimeEntries();
+      refreshSessionStatus().catch(() => {});
       setConfirmDialogOpen(false);
       setEntryToDelete(null);
     } catch (error) {
@@ -723,6 +713,7 @@ function TimeEntries() {
       localStorage.setItem(orderKey, JSON.stringify(newOrder));
       await refreshWeeklyProjects();
       await fetchTimeEntries();
+      refreshSessionStatus().catch(() => {});
     } catch (err) {
       console.error('Error deleting project entries:', err);
       setError(err.response?.data?.error || err.message || 'Failed to delete project entries. Please try again.');
@@ -1095,20 +1086,6 @@ function TimeEntries() {
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>
       )}
-      <Dialog open={open} onClose={handleClose}>
-        <DialogTitle>Add Time Entry</DialogTitle>
-        <TimeEntryForm
-          entry={newEntry}
-          projects={projects}
-          users={users}
-          error={error}
-          onChange={setNewEntry}
-          onSubmit={handleSubmit}
-          onCancel={handleClose}
-          submitLabel="Add Entry"
-        />
-      </Dialog>
-
       <Dialog open={editDialogOpen} onClose={handleEditClose} maxWidth="lg" fullWidth>
         <DialogTitle>Edit Time Entry</DialogTitle>
         <SingleProjectWeekEditor

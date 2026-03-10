@@ -9,6 +9,18 @@ export function AuthProvider({ children }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authError, setAuthError] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [sessionStatus, setSessionStatus] = useState(null);
+
+  const refreshSessionStatus = async () => {
+    try {
+      const response = await axios.get('/api/auth/session-status');
+      setSessionStatus(response.data);
+      return response.data;
+    } catch (error) {
+      setSessionStatus(null);
+      throw error;
+    }
+  };
 
   useEffect(() => {
     const token = localStorage.getItem('jwt');
@@ -22,6 +34,7 @@ export function AuthProvider({ children }) {
           localStorage.removeItem('jwt');
           setUser(null);
           setIsAuthenticated(false);
+          setSessionStatus(null);
           setAuthError('Session expired. Please sign in again.');
           delete axios.defaults.headers.common['Authorization'];
         } else {
@@ -29,12 +42,14 @@ export function AuthProvider({ children }) {
           setIsAuthenticated(true);
           setAuthError(null);
           axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+          refreshSessionStatus().catch(() => {});
           console.log('[AuthContext] JWT valid, user authenticated.');
         }
       } catch (e) {
         console.log('[AuthContext] Error decoding JWT:', e);
         setUser(null);
         setIsAuthenticated(false);
+        setSessionStatus(null);
         setAuthError('Invalid session. Please sign in again.');
         delete axios.defaults.headers.common['Authorization'];
       }
@@ -42,32 +57,42 @@ export function AuthProvider({ children }) {
       console.log('[AuthContext] No JWT found in localStorage.');
       setUser(null);
       setIsAuthenticated(false);
+      setSessionStatus(null);
       setAuthError(null);
       delete axios.defaults.headers.common['Authorization'];
     }
     setLoading(false);
   }, []);
 
-  const login = (token) => {
+  const login = async (token) => {
     localStorage.setItem('jwt', token);
     const decoded = jwtDecode(token);
     setUser(decoded);
     setIsAuthenticated(true);
     setAuthError(null);
     axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    await refreshSessionStatus();
   };
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      if (localStorage.getItem('jwt')) {
+        await axios.post('/api/auth/logout');
+      }
+    } catch (error) {
+      console.error('[AuthContext] Logout request failed:', error);
+    }
     localStorage.removeItem('jwt');
     localStorage.removeItem('user');
     setUser(null);
     setIsAuthenticated(false);
+    setSessionStatus(null);
     setAuthError(null);
     delete axios.defaults.headers.common['Authorization'];
   };
 
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated, login, logout, authError, loading }}>
+    <AuthContext.Provider value={{ user, isAuthenticated, login, logout, authError, loading, sessionStatus, refreshSessionStatus }}>
       {children}
     </AuthContext.Provider>
   );
