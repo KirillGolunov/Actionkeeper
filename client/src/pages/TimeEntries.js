@@ -19,6 +19,7 @@ import {
   Tooltip
 } from '@mui/material';
 import { format } from 'date-fns';
+import { ru } from 'date-fns/locale';
 import axios from 'axios';
 import { Add, Delete, Remove, Edit as EditIcon, Save as SaveIcon } from '@mui/icons-material';
 import CloseIcon from '@mui/icons-material/Close';
@@ -30,16 +31,10 @@ import WeekSelector from '../components/WeekSelector';
 import ConfirmationDialog from '../components/ConfirmationDialog';
 import WeekCarousel from '../components/WeekCarousel';
 import { useAuth } from '../context/AuthContext';
+import { useTranslation } from '../i18n/I18nProvider';
+import { getApiErrorMessage } from '../utils/apiErrorMessage';
 
-const daysOfWeek = [
-  { key: 'mon', label: 'Mon' },
-  { key: 'tue', label: 'Tue' },
-  { key: 'wed', label: 'Wed' },
-  { key: 'thu', label: 'Thu' },
-  { key: 'fri', label: 'Fri' },
-  { key: 'sat', label: 'Sat' },
-  { key: 'sun', label: 'Sun' },
-];
+const dayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const requiredHoursPerDay = {
   mon: 8,
   tue: 8,
@@ -124,6 +119,8 @@ const getProjectDisplay = (project) => {
 };
 
 function TimeEntries() {
+  const { t } = useTranslation();
+  const daysOfWeek = dayKeys.map((key) => ({ key, label: t(`timeEntries.weekdays.${key}`) }));
   const [timeEntries, setTimeEntries] = useState([]);
   const [projects, setProjects] = useState([]);
   const [users, setUsers] = useState([]);
@@ -252,7 +249,7 @@ function TimeEntries() {
       setTimeEntries(response.data);
     } catch (error) {
       console.error('Error fetching time entries:', error);
-      setError('Failed to fetch time entries. Please try again.');
+      setError(t('timeEntries.errors.fetchEntries')); 
     }
   };
 
@@ -263,7 +260,7 @@ function TimeEntries() {
       setProjects(response.data);
     } catch (error) {
       console.error('Error fetching projects:', error);
-      setError('Failed to fetch projects. Please try again.');
+      setError(t('timeEntries.errors.fetchProjects')); 
     }
   };
 
@@ -274,7 +271,7 @@ function TimeEntries() {
       setUsers(response.data);
     } catch (error) {
       console.error('Error fetching users:', error);
-      setError('Failed to fetch users. Please try again.');
+      setError(t('timeEntries.errors.fetchUsers')); 
     }
   };
 
@@ -285,22 +282,22 @@ function TimeEntries() {
   const handleSubmit = async () => {
     try {
       if (!newEntry.project_id) {
-        setError('Please select a project');
+        setError(t('timeEntries.validation.projectRequired'));
         return;
       }
 
       if (!newEntry.user_id) {
-        setError('Please select a user');
+        setError(t('timeEntries.validation.userRequired'));
         return;
       }
 
       if (!newEntry.date) {
-        setError('Date is required');
+        setError(t('timeEntries.validation.dateRequired'));
         return;
       }
 
       if (!newEntry.hours) {
-        setError('Hours are required');
+        setError(t('timeEntries.validation.hoursRequired'));
         return;
       }
 
@@ -320,7 +317,7 @@ function TimeEntries() {
       });
     } catch (error) {
       console.error('Error creating time entry:', error);
-      setError(error.response?.data?.error || 'Failed to create time entry. Please try again.');
+      setError(getApiErrorMessage(error, t, 'timeEntries.errors.create')); 
     }
   };
 
@@ -381,43 +378,43 @@ function TimeEntries() {
       }
       setWeeklyProjects(projectsArr);
     } catch (err) {
-      setError('Failed to refresh weekly projects.');
+      setError(t('timeEntries.errors.refreshWeeklyProjects')); 
     }
   };
 
   const handleWeeklySubmit = async () => {
     setError(null);
     if (!selectedUser) {
-      setError('Please select a user before submitting.');
+      setError(t('timeEntries.validation.selectUserBeforeSubmit')); 
       return;
     }
     if (weeklyProjects.length === 0) {
-      setError('Please add at least one project.');
+      setError(t('timeEntries.validation.addOneProject')); 
       return;
     }
     // Validate: no duplicate projects, no all-zero rows, hours in 0-24
     const seen = new Set();
     for (const entry of weeklyProjects) {
       if (!entry.project_id) {
-        setError('Please select a project for each row.');
+        setError(t('timeEntries.validation.projectForEachRow')); 
         return;
       }
       const key = `${selectedUser}|${entry.project_id}|${weekStart.toISOString()}`;
       if (seen.has(key)) {
-        setError('Duplicate projects are not allowed for the same week.');
+        setError(t('timeEntries.validation.noDuplicateProjects')); 
         return;
       }
       seen.add(key);
       const totalHours = daysOfWeek.reduce((sum, day) => sum + (parseFloat(entry.hours[day.key]?.value === '' || entry.hours[day.key]?.value === undefined ? 0 : entry.hours[day.key]?.value) || 0), 0);
       if (totalHours === 0) {
-        setError('Cannot submit a project with all days at 0 hours.');
+        setError(t('timeEntries.validation.nonZeroWeek')); 
         return;
       }
       for (const day of daysOfWeek) {
         const val = entry.hours[day.key]?.value;
         const num = val === '' || val === undefined ? 0 : parseFloat(val);
         if (isNaN(num) || num < 0 || num > 24) {
-          setError(`Invalid hours for ${day.label} (must be 0-24).`);
+          setError(t('timeEntries.validation.invalidHours', { day: day.label }));
           return;
         }
       }
@@ -468,7 +465,7 @@ function TimeEntries() {
       refreshSessionStatus().catch(() => {});
       setWeeklyProjects(prev => prev.map(row => ({ ...row, submitted: true, editing: false })));
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to submit time entries.');
+      setError(getApiErrorMessage(err, t, 'timeEntries.errors.submit')); 
     }
   };
 
@@ -590,9 +587,9 @@ function TimeEntries() {
       );
       const failedDays = results.filter(Boolean);
       if (failedDays.length === daysOfWeek.length) {
-        setEditError('Failed to update entry.');
+        setEditError(t('timeEntries.errors.update')); 
       } else if (failedDays.length > 0) {
-        setEditError('Some days failed to update: ' + failedDays.join(', '));
+        setEditError(t('timeEntries.errors.updateSomeDays', { days: failedDays.join(', ') })); 
       } else {
         setEditDialogOpen(false);
         fetchTimeEntries();
@@ -647,7 +644,7 @@ function TimeEntries() {
       setConfirmDialogOpen(false);
       setEntryToDelete(null);
     } catch (error) {
-      setError('Failed to delete time entries. Please try again.');
+      setError(t('timeEntries.errors.deleteEntries')); 
       setConfirmDialogOpen(false);
       setEntryToDelete(null);
     }
@@ -697,7 +694,7 @@ function TimeEntries() {
         } else if (entry.project_id) {
           const userForDelete = entry.user_id || selectedUser;
           if (!userForDelete) {
-            throw new Error('Missing user for deletion');
+            throw new Error(t('timeEntries.validation.userRequired')); 
           }
           await axios.post('/api/time-entries/bulk-delete', {
             user_id: userForDelete,
@@ -716,7 +713,7 @@ function TimeEntries() {
       refreshSessionStatus().catch(() => {});
     } catch (err) {
       console.error('Error deleting project entries:', err);
-      setError(err.response?.data?.error || err.message || 'Failed to delete project entries. Please try again.');
+      setError(getApiErrorMessage(err, t, 'timeEntries.errors.deleteProjectEntries')); 
     }
   };
 
@@ -768,12 +765,12 @@ function TimeEntries() {
           justifyContent: { xs: 'center', sm: 'flex-start' },
         }}
       >
-        <Typography variant="h4" sx={{ mb: { xs: 1, sm: 0 } }}>Time Entries</Typography>
+        <Typography variant="h4" sx={{ mb: { xs: 1, sm: 0 } }}>{t('timeEntries.title')}</Typography>
         {currentUser?.role === 'admin' && (
           <TextField
             select
             size="small"
-            label="User"
+            label={t('timeEntries.user')}
             value={selectedUser}
             onChange={e => {
               setSelectedUser(e.target.value);
@@ -810,11 +807,11 @@ function TimeEntries() {
                       whiteSpace: 'nowrap',
                       verticalAlign: 'middle',
                     }}
-                    title={displayName + (user.deleted ? ' (deleted)' : '')}
+                    title={displayName + (user.deleted ? ` (${t('timeEntries.deletedTag')})` : '')}
                   >
                     {displayName}
                     {user.deleted ? (
-                      <span style={{ color: '#bdbdbd', fontStyle: 'italic', marginLeft: 6 }}>(deleted)</span>
+                      <span style={{ color: '#bdbdbd', fontStyle: 'italic', marginLeft: 6 }}>({t('timeEntries.deletedTag')})</span>
                     ) : null}
                   </span>
                 </MenuItem>
@@ -832,12 +829,12 @@ function TimeEntries() {
           size="small"
           sx={{
             mr: 2,
-            minWidth: 130,
+            minWidth: 168,
             height: 44,
             borderRadius: '8px',
-            px: 2,
+            px: 2.5,
             py: 0.8,
-            fontSize: 16,
+            fontSize: 15,
             textTransform: 'none',
             flexShrink: 0,
             display: 'flex',
@@ -855,7 +852,7 @@ function TimeEntries() {
           }}
           onClick={() => setWeeksToShow(w => w + 4)}
         >
-          + Earlier Weeks
+          + {t('timeEntries.earlierWeeks')}
         </Button>
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <WeekCarousel
@@ -913,14 +910,14 @@ function TimeEntries() {
             </TableRow>
             <TableRow>
               <TableCell align="center" sx={{ width: 40, fontWeight: 'bold' }}>#</TableCell>
-              <TableCell sx={{ width: 550, minWidth: 550, maxWidth: 550, textAlign: 'left', fontWeight: 'bold', p: 1, pt: 1 }}>Project</TableCell>
+              <TableCell sx={{ width: 550, minWidth: 550, maxWidth: 550, textAlign: 'left', fontWeight: 'bold', p: 1, pt: 1 }}>{t('timeEntries.project')}</TableCell>
               {daysOfWeek.map((day, i) => (
                 <TableCell key={day.key} align="center" sx={{ backgroundColor: (day.key === 'sat' || day.key === 'sun') ? '#f5f5f5' : undefined, minWidth: 63, maxWidth: 73, width: 67, px: 0.5, py: 0.5, fontWeight: 'normal', fontSize: 13 }}>
-                  {format(new Date(weekStart.getTime() + i * 86400000), 'dd.MM')}
+                  {format(new Date(weekStart.getTime() + i * 86400000), 'dd.MM', { locale: ru })}
                 </TableCell>
               ))}
-              <TableCell align="center" sx={{ width: 60, minWidth: 40, maxWidth: 80 }}>Total</TableCell>
-              <TableCell align="center" sx={{ width: 80, fontWeight: 'bold' }}>Actions</TableCell>
+              <TableCell align="center" sx={{ width: 60, minWidth: 40, maxWidth: 80 }}>{t('timeEntries.total')}</TableCell>
+              <TableCell align="center" sx={{ width: 80, fontWeight: 'bold' }}>{t('timeEntries.actions')}</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -966,7 +963,7 @@ function TimeEntries() {
                             },
                           }}
                         >
-                          <MenuItem value="" disabled>Select Project</MenuItem>
+                          <MenuItem value="" disabled>{t('timeEntries.selectProject')}</MenuItem>
                           {projects
                             .filter(project => project.active !== 0)
                             .filter(project =>
@@ -1055,7 +1052,7 @@ function TimeEntries() {
                   onClick={handleAddProject}
                   sx={{ mt: 1, fontWeight: 'normal', fontSize: 16, textTransform: 'none', pl: 0, minHeight: 'unset', minWidth: 'unset', p: 0, color: '#4A69D9' }}
                 >
-                  Add Project
+                  {t('timeEntries.addProject')}
                 </Button>
               </TableCell>
             </TableRow>
@@ -1080,14 +1077,14 @@ function TimeEntries() {
             },
           }}
         >
-          Submit Week
+          {t('timeEntries.submitWeek')}
         </Button>
       </Box>
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>
       )}
       <Dialog open={editDialogOpen} onClose={handleEditClose} maxWidth="lg" fullWidth>
-        <DialogTitle>Edit Time Entry</DialogTitle>
+        <DialogTitle>{t('timeEntries.editTitle')}</DialogTitle>
         <SingleProjectWeekEditor
           entry={editWeekEntry || { project_id: '', hours: {} }}
           projects={projects}
@@ -1103,12 +1100,12 @@ function TimeEntries() {
 
       <ConfirmationDialog
         open={confirmDialogOpen}
-        title="Delete Time Entries"
-        content={entryToDelete ? `Are you sure you want to delete all time entries for ${entryToDelete.project_name} from ${entryToDelete.date ? format(new Date(entryToDelete.date), 'PP') : ''}?` : ''}
+        title={t('timeEntries.deleteTitle')}
+        content={entryToDelete ? t('timeEntries.deleteConfirm', { project: entryToDelete.project_name, date: entryToDelete.date ? format(new Date(entryToDelete.date), 'PP', { locale: ru }) : '' }) : ''}
         onConfirm={handleConfirmDelete}
         onCancel={() => { setConfirmDialogOpen(false); setEntryToDelete(null); }}
-        confirmLabel="Delete"
-        cancelLabel="Cancel"
+        confirmLabel={t('common.actions.delete')}
+        cancelLabel={t('common.actions.cancel')}
       />
     </Box>
   );

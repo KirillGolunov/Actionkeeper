@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Box, TextField, Button, Typography, Switch, FormControlLabel, Alert } from '@mui/material';
 import axios from 'axios';
+import { useTranslation } from '../i18n/I18nProvider';
+import { getApiErrorMessage } from '../utils/apiErrorMessage';
 
 function SMTPSettings() {
+  const { t } = useTranslation();
   const [settings, setSettings] = useState({
     host: '',
     port: 587,
@@ -17,9 +20,8 @@ function SMTPSettings() {
 
   useEffect(() => {
     axios.get('/api/smtp-settings').then(res => {
-      setSettings({ ...settings, ...res.data });
+      setSettings(current => ({ ...current, ...res.data }));
     });
-    // eslint-disable-next-line
   }, []);
 
   const handleChange = (field, value) => {
@@ -40,11 +42,11 @@ function SMTPSettings() {
         user: settings.auth.user,
         pass: settings.auth.pass,
         from: settings.from,
-        secure: settings.secure
+        secure: settings.secure,
       });
-      setSaveResult({ success: true, message: 'Settings saved.' });
+      setSaveResult({ success: true, message: t('smtp.settingsSaved') });
     } catch (err) {
-      setSaveResult({ success: false, message: err.response?.data?.error || 'Failed to save settings.' });
+      setSaveResult({ success: false, message: getApiErrorMessage(err, t, 'smtp.saveFailed') });
     } finally {
       setLoading(false);
     }
@@ -61,11 +63,11 @@ function SMTPSettings() {
         pass: settings.auth.pass,
         from: settings.from,
         secure: settings.secure,
-        to: testEmail
+        to: testEmail,
       });
-      setTestResult({ success: true, message: 'Test email sent successfully.' });
+      setTestResult({ success: true, message: t('smtp.testSent') });
     } catch (err) {
-      setTestResult({ success: false, message: err.response?.data?.error || 'Failed to send test email.' });
+      setTestResult({ success: false, message: getApiErrorMessage(err, t, 'smtp.testFailed') });
     } finally {
       setLoading(false);
     }
@@ -73,112 +75,26 @@ function SMTPSettings() {
 
   return (
     <Box sx={{ maxWidth: 500, mx: 'auto', mt: 4, p: 3, border: '1px solid #E2E4E9', borderRadius: 3, background: '#fff' }}>
-      <Typography variant="h5" sx={{ mb: 2 }}>SMTP Settings</Typography>
-      <TextField
-        label="SMTP Host"
-        fullWidth
-        margin="normal"
-        value={settings.host}
-        onChange={e => handleChange('host', e.target.value)}
-        sx={{ background: '#f7f8fa', borderRadius: 2, '& .MuiOutlinedInput-root': { fontSize: 14, borderRadius: 2, background: '#f7f8fa' } }}
-      />
-      <TextField
-        label="SMTP Port"
-        type="number"
-        fullWidth
-        margin="normal"
-        value={settings.port}
-        onChange={e => handleChange('port', parseInt(e.target.value, 10))}
-        sx={{ background: '#f7f8fa', borderRadius: 2, '& .MuiOutlinedInput-root': { fontSize: 14, borderRadius: 2, background: '#f7f8fa' } }}
-      />
-      <TextField
-        label="Username"
-        fullWidth
-        margin="normal"
-        value={settings.auth.user}
-        onChange={e => handleChange('auth.user', e.target.value)}
-        sx={{ background: '#f7f8fa', borderRadius: 2, '& .MuiOutlinedInput-root': { fontSize: 14, borderRadius: 2, background: '#f7f8fa' } }}
-      />
-      <TextField
-        label="Password"
-        type="password"
-        fullWidth
-        margin="normal"
-        value={settings.auth.pass}
-        onChange={e => handleChange('auth.pass', e.target.value)}
-        sx={{ background: '#f7f8fa', borderRadius: 2, '& .MuiOutlinedInput-root': { fontSize: 14, borderRadius: 2, background: '#f7f8fa' } }}
-      />
-      <TextField
-        label="From Address"
-        fullWidth
-        margin="normal"
-        value={settings.from}
-        onChange={e => handleChange('from', e.target.value)}
-        sx={{ background: '#f7f8fa', borderRadius: 2, '& .MuiOutlinedInput-root': { fontSize: 14, borderRadius: 2, background: '#f7f8fa' } }}
-      />
-      <FormControlLabel
-        control={<Switch checked={!!settings.secure} onChange={e => handleChange('secure', e.target.checked)} />}
-        label="Use SSL/TLS (secure)"
-        sx={{ mt: 1, mb: 2 }}
-      />
+      <Typography variant="h5" sx={{ mb: 2 }}>{t('smtp.title')}</Typography>
+      <TextField label={t('smtp.host')} fullWidth margin="normal" value={settings.host} onChange={e => handleChange('host', e.target.value)} sx={{ background: '#f7f8fa', borderRadius: 2, '& .MuiOutlinedInput-root': { fontSize: 14, borderRadius: 2, background: '#f7f8fa' } }} />
+      <TextField label={t('smtp.port')} type="number" fullWidth margin="normal" value={settings.port} onChange={e => handleChange('port', parseInt(e.target.value, 10))} sx={{ background: '#f7f8fa', borderRadius: 2, '& .MuiOutlinedInput-root': { fontSize: 14, borderRadius: 2, background: '#f7f8fa' } }} />
+      <TextField label={t('smtp.username')} fullWidth margin="normal" value={settings.auth.user} onChange={e => handleChange('auth.user', e.target.value)} sx={{ background: '#f7f8fa', borderRadius: 2, '& .MuiOutlinedInput-root': { fontSize: 14, borderRadius: 2, background: '#f7f8fa' } }} />
+      <TextField label={t('smtp.password')} type="password" fullWidth margin="normal" value={settings.auth.pass} onChange={e => handleChange('auth.pass', e.target.value)} sx={{ background: '#f7f8fa', borderRadius: 2, '& .MuiOutlinedInput-root': { fontSize: 14, borderRadius: 2, background: '#f7f8fa' } }} />
+      <TextField label={t('smtp.fromAddress')} fullWidth margin="normal" value={settings.from} onChange={e => handleChange('from', e.target.value)} sx={{ background: '#f7f8fa', borderRadius: 2, '& .MuiOutlinedInput-root': { fontSize: 14, borderRadius: 2, background: '#f7f8fa' } }} />
+      <FormControlLabel control={<Switch checked={!!settings.secure} onChange={e => handleChange('secure', e.target.checked)} />} label={t('smtp.useSecure')} sx={{ mt: 1, mb: 2 }} />
       <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-        <Button variant="contained" color="primary" onClick={handleSave} disabled={loading}
-          sx={{
-            minWidth: 70,
-            height: 32,
-            borderRadius: 2,
-            fontWeight: 500,
-            fontSize: 12,
-            textTransform: 'none',
-            px: 1.2,
-            backgroundColor: '#8196E4',
-            color: '#FFFFFF',
-            boxShadow: 3,
-            '&:hover': {
-              backgroundColor: '#4A69D9',
-            },
-          }}
-        >
-          Save
+        <Button variant="contained" color="primary" onClick={handleSave} disabled={loading} sx={{ minWidth: 70, height: 32, borderRadius: 2, fontWeight: 500, fontSize: 12, textTransform: 'none', px: 1.2, backgroundColor: '#8196E4', color: '#FFFFFF', boxShadow: 3, '&:hover': { backgroundColor: '#4A69D9' } }}>
+          {t('common.actions.save')}
         </Button>
-        <TextField
-          label="Test Email To"
-          size="small"
-          value={testEmail}
-          onChange={e => setTestEmail(e.target.value)}
-          sx={{ minWidth: 200, background: '#f7f8fa', borderRadius: 2, '& .MuiOutlinedInput-root': { fontSize: 14, borderRadius: 2, background: '#f7f8fa' } }}
-        />
-        <Button variant="outlined" onClick={handleTest} disabled={loading || !testEmail}
-          sx={{
-            minWidth: 70,
-            height: 32,
-            borderRadius: 2,
-            fontWeight: 500,
-            fontSize: 12,
-            textTransform: 'none',
-            px: 1.2,
-            color: '#4A69D9',
-            border: '1.5px solid #4A69D9',
-            background: '#fff',
-            boxShadow: 'none',
-            '&:hover': {
-              background: '#f7f8fa',
-              border: '1.5px solid #5673DC',
-              color: '#5673DC',
-            },
-          }}
-        >
-          Test Connection
+        <TextField label={t('smtp.testEmailTo')} size="small" value={testEmail} onChange={e => setTestEmail(e.target.value)} sx={{ minWidth: 200, background: '#f7f8fa', borderRadius: 2, '& .MuiOutlinedInput-root': { fontSize: 14, borderRadius: 2, background: '#f7f8fa' } }} />
+        <Button variant="outlined" onClick={handleTest} disabled={loading || !testEmail} sx={{ minWidth: 70, height: 32, borderRadius: 2, fontWeight: 500, fontSize: 12, textTransform: 'none', px: 1.2, color: '#4A69D9', border: '1.5px solid #4A69D9', background: '#fff', boxShadow: 'none', '&:hover': { background: '#f7f8fa', border: '1.5px solid #5673DC', color: '#5673DC' } }}>
+          {t('smtp.testConnection')}
         </Button>
       </Box>
-      {saveResult && (
-        <Alert severity={saveResult.success ? 'success' : 'error'} sx={{ mb: 1 }}>{saveResult.message}</Alert>
-      )}
-      {testResult && (
-        <Alert severity={testResult.success ? 'success' : 'error'}>{testResult.message}</Alert>
-      )}
+      {saveResult && <Alert severity={saveResult.success ? 'success' : 'error'} sx={{ mb: 1 }}>{saveResult.message}</Alert>}
+      {testResult && <Alert severity={testResult.success ? 'success' : 'error'}>{testResult.message}</Alert>}
     </Box>
   );
 }
 
-export default SMTPSettings; 
+export default SMTPSettings;

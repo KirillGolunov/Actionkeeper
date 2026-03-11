@@ -2,6 +2,7 @@ import React from 'react';
 import { Box, Button, Typography, IconButton } from '@mui/material';
 import { LeftArrow, RightArrow } from './ArrowIcons';
 import { format } from 'date-fns';
+import { ru } from 'date-fns/locale';
 
 function getMonday(date) {
   const d = new Date(date);
@@ -44,7 +45,7 @@ export default function WeekSelector({ weekStart, onChange, minDate, maxDate }) 
         <LeftArrow color="#5673DC" size={32} />
       </IconButton>
       <Typography variant="subtitle1" sx={{ minWidth: 180, textAlign: 'center' }}>
-        {format(monday, 'dd.MM.yyyy')} - {format(sunday, 'dd.MM.yyyy')}
+        {format(monday, 'dd.MM.yyyy', { locale: ru })} - {format(sunday, 'dd.MM.yyyy', { locale: ru })}
       </Typography>
       <IconButton onClick={handleNext} disabled={isCurrentWeek}>
         <RightArrow color={isCurrentWeek ? '#C5C9D3' : '#5673DC'} size={32} />

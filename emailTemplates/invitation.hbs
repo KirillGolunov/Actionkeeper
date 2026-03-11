@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="UTF-8">
-    <title>{{appName}} Invitation</title>
+    <title>Приглашение в {{appName}}</title>
     <style>
       body {
         font-family: 'Segoe UI', Arial, sans-serif;
@@ -60,24 +60,24 @@
   </head>
   <body>
     <div class="container">
-      <div class="header">You're Invited to Join {{appName}}</div>
+      <div class="header">Приглашение в {{appName}}</div>
       <div style="font-size: 16px; color: #333; text-align: center;">
         {{#if inviter}}
-          <strong>{{inviter}}</strong> has invited you to join {{appName}}.<br>
+          <strong>{{inviter}}</strong> приглашает вас в {{appName}}.<br>
         {{else}}
-          You have been invited to join {{appName}}.<br>
+          Вас пригласили в {{appName}}.<br>
         {{/if}}
-        Click the button below to accept your invitation and set up your account.
+        Нажмите кнопку ниже, чтобы принять приглашение и завершить регистрацию.
       </div>
       <div class="cta">
-        <a href="{{inviteLink}}" class="cta-button">Accept Invitation</a>
+        <a href="{{inviteLink}}" class="cta-button">Принять приглашение</a>
       </div>
-      <div style="font-size: 14px; color: #555; text-align: center;">If you did not expect this invitation, you can safely ignore this email.</div>
+      <div style="font-size: 14px; color: #555; text-align: center;">Если вы не ожидали это приглашение, просто проигнорируйте письмо.</div>
       <div class="footer">&copy; {{year}} {{appName}}</div>
       <div class="plain-text">
-        <strong>Plain-text version:</strong><br>
-        Accept your invitation: {{inviteLink}}
+        <strong>Текстовая версия:</strong><br>
+        Принять приглашение: {{inviteLink}}
       </div>
     </div>
   </body>
-</html> 
+</html>

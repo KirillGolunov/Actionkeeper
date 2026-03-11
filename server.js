@@ -51,6 +51,72 @@ const resolveAppBaseUrl = (req) => {
 
   return 'http://localhost:3000';
 };
+
+const apiErrors = {
+  setupCheckFailed: { errorCode: 'setup.check_failed', error: 'Failed to verify setup state.' },
+  setupRequired: { errorCode: 'setup.required', error: 'Initial setup required. Visit /setup.' },
+  authHeaderMissing: { errorCode: 'auth.missing_authorization_header', error: 'Missing or invalid Authorization header' },
+  authTokenInvalid: { errorCode: 'auth.invalid_or_expired_token', error: 'Invalid or expired token' },
+  authSessionNotFound: { errorCode: 'auth.session_not_found', error: 'Session not found' },
+  authSessionExpired: { errorCode: 'auth.session_expired', error: 'Session expired' },
+  authSessionValidationFailed: { errorCode: 'auth.session_validation_failed', error: 'Failed to validate session' },
+  invitationEmailRequired: { errorCode: 'invitations.email_required', error: 'Email is required.' },
+  smtpNotConfigured: { errorCode: 'smtp.not_configured', error: 'SMTP settings are not configured.' },
+  invitationSendFailed: { errorCode: 'invitations.send_failed', error: 'Failed to send invitation email.' },
+  invitationInvalid: { errorCode: 'invitations.invalid_or_expired', error: 'Invalid or expired invitation.' },
+  invitationNameSurnameRequired: { errorCode: 'invitations.name_surname_required', error: 'Name and surname are required.' },
+  magicLinkEmailRequired: { errorCode: 'auth.email_required', error: 'Email is required.' },
+  magicLinkRateLimited: { errorCode: 'auth.magic_link_rate_limited', error: 'Please wait {{secondsLeft}}s before requesting another magic link.' },
+  magicLinkUserNotFound: { errorCode: 'auth.user_not_found', error: 'No active user found with this email.' },
+  magicLinkSendFailed: { errorCode: 'auth.magic_link_send_failed', error: 'Failed to send magic link.' },
+  magicLinkInvalid: { errorCode: 'auth.magic_link_invalid', error: 'Invalid or expired link.' },
+  magicLinkUsed: { errorCode: 'auth.magic_link_used', error: 'This link has already been used.' },
+  magicLinkExpired: { errorCode: 'auth.magic_link_expired', error: 'This link has expired.' },
+  authUserNotFound: { errorCode: 'auth.user_not_found_or_deleted', error: 'User not found or deleted.' },
+  authSessionCreateFailed: { errorCode: 'auth.session_create_failed', error: 'Failed to create session.' },
+  authSessionStatusFailed: { errorCode: 'auth.session_status_failed', error: 'Failed to load session status.' },
+  authLogoutFailed: { errorCode: 'auth.logout_failed', error: 'Failed to logout.' },
+  setupCompleted: { errorCode: 'setup.already_completed', error: 'Setup already completed.' },
+  setupMissingFields: { errorCode: 'setup.missing_required_fields', error: 'Missing required fields.' },
+  setupSmtpRequired: { errorCode: 'setup.smtp_required_in_production', error: 'SMTP settings are required in production.' },
+  setupAdminExists: { errorCode: 'setup.admin_already_exists', error: 'Admin already exists. Please sign in.' },
+  usersNotFound: { errorCode: 'users.not_found', error: 'User not found' },
+  usersNoFieldsToUpdate: { errorCode: 'users.no_fields_to_update', error: 'No fields to update.' },
+  clientsNotFound: { errorCode: 'clients.not_found', error: 'Client not found' },
+  clientsDuplicate: { errorCode: 'clients.duplicate', error: 'A client with this {{reason}} already exists.' },
+  projectsDuplicateName: { errorCode: 'projects.duplicate_name', error: 'A project with this name already exists.' },
+  projectsDuplicateCode: { errorCode: 'projects.duplicate_code', error: 'A project with this code already exists.' },
+  projectsNoFieldsToUpdate: { errorCode: 'projects.no_fields_to_update', error: 'No fields to update.' },
+  projectsNotFound: { errorCode: 'projects.not_found', error: 'Project not found' },
+  timeEntriesDuplicate: { errorCode: 'time_entries.duplicate', error: 'Duplicate time entry for this user, project, and day.' },
+  timeEntriesNoFieldsToUpdate: { errorCode: 'time_entries.no_fields_to_update', error: 'No fields to update.' },
+  timeEntriesNotFound: { errorCode: 'time_entries.not_found', error: 'Time entry not found' },
+  timeEntriesWeekRequired: { errorCode: 'time_entries.week_required', error: 'user_id, project_id, and week_start are required' },
+  timeEntriesNoEntries: { errorCode: 'time_entries.no_entries', error: 'No entries provided.' },
+  smtpIncomplete: { errorCode: 'smtp.incomplete', error: 'SMTP settings are incomplete.' },
+  uploadNoFile: { errorCode: 'upload.no_file', error: 'No file uploaded' },
+};
+
+function formatApiError(template, params = {}) {
+  return Object.entries(params).reduce((message, entry) => {
+    const key = entry[0];
+    const value = entry[1];
+    return message.replace(new RegExp('{{' + key + '}}', 'g'), String(value));
+  }, template);
+}
+
+function sendApiError(res, status, errorKey, params = {}, extra = {}) {
+  const definition = apiErrors[errorKey];
+  if (!definition) {
+    return res.status(status).json({ errorCode: 'unknown', error: 'Unknown error', ...extra });
+  }
+
+  return res.status(status).json({
+    errorCode: definition.errorCode,
+    error: formatApiError(definition.error, params),
+    ...extra,
+  });
+}
 // Setup-required middleware (must be before all API/static routes)
 const setupBypassPaths = new Set([
   '/api/setup',
@@ -64,12 +130,12 @@ app.use(async (req, res, next) => {
     await checkFirstRun();
   } catch (err) {
     console.error('[Setup] Failed to evaluate setup state:', err);
-    return res.status(500).json({ error: 'Failed to verify setup state.' });
+    return sendApiError(res, 500, 'setupCheckFailed');
   }
 
   const isBypassed = setupBypassPaths.has(req.path) || req.path.startsWith('/api/auth/');
   if (setupRequired && req.path.startsWith('/api') && !isBypassed) {
-    return res.status(403).json({ error: 'Initial setup required. Visit /setup.' });
+    return sendApiError(res, 403, 'setupRequired');
   }
   next();
 });
@@ -505,23 +571,23 @@ function authenticateJWT(req, res, next) {
   const authHeader = req.headers['authorization'];
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     console.log('[JWT] Missing or invalid Authorization header');
-    return res.status(401).json({ error: 'Missing or invalid Authorization header' });
+    return sendApiError(res, 401, 'authHeaderMissing');
   }
   const token = authHeader.split(' ')[1];
   jwt.verify(token, process.env.MAGIC_LINK_SECRET || 'changeme-magic-link-secret', async (err, user) => {
     if (err || !user.sid) {
       console.log('[JWT] Invalid or expired token');
-      return res.status(401).json({ error: 'Invalid or expired token' });
+      return sendApiError(res, 401, 'authTokenInvalid');
     }
 
     try {
       const session = await getDb('SELECT * FROM auth_sessions WHERE token_id = ? AND revoked = 0', [user.sid]);
       if (!session) {
-        return res.status(401).json({ error: 'Session not found' });
+        return sendApiError(res, 401, 'authSessionNotFound');
       }
       if (new Date(session.expires_at) < new Date()) {
         await runDb('UPDATE auth_sessions SET revoked = 1 WHERE id = ?', [session.id]);
-        return res.status(401).json({ error: 'Session expired' });
+        return sendApiError(res, 401, 'authSessionExpired');
       }
 
       req.user = user;
@@ -529,7 +595,7 @@ function authenticateJWT(req, res, next) {
       next();
     } catch (sessionError) {
       console.error('[JWT] Failed to validate session', sessionError);
-      return res.status(500).json({ error: 'Failed to validate session' });
+      return sendApiError(res, 500, 'authSessionValidationFailed');
     }
   });
 }
@@ -572,7 +638,7 @@ app.get('/api/users/:id', authenticateJWT, (req, res) => {
       return;
     }
     if (!user) {
-      res.status(404).json({ error: 'User not found' });
+      sendApiError(res, 404, 'usersNotFound');
       return;
     }
     res.json(user);
@@ -598,7 +664,7 @@ app.patch('/api/users/:id', authenticateJWT, (req, res) => {
   if (language !== undefined) { fields.push('language = ?'); values.push(language); }
   if (timezone !== undefined) { fields.push('timezone = ?'); values.push(timezone); }
   if (fields.length === 0) {
-    return res.status(400).json({ error: 'No fields to update.' });
+    return sendApiError(res, 400, 'usersNoFieldsToUpdate');
   }
   values.push(id);
   db.run(
@@ -610,7 +676,7 @@ app.patch('/api/users/:id', authenticateJWT, (req, res) => {
         return;
       }
       if (this.changes === 0) {
-        res.status(404).json({ error: 'User not found' });
+        sendApiError(res, 404, 'usersNotFound');
         return;
       }
       res.json({ id, ...req.body });
@@ -627,7 +693,7 @@ app.delete('/api/users/:id', authenticateJWT, (req, res) => {
       return;
     }
     if (this.changes === 0) {
-      res.status(404).json({ error: 'User not found' });
+      sendApiError(res, 404, 'usersNotFound');
       return;
     }
     res.json({ deleted: 'user (marked as deleted)' });
@@ -676,7 +742,7 @@ app.post('/api/clients', authenticateJWT, (req, res) => {
     }
     if (row) {
       let reason = row.name.toLowerCase() === name.toLowerCase() ? 'name' : 'ITN';
-      return res.status(409).json({ error: `A client with this ${reason} already exists.` });
+      return sendApiError(res, 409, 'clientsDuplicate', { reason });
     }
     // No duplicate, proceed to insert
     db.run('INSERT INTO clients (name, type, itn) VALUES (?, ?, ?)', [name, type, itn || null], function(err) {
@@ -702,7 +768,7 @@ app.patch('/api/clients/:id', authenticateJWT, (req, res) => {
         return;
       }
       if (this.changes === 0) {
-        res.status(404).json({ error: 'Client not found' });
+        sendApiError(res, 404, 'clientsNotFound');
         return;
       }
       res.json({ id, name, type, itn });
@@ -776,12 +842,12 @@ app.post('/api/projects', authenticateJWT, (req, res) => {
   // Check for duplicate name (case-insensitive)
   db.get('SELECT * FROM projects WHERE LOWER(name) = LOWER(?)', [name], (err, row) => {
     if (err) return res.status(500).json({ error: err.message });
-    if (row) return res.status(409).json({ error: 'A project with this name already exists.' });
+    if (row) return sendApiError(res, 409, 'projectsDuplicateName');
     // Check for duplicate code (if code is set)
     if (code && code.trim()) {
       db.get('SELECT * FROM projects WHERE code IS NOT NULL AND LOWER(code) = LOWER(?)', [code], (err2, row2) => {
         if (err2) return res.status(500).json({ error: err2.message });
-        if (row2) return res.status(409).json({ error: 'A project with this code already exists.' });
+        if (row2) return sendApiError(res, 409, 'projectsDuplicateCode');
         // No duplicates, proceed to insert
         db.run('INSERT INTO projects (name, description, client_id, active, code) VALUES (?, ?, ?, ?, ?)', 
           [name, description, client_id, active !== undefined ? active : 1, code || null], 
@@ -816,12 +882,12 @@ app.patch('/api/projects/:id', authenticateJWT, (req, res) => {
   if (name !== undefined) {
     db.get('SELECT * FROM projects WHERE LOWER(name) = LOWER(?) AND id != ?', [name, id], (err, row) => {
       if (err) return res.status(500).json({ error: err.message });
-      if (row) return res.status(409).json({ error: 'A project with this name already exists.' });
+      if (row) return sendApiError(res, 409, 'projectsDuplicateName');
       // Check for duplicate code (if code is set, exclude self)
       if (code && code.trim()) {
         db.get('SELECT * FROM projects WHERE code IS NOT NULL AND LOWER(code) = LOWER(?) AND id != ?', [code, id], (err2, row2) => {
           if (err2) return res.status(500).json({ error: err2.message });
-          if (row2) return res.status(409).json({ error: 'A project with this code already exists.' });
+          if (row2) return sendApiError(res, 409, 'projectsDuplicateCode');
           // No duplicates, proceed to update
           updateProject();
         });
@@ -832,7 +898,7 @@ app.patch('/api/projects/:id', authenticateJWT, (req, res) => {
   } else if (code && code.trim()) {
     db.get('SELECT * FROM projects WHERE code IS NOT NULL AND LOWER(code) = LOWER(?) AND id != ?', [code, id], (err2, row2) => {
       if (err2) return res.status(500).json({ error: err2.message });
-      if (row2) return res.status(409).json({ error: 'A project with this code already exists.' });
+      if (row2) return sendApiError(res, 409, 'projectsDuplicateCode');
       updateProject();
     });
   } else {
@@ -847,7 +913,7 @@ app.patch('/api/projects/:id', authenticateJWT, (req, res) => {
     if (active !== undefined) { fields.push('active = ?'); values.push(active); }
     if (code !== undefined) { fields.push('code = ?'); values.push(code); }
     if (fields.length === 0) {
-      return res.status(400).json({ error: 'No fields to update.' });
+      return sendApiError(res, 400, 'projectsNoFieldsToUpdate');
     }
     values.push(id);
     db.run(
@@ -859,7 +925,7 @@ app.patch('/api/projects/:id', authenticateJWT, (req, res) => {
           return;
         }
         if (this.changes === 0) {
-          res.status(404).json({ error: 'Project not found' });
+          sendApiError(res, 404, 'projectsNotFound');
           return;
         }
         res.json({ id, name, description, client_id, active, code });
@@ -878,7 +944,7 @@ app.patch('/api/projects/:id/active', authenticateJWT, (req, res) => {
       return;
     }
     if (this.changes === 0) {
-      res.status(404).json({ error: 'Project not found' });
+      sendApiError(res, 404, 'projectsNotFound');
       return;
     }
     res.json({ id, active });
@@ -894,7 +960,7 @@ app.delete('/api/projects/:id', authenticateJWT, (req, res) => {
       return;
     }
     if (this.changes === 0) {
-      res.status(404).json({ error: 'Project not found' });
+      sendApiError(res, 404, 'projectsNotFound');
       return;
     }
     res.json({ success: true });
@@ -911,7 +977,7 @@ app.post('/api/time-entries', authenticateJWT, (req, res) => {
     function(err) {
       if (err) {
         if (err.code === 'SQLITE_CONSTRAINT') {
-          res.status(409).json({ error: 'Duplicate time entry for this user, project, and day.' });
+          sendApiError(res, 409, 'timeEntriesDuplicate');
         } else {
           console.error('Error inserting time entry:', err);
           res.status(500).json({ error: err.message });
@@ -984,7 +1050,7 @@ app.patch('/api/time-entries/:id', authenticateJWT, (req, res) => {
     values.push(project_id);
   }
   if (fields.length === 0) {
-    return res.status(400).json({ error: 'No fields to update.' });
+    return sendApiError(res, 400, 'timeEntriesNoFieldsToUpdate');
   }
 
   db.get('SELECT user_id FROM time_entries WHERE id = ?', [id], (lookupErr, existingEntry) => {
@@ -1001,7 +1067,7 @@ app.patch('/api/time-entries/:id', authenticateJWT, (req, res) => {
           return;
         }
         if (this.changes === 0) {
-          res.status(404).json({ error: 'Time entry not found' });
+          sendApiError(res, 404, 'timeEntriesNotFound');
           return;
         }
         extendSessionIfEligible(existingEntry && existingEntry.user_id).catch((sessionErr) => console.error('[AutoLogin] Failed after patch:', sessionErr));
@@ -1037,7 +1103,7 @@ app.delete('/api/time-entries/:id', authenticateJWT, (req, res) => {
 app.post('/api/time-entries/bulk-delete', authenticateJWT, (req, res) => {
   const { user_id, project_id, week_start } = req.body;
   if (!user_id || !project_id || !week_start) {
-    return res.status(400).json({ error: 'user_id, project_id, and week_start are required' });
+    return sendApiError(res, 400, 'timeEntriesWeekRequired');
   }
   const start = new Date(week_start);
   start.setHours(0, 0, 0, 0);
@@ -1170,7 +1236,7 @@ app.get('/api/analytics/time-by-client-type', authenticateJWT, (req, res) => {
 app.post('/api/time-entries/batch', authenticateJWT, (req, res) => {
   const { entries } = req.body;
   if (!Array.isArray(entries) || entries.length === 0) {
-    return res.status(400).json({ error: 'No entries provided.' });
+    return sendApiError(res, 400, 'timeEntriesNoEntries');
   }
   db.serialize(() => {
     db.run('BEGIN TRANSACTION');
@@ -1259,7 +1325,7 @@ app.post('/api/smtp-test', async (req, res) => {
   };
   const to = body.to || settings.from;
   if (!settings.host || !settings.port || !settings.auth.user || !settings.auth.pass || !settings.from) {
-    return res.status(400).json({ error: 'SMTP settings are incomplete.' });
+    return sendApiError(res, 400, 'smtpIncomplete');
   }
   try {
     const transporter = require('nodemailer').createTransport({
@@ -1279,13 +1345,13 @@ app.post('/api/smtp-test', async (req, res) => {
       });
     } catch (e) {
       console.error('[SMTP Test] Failed to render email template:', e);
-      html = 'This is a test email from your TimeTracker app SMTP settings.';
+      html = 'Это тестовое письмо из настроек SMTP приложения TimeTracker.';
     }
     await transporter.sendMail({
       from: settings.from,
       to,
-      subject: 'SMTP Test Email',
-      text: 'This is a test email from your TimeTracker app SMTP settings.',
+      subject: 'Тестовое письмо SMTP',
+      text: 'Это тестовое письмо из настроек SMTP приложения TimeTracker.',
       html
     });
     res.json({ success: true });
@@ -1297,7 +1363,7 @@ app.post('/api/smtp-test', async (req, res) => {
 // POST /api/invitations - create and send invitation
 app.post('/api/invitations', async (req, res) => {
   const { email, invited_by, name, surname } = req.body;
-  if (!email) return res.status(400).json({ error: 'Email is required.' });
+  if (!email) return sendApiError(res, 400, 'invitationEmailRequired');
   // Check if user exists
   db.get('SELECT * FROM users WHERE email = ?', [email], (err, userRow) => {
     if (err) return res.status(500).json({ error: err.message });
@@ -1322,7 +1388,7 @@ app.post('/api/invitations', async (req, res) => {
         const settings = loadSmtpSettings();
         console.log('[Invitation] Using SMTP settings:', settings);
         if (!settings.host || !settings.port || !settings.auth || !settings.auth.user || !settings.auth.pass || !settings.from) {
-          return res.status(500).json({ error: 'SMTP settings are not configured.' });
+          return sendApiError(res, 500, 'smtpNotConfigured');
         }
         const transporter = nodemailer.createTransport({
           host: settings.host,
@@ -1356,19 +1422,19 @@ app.post('/api/invitations', async (req, res) => {
           });
         } catch (e) {
           console.error('[Invitation] Failed to render email template:', e);
-          html = `<p>You have been invited to join TimeTracker.</p><p><a href="${inviteLink}">${inviteLink}</a></p>`;
+          html = `<p>Вас пригласили в TimeTracker.</p><p><a href="${inviteLink}">${inviteLink}</a></p>`;
         }
         try {
           await transporter.sendMail({
             from: settings.from,
             to: email,
-            subject: 'You are invited to join TimeTracker',
-            text: `You have been invited to join TimeTracker. Click the link to join: ${inviteLink}`,
+            subject: 'Приглашение в TimeTracker',
+            text: `Вас пригласили в TimeTracker. Перейдите по ссылке, чтобы завершить регистрацию: ${inviteLink}`,
             html
           });
           res.json({ success: true });
         } catch (err4) {
-          res.status(500).json({ error: 'Failed to send invitation email: ' + err4.message });
+          res.status(500).json({ errorCode: apiErrors.invitationSendFailed.errorCode, error: apiErrors.invitationSendFailed.error + ' ' + err4.message });
         }
       });
     }
@@ -1380,7 +1446,7 @@ app.get('/api/invitations/accept/:token', (req, res) => {
   const { token } = req.params;
   db.get('SELECT * FROM invitations WHERE token = ? AND accepted = 0', [token], (err, row) => {
     if (err) return res.status(500).json({ error: err.message });
-    if (!row) return res.status(404).json({ error: 'Invalid or expired invitation.' });
+    if (!row) return sendApiError(res, 404, 'invitationInvalid');
     // Also fetch name and surname from users table
     db.get('SELECT name, surname FROM users WHERE email = ?', [row.email], (err2, user) => {
       if (err2) return res.status(500).json({ error: err2.message });
@@ -1404,10 +1470,10 @@ app.get('/api/invitations', (req, res) => {
 app.post('/api/invitations/accept/:token', (req, res) => {
   const { token } = req.params;
   const { name, surname } = req.body;
-  if (!name || !surname) return res.status(400).json({ error: 'Name and surname are required.' });
+  if (!name || !surname) return sendApiError(res, 400, 'invitationNameSurnameRequired');
   db.get('SELECT * FROM invitations WHERE token = ? AND accepted = 0', [token], (err, invite) => {
     if (err) return res.status(500).json({ error: err.message });
-    if (!invite) return res.status(404).json({ error: 'Invalid or expired invitation.' });
+    if (!invite) return sendApiError(res, 404, 'invitationInvalid');
     // Update user and mark invitation as accepted
     db.run('UPDATE users SET name = ?, surname = ?, invited = 0 WHERE email = ?', [name, surname, invite.email], function(err2) {
       if (err2) return res.status(500).json({ error: err2.message });
@@ -1426,14 +1492,14 @@ const magicLinkRateLimit = {};
 app.post('/api/auth/magic-link', (req, res) => {
   const { email } = req.body;
   console.log('[Magic Link] Requested for:', email);
-  if (!email) return res.status(400).json({ error: 'Email is required.' });
+  if (!email) return sendApiError(res, 400, 'magicLinkEmailRequired');
 
   // Rate limiting logic
   const now = Date.now();
   const lastRequest = magicLinkRateLimit[email];
   if (lastRequest && now - lastRequest < 60 * 1000) {
     const secondsLeft = Math.ceil((60 * 1000 - (now - lastRequest)) / 1000);
-    return res.status(429).json({ error: `Please wait ${secondsLeft}s before requesting another magic link.` });
+    return sendApiError(res, 429, 'magicLinkRateLimited', { secondsLeft });
   }
   magicLinkRateLimit[email] = now;
 
@@ -1444,7 +1510,7 @@ app.post('/api/auth/magic-link', (req, res) => {
     }
     if (!user) {
       console.log('[Magic Link] No active user found for:', email);
-      return res.status(404).json({ error: 'No active user found with this email.' });
+      return sendApiError(res, 404, 'magicLinkUserNotFound');
     }
     const token = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // 15 min
@@ -1475,7 +1541,7 @@ app.post('/api/auth/magic-link', (req, res) => {
           return res.json({ success: true, magicLink, token });
         }
         console.error('[Magic Link] SMTP settings are not configured. Settings:', settings);
-        return res.status(500).json({ error: 'SMTP settings are not configured.' });
+        return sendApiError(res, 500, 'smtpNotConfigured');
       }
 
       const transporter = nodemailer.createTransport({
@@ -1497,13 +1563,13 @@ app.post('/api/auth/magic-link', (req, res) => {
         });
       } catch (e) {
         console.error('[Magic Link] Failed to render email template:', e);
-        html = `<p>Click to log in: <a href="${magicLink}">${magicLink}</a></p><p>This link expires in 15 minutes and can only be used once.</p>`;
+        html = `<p>Перейдите по ссылке, чтобы войти: <a href="${magicLink}">${magicLink}</a></p><p>Ссылка действует 15 минут и может быть использована только один раз.</p>`;
       }
       try {
         await transporter.sendMail({
           from: settings.from,
           to: email,
-          subject: 'Your TimeTracker Magic Login Link',
+          subject: 'Ссылка для входа в TimeTracker',
           text: `Click to log in: ${magicLink}\nThis link expires in 15 minutes and can only be used once.`,
           html
         });
@@ -1511,7 +1577,7 @@ app.post('/api/auth/magic-link', (req, res) => {
         res.json({ success: true });
       } catch (err3) {
         console.error('[Magic Link] Failed to send magic link:', err3);
-        res.status(500).json({ error: 'Failed to send magic link: ' + err3.message });
+        res.status(500).json({ errorCode: apiErrors.magicLinkSendFailed.errorCode, error: apiErrors.magicLinkSendFailed.error + ' ' + err3.message });
       }
     });
   });
@@ -1522,19 +1588,19 @@ app.get('/api/auth/magic-link/:token', (req, res) => {
   const { token } = req.params;
   db.get('SELECT * FROM magic_links WHERE token = ?', [token], (err, link) => {
     if (err) return res.status(500).json({ error: err.message });
-    if (!link) return res.status(404).json({ error: 'Invalid or expired link.' });
-    if (link.used) return res.status(400).json({ error: 'This link has already been used.' });
-    if (new Date(link.expires_at) < new Date()) return res.status(400).json({ error: 'This link has expired.' });
+    if (!link) return sendApiError(res, 404, 'magicLinkInvalid');
+    if (link.used) return sendApiError(res, 400, 'magicLinkUsed');
+    if (new Date(link.expires_at) < new Date()) return sendApiError(res, 400, 'magicLinkExpired');
     db.get('SELECT * FROM users WHERE id = ? AND deleted = 0', [link.user_id], (err2, user) => {
       if (err2) return res.status(500).json({ error: err2.message });
-      if (!user) return res.status(404).json({ error: 'User not found or deleted.' });
+      if (!user) return sendApiError(res, 404, 'authUserNotFound');
       db.run('UPDATE magic_links SET used = 1 WHERE id = ?', [link.id], err3 => {
         if (err3) return res.status(500).json({ error: err3.message });
         issueSessionForUser(user)
           .then(({ token: jwtToken, payload }) => res.json({ token: jwtToken, user: payload }))
           .catch((issueError) => {
             console.error('[Magic Link] Failed to issue session:', issueError);
-            res.status(500).json({ error: 'Failed to create session.' });
+            res.status(500).json({ errorCode: apiErrors.authSessionCreateFailed.errorCode, error: apiErrors.authSessionCreateFailed.error });
           });
       });
     });
@@ -1547,7 +1613,7 @@ app.get('/api/auth/session-status', authenticateJWT, async (req, res) => {
     res.json(status);
   } catch (err) {
     console.error('[Session Status] Failed to build status:', err);
-    res.status(500).json({ error: 'Failed to load session status.' });
+    res.status(500).json({ errorCode: apiErrors.authSessionStatusFailed.errorCode, error: apiErrors.authSessionStatusFailed.error });
   }
 });
 
@@ -1557,7 +1623,7 @@ app.post('/api/auth/logout', authenticateJWT, async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('[Logout] Failed to revoke session:', err);
-    res.status(500).json({ error: 'Failed to logout.' });
+    res.status(500).json({ errorCode: apiErrors.authLogoutFailed.errorCode, error: apiErrors.authLogoutFailed.error });
   }
 });
 
@@ -1709,17 +1775,17 @@ async function checkFirstRun() {
 
 // Setup endpoint: create first admin and save SMTP settings
 app.post('/api/setup', async (req, res) => {
-  if (!setupRequired) return res.status(400).json({ error: 'Setup already completed.' });
+  if (!setupRequired) return sendApiError(res, 400, 'setupCompleted');
   const { name, surname, email, smtp } = req.body;
   const isProduction = process.env.NODE_ENV === 'production';
   if (!name || !surname || !email) {
-    return res.status(400).json({ error: 'Missing required fields.' });
+    return sendApiError(res, 400, 'setupMissingFields');
   }
   const sanitizedSmtp = smtp || {};
   const hasSmtp = sanitizedSmtp.host && sanitizedSmtp.port && sanitizedSmtp.user && sanitizedSmtp.pass && sanitizedSmtp.from;
 
   if (isProduction && !hasSmtp) {
-    return res.status(400).json({ error: 'SMTP settings are required in production.' });
+    return sendApiError(res, 400, 'setupSmtpRequired');
   }
 
   // Create admin user
@@ -1731,7 +1797,7 @@ app.post('/api/setup', async (req, res) => {
           return db.get('SELECT id, deleted FROM users WHERE email = ?', [email], (lookupErr, existing) => {
             if (lookupErr || !existing) {
               return checkFirstRun().then(() => {
-                res.status(409).json({ error: 'Admin already exists. Please sign in.', setupRequired });
+                sendApiError(res, 409, 'setupAdminExists', {}, { setupRequired });
               });
             }
             db.run(
@@ -1802,7 +1868,7 @@ const upload = multer({ storage });
 
 app.post('/api/upload-avatar', authenticateJWT, upload.single('avatar'), (req, res) => {
   if (!req.file) {
-    return res.status(400).json({ error: 'No file uploaded' });
+    return sendApiError(res, 400, 'uploadNoFile');
   }
   const publicUrl = `/avatars/${req.file.filename}`;
   res.json({ url: publicUrl });
