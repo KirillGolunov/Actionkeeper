@@ -14,6 +14,8 @@ import {
 } from '@mui/material';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
+import { useTranslation } from '../i18n/I18nProvider';
+import { getApiErrorMessage } from '../utils/apiErrorMessage';
 
 const LANGUAGES = [
   { value: 'en', label: 'English' },
@@ -30,6 +32,7 @@ const TIMEZONES = [
 ];
 
 export default function Profile() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -50,7 +53,7 @@ export default function Profile() {
         setLoading(false);
       })
       .catch(err => {
-        setError('Failed to load profile.');
+        setError(t('profile.errors.load')); 
         setLoading(false);
       });
   }, [user]);
@@ -65,9 +68,9 @@ export default function Profile() {
     setSuccess(null);
     try {
       await axios.patch(`/api/users/${user.id}`, profile);
-      setSuccess('Profile updated successfully!');
+      setSuccess(t('profile.updated')); 
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to update profile.');
+      setError(getApiErrorMessage(err, t, 'profile.errors.update')); 
     } finally {
       setSaving(false);
     }
@@ -92,7 +95,7 @@ export default function Profile() {
       setTimeout(() => URL.revokeObjectURL(localUrl), 1000);
       setAvatarPreview(res.data.url);
     } catch (err) {
-      setUploadError('Failed to upload avatar.');
+      setUploadError(t('profile.errors.upload')); 
     } finally {
       setUploading(false);
     }
@@ -105,7 +108,7 @@ export default function Profile() {
   return (
     <Box sx={{ minHeight: '100vh', py: 4, px: { xs: 1, sm: 4 } }}>
       <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4" sx={{ fontWeight: 600, color: '#5673DC' }}>My Profile</Typography>
+        <Typography variant="h4" sx={{ fontWeight: 600, color: '#5673DC' }}>{t('profile.title')}</Typography>
       </Box>
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
       {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}

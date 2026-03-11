@@ -25,9 +25,11 @@ import AddIcon from '@mui/icons-material/Add';
 import RemoveIcon from '@mui/icons-material/Remove';
 import axios from 'axios';
 import { startOfWeek, startOfMonth, startOfQuarter, startOfYear, format, addMonths, addQuarters, addYears, endOfMonth, endOfQuarter, endOfYear } from 'date-fns';
+import { ru } from 'date-fns/locale';
 import WeekSelector from '../components/WeekSelector';
 import { LeftArrow, RightArrow } from '../components/ArrowIcons';
 import { useAuth } from '../context/AuthContext';
+import { useTranslation } from '../i18n/I18nProvider';
 import Chip from '@mui/material/Chip';
 
 const COLORS = ['#8785d4','#5673DC', '#00C49F', '#FFBB28', '#FF8042'];
@@ -40,20 +42,20 @@ const timeRanges = [
   { value: 'all', label: 'All Time' },
 ];
 
-function getPeriodLabel(period, date) {
+function getPeriodLabel(period, date, t) {
   switch (period) {
     case 'week': {
       const monday = new Date(date);
       monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
       const sunday = new Date(monday);
       sunday.setDate(monday.getDate() + 6);
-      return `${format(monday, 'dd.MM.yyyy')} - ${format(sunday, 'dd.MM.yyyy')}`;
+      return `${format(monday, 'dd.MM.yyyy', { locale: ru })} - ${format(sunday, 'dd.MM.yyyy', { locale: ru })}`;
     }
     case 'month':
-      return format(date, 'MMMM yyyy');
+      return format(date, 'LLLL yyyy', { locale: ru });
     case 'quarter': {
       const q = Math.floor(date.getMonth() / 3) + 1;
-      return `Q${q} ${date.getFullYear()}`;
+      return t('dashboard.quarterLabel', { quarter: q, year: date.getFullYear() });
     }
     case 'year':
       return format(date, 'yyyy');
@@ -63,6 +65,14 @@ function getPeriodLabel(period, date) {
 }
 
 function DashboardsNew() {
+  const { t } = useTranslation();
+  const timeRanges = [
+    { value: 'week', label: t('dashboard.periods.week') },
+    { value: 'month', label: t('dashboard.periods.month') },
+    { value: 'quarter', label: t('dashboard.periods.quarter') },
+    { value: 'year', label: t('dashboard.periods.year') },
+    { value: 'all', label: t('dashboard.periods.all') },
+  ];
   const [timeRange, setTimeRange] = useState('month');
   const [projectData, setProjectData] = useState([]);
   const [userData, setUserData] = useState([]);
@@ -148,7 +158,7 @@ function DashboardsNew() {
       setUserDetailData(userDetailRes.data);
       setClientTypeDetailData(clientTypeDetailRes.data);
     } catch (err) {
-      setError('Failed to fetch analytics data. Please try again.');
+      setError(t('dashboard.errors.fetch')); 
     } finally {
       setLoading(false);
     }
@@ -160,6 +170,11 @@ function DashboardsNew() {
   }, [timeRange, periodDate]);
 
   const formatHours = (hours) => Math.round(hours * 100) / 100;
+  const localizeClientType = (value) => {
+    if (value === 'internal') return t('dashboard.filters.internal');
+    if (value === 'external') return t('dashboard.filters.external');
+    return value;
+  };
 
   // Helper: get user's project IDs and client types
   const myProjectIds = new Set(userData.filter(u => u.user_id === currentUser?.id).map(u => u.project_id));
@@ -185,7 +200,7 @@ function DashboardsNew() {
       <CardContent sx={{ height: 390 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Typography variant="h6" gutterBottom>
-            Internal vs External Hours
+            {t('dashboard.widgets.clientTypeHours')}
           </Typography>
           <IconButton onClick={(e) => { setMenuAnchorEl(e.currentTarget); setActiveWidget('clientType'); }}>
             <MoreVertIcon />
@@ -193,7 +208,7 @@ function DashboardsNew() {
         </Box>
         <Box sx={{ mb: 1, textAlign: 'center' }}>
           <Typography variant="subtitle2" color="text.secondary">
-            Total: {formatHours(totalClientTypeHours)} hours
+            {t('dashboard.widgets.total', { hours: formatHours(totalClientTypeHours) })}
           </Typography>
         </Box>
         <Box sx={{ height: 300 }}>
@@ -207,19 +222,19 @@ function DashboardsNew() {
                   cx="50%"
                   cy="50%"
                   outerRadius={100}
-                  label={({ client_type, total_hours }) => `${client_type}: ${formatHours(total_hours)}h`}
+                  label={({ client_type, total_hours }) => `${localizeClientType(client_type)}: ${formatHours(total_hours)}${t('dashboard.hoursSuffix', { value: '' }).trim()}`}
                 >
                   {pieData.map((entry, index) => (
                     <Cell key={entry.client_type} fill={COLORS[index % COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip formatter={(value) => formatHours(value) + ' hours'} />
-                <Legend />
+                <Tooltip formatter={(value, name) => [t('dashboard.hoursSuffix', { value: formatHours(value) }), localizeClientType(name)]} />
+                <Legend formatter={(value) => localizeClientType(value)} />
               </PieChart>
             </ResponsiveContainer>
           ) : (
             <Box display="flex" justifyContent="center" alignItems="center" height="100%">
-              <Typography color="text.secondary">No client type data available</Typography>
+              <Typography color="text.secondary">{t('dashboard.widgets.noClientTypeData')}</Typography>
             </Box>
           )}
         </Box>
@@ -238,7 +253,7 @@ function DashboardsNew() {
         (!clientType || (row.client_type || row.type) === clientType)
       )
       .forEach(row => {
-        const client = (row.client_name && row.client_name.trim()) || 'Unassigned';
+        const client = (row.client_name && row.client_name.trim()) || t('dashboard.table.unassigned');
         mapBar[client] = (mapBar[client] || 0) + row.total_hours;
       });
     barData = Object.entries(mapBar).map(([name, hours]) => ({ name, hours: formatHours(hours) }));
@@ -251,7 +266,7 @@ function DashboardsNew() {
     };
     const mapBarAll = {};
     projectData.filter(barFilterAll).forEach(row => {
-      const client = (row.client_name && row.client_name.trim()) || 'Unassigned';
+      const client = (row.client_name && row.client_name.trim()) || t('dashboard.table.unassigned');
       mapBarAll[client] = (mapBarAll[client] || 0) + row.total_hours;
     });
     barData = Object.entries(mapBarAll).map(([name, hours]) => ({ name, hours: formatHours(hours) }));
@@ -261,7 +276,7 @@ function DashboardsNew() {
       <CardContent sx={{ height: 390 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Typography variant="h6" gutterBottom>
-            Hours by Client
+            {t('dashboard.widgets.hoursByClient')}
           </Typography>
           <IconButton onClick={(e) => { setMenuAnchorEl(e.currentTarget); setActiveWidget('hoursByClient'); }}>
             <MoreVertIcon />
@@ -277,14 +292,14 @@ function DashboardsNew() {
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="name" angle={rotateClientLabels ? -30 : 0} textAnchor={rotateClientLabels ? 'end' : 'middle'} interval={rotateClientLabels ? 0 : 'preserveEnd'} />
                 <YAxis />
-                <Tooltip formatter={value => value + ' hours'} />
+                <Tooltip formatter={value => t('dashboard.hoursSuffix', { value })} />
                 <Legend />
-                <Bar dataKey="hours" fill="#8884d8" name="Hours" />
+                <Bar dataKey="hours" fill="#8884d8" name={t('dashboard.periods.week') ? t('dashboard.table.totalHours') : 'Hours'} />
               </BarChart>
             </ResponsiveContainer>
           ) : (
             <Box display="flex" justifyContent="center" alignItems="center" height="100%">
-              <Typography color="text.secondary">No client data available</Typography>
+              <Typography color="text.secondary">{t('dashboard.widgets.noClientData')}</Typography>
             </Box>
           )}
         </Box>
@@ -364,7 +379,7 @@ function DashboardsNew() {
             <IconButton size="small" onClick={() => handleExpandClick(user)}>
               {isExpanded ? <RemoveIcon /> : <AddIcon />}
             </IconButton>
-            {user || 'Unknown User'}
+            {user || t('dashboard.table.unknownUser')}
           </TableCell>
           <TableCell>
             {showProjectPercent
@@ -418,7 +433,7 @@ function DashboardsNew() {
         userRows.push(
           <TableRow key={user + '-no-projects'} sx={{ bgcolor: '#f5f5f5' }}>
             <TableCell colSpan={3} align="center">
-              <Typography color="text.secondary">No project data for this user</Typography>
+              <Typography color="text.secondary">{t('dashboard.widgets.noProjectDataForUser')}</Typography>
             </TableCell>
           </TableRow>
         );
@@ -491,7 +506,7 @@ function DashboardsNew() {
         projectRows.push(
           <TableRow key={project.project_name + '-no-users'} sx={{ bgcolor: '#f5f5f5' }}>
             <TableCell colSpan={3} align="center">
-              <Typography color="text.secondary">No user data for this project</Typography>
+              <Typography color="text.secondary">{t('dashboard.widgets.noUserDataForProject')}</Typography>
             </TableCell>
           </TableRow>
         );
@@ -542,22 +557,22 @@ function DashboardsNew() {
     all: {
       selected: { background: '#F5F7FA', color: '#5673DC', border: '1.5px solid #5673DC' },
       default: { background: '#F5F7FA', color: '#90A0B7', border: 'none' },
-      label: 'All',
+      label: t('dashboard.filters.all'),
     },
     my: {
       selected: { background: '#F5F7FE', color: '#5673DC', border: '1px solid #5673DC' },
       default: { background: '#F5F7FA', color: '#90A0B7', border: 'none' },
-      label: 'My Projects',
+      label: t('dashboard.filters.myProjects'),
     },
     internal: {
       selected: { background: '#F5EAFE', color: '#7C3A6A', border: '1px solid #7C3A6A' },
       default: { background: '#F5F7FA', color: '#90A0B7', border: 'none' },
-      label: 'Internal',
+      label: t('dashboard.filters.internal'),
     },
     external: {
       selected: { background: '#E6F0F5', color: '#3B6C74', border: '1px solid #3B6C74' },
       default: { background: '#F5F7FA', color: '#90A0B7', border: 'none' },
-      label: 'External',
+      label: t('dashboard.filters.external'),
     },
   };
 
@@ -566,7 +581,7 @@ function DashboardsNew() {
     <Box>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Typography variant="h4">Dashboard</Typography>
+          <Typography variant="h4">{t('dashboard.title')}</Typography>
           <Box sx={{ display: 'flex', gap: 1, ml: 2 }}>
             <Chip
               label={filterTagStyles.all.label}
@@ -638,7 +653,7 @@ function DashboardsNew() {
                 <LeftArrow color="#5673DC" size={32} />
               </IconButton>
               <Typography variant="subtitle1" sx={{ minWidth: 180, textAlign: 'center', display: 'inline-block' }}>
-                {getPeriodLabel(timeRange, periodDate)}
+                {getPeriodLabel(timeRange, periodDate, t)}
               </Typography>
               <IconButton onClick={() => {
                 if (timeRange === 'week') setPeriodDate(d => new Date(d.setDate(d.getDate() + 7)));
@@ -661,7 +676,7 @@ function DashboardsNew() {
               variant={timeRange === option.value ? 'outlined' : 'text'}
               onClick={() => setTimeRange(option.value)}
               sx={{
-                minWidth: 84,
+                minWidth: option.value === 'all' ? 112 : 84,
                 height: 36,
                 borderRadius: 2,
                 border: timeRange === option.value ? '1.5px solid #5673DC' : '1.5px solid #E2E4E9',
@@ -678,7 +693,7 @@ function DashboardsNew() {
                 },
               }}
             >
-              {option.label.replace('This ', '')}
+              {option.label}
             </Button>
           ))}
         </Box>
@@ -697,7 +712,7 @@ function DashboardsNew() {
           <CardContent>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <Typography variant="h6" gutterBottom>
-                Hours by Project
+                {t('dashboard.widgets.hoursByProject')}
               </Typography>
               <IconButton onClick={(e) => { setMenuAnchorEl(e.currentTarget); setActiveWidget('projectHours'); }}>
                 <MoreVertIcon />
@@ -729,7 +744,7 @@ function DashboardsNew() {
                     }}
                   />
                 }
-                label={viewByUser ? "View by User" : "View by Project"}
+                label={viewByUser ? t('dashboard.options.viewByUser') : t('dashboard.options.viewByProject')}
               />
               <FormControlLabel
                 control={
@@ -756,23 +771,23 @@ function DashboardsNew() {
                     }}
                   />
                 }
-                label={showProjectPercent ? 'Show: % of System Total' : 'Show: Hours'}
+                label={showProjectPercent ? t('dashboard.options.showPercent') : t('dashboard.options.showHours')}
               />
             </Box>
             <TableContainer component={Paper} sx={{ boxShadow: 'none' }}>
               <Table size="small">
                 <TableHead>
                   <TableRow>
-                    <TableCell sx={{ fontWeight: 600, width: 550, minWidth: 550, maxWidth: 550, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{viewByUser ? 'User' : 'Project'}</TableCell>
-                    <TableCell sx={{ fontWeight: 600 }}>Total Hours</TableCell>
-                    <TableCell sx={{ fontWeight: 600 }}>Load</TableCell>
+                    <TableCell sx={{ fontWeight: 600, width: 550, minWidth: 550, maxWidth: 550, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{viewByUser ? t('dashboard.table.user') : t('dashboard.table.project')}</TableCell>
+                    <TableCell sx={{ fontWeight: 600 }}>{t('dashboard.table.totalHours')}</TableCell>
+                    <TableCell sx={{ fontWeight: 600 }}>{t('dashboard.table.load')}</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {tableRows.length > 0 ? tableRows : (
                     <TableRow>
                       <TableCell colSpan={3} align="center">
-                        <Typography color="text.secondary">No project data available</Typography>
+                        <Typography color="text.secondary">{t('dashboard.widgets.noProjectData')}</Typography>
                       </TableCell>
                     </TableRow>
                   )}
@@ -789,10 +804,10 @@ function DashboardsNew() {
       >
         {activeWidget === 'hoursByClient' && (
           <MenuItem onClick={() => { setRotateClientLabels(v => !v); setMenuAnchorEl(null); }}>
-            {rotateClientLabels ? 'Disable' : 'Enable'} X Axis Label Rotation
+            {rotateClientLabels ? t('dashboard.options.disableXAxisRotation') : t('dashboard.options.enableXAxisRotation')}
           </MenuItem>
         )}
-        <MenuItem disabled>Widget settings coming soon</MenuItem>
+        <MenuItem disabled>{t('dashboard.options.widgetSettingsSoon')}</MenuItem>
       </Menu>
     </Box>
   );

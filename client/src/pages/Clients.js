@@ -29,8 +29,11 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import CloseIcon from '@mui/icons-material/Close';
 import ConfirmationDialog from '../components/ConfirmationDialog';
 import { useAuth } from '../context/AuthContext';
+import { useTranslation } from '../i18n/I18nProvider';
+import { getApiErrorMessage } from '../utils/apiErrorMessage';
 
 function Clients() {
+  const { t } = useTranslation();
   const [clients, setClients] = useState([]);
   const [open, setOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -61,12 +64,12 @@ function Clients() {
     internal: {
       selected: { background: '#F5EAFE', color: '#7C3A6A', border: '1px solid #7C3A6A' },
       default: { background: '#F5F7FA', color: '#90A0B7', border: 'none' },
-      label: 'Internal',
+      label: t('clients.internal'),
     },
     external: {
       selected: { background: '#E6F0F5', color: '#3B6C74', border: '1px solid #3B6C74' },
       default: { background: '#F5F7FA', color: '#90A0B7', border: 'none' },
-      label: 'External',
+      label: t('clients.external'),
     },
   };
 
@@ -84,7 +87,7 @@ function Clients() {
       setClients(response.data);
     } catch (error) {
       console.error('Error fetching clients:', error);
-      setError('Failed to fetch clients. Please try again.');
+      setError(t('clients.errors.fetch'));
     }
   };
 
@@ -93,7 +96,7 @@ function Clients() {
       const response = await axios.get('/api/projects');
       setProjects(response.data);
     } catch (error) {
-      setError('Failed to fetch projects.');
+      setError(t('clients.errors.fetchProjects'));
     }
   };
 
@@ -117,7 +120,7 @@ function Clients() {
   const handleSubmit = async () => {
     try {
       if (!newClient.name.trim()) {
-        setError('Client name is required');
+        setError(t('clients.validation.nameRequired'));
         return;
       }
 
@@ -135,9 +138,9 @@ function Clients() {
     } catch (error) {
       console.error('Error creating client:', error);
       if (error.response && error.response.status === 409) {
-        setError(error.response.data.error || 'A client with this name or ITN already exists.');
+        setError(getApiErrorMessage(error, t, 'clients.errors.createDuplicate'));
       } else {
-        setError(error.response?.data?.error || 'Failed to create client. Please try again.');
+        setError(getApiErrorMessage(error, t, 'clients.errors.create'));
       }
     }
   };
@@ -145,14 +148,14 @@ function Clients() {
   const handleEditSave = async () => {
     try {
       if (!editClient.name.trim()) {
-        setError('Client name is required');
+        setError(t('clients.validation.nameRequired'));
         return;
       }
       await axios.patch(`/api/clients/${editClient.id}`, editClient);
       fetchClients();
       handleEditClose();
     } catch (error) {
-      setError(error.response?.data?.error || 'Failed to update client. Please try again.');
+      setError(getApiErrorMessage(error, t, 'clients.errors.update'));
     }
   };
 
@@ -171,7 +174,7 @@ function Clients() {
       setDeleteLoading(false);
       fetchClients();
     } catch (error) {
-      setError('Failed to delete client and its data.');
+      setError(t('clients.errors.delete'));
       setDeleteDialogOpen(false);
       setClientToDelete(null);
       setDeleteLoading(false);
@@ -186,7 +189,7 @@ function Clients() {
   const handleAddClient = async () => {
     try {
       if (!addDraft.name.trim()) {
-        setError('Client name is required');
+        setError(t('clients.validation.nameRequired'));
         return;
       }
       const response = await axios.post('/api/clients', addDraft);
@@ -195,9 +198,9 @@ function Clients() {
       setError(null);
     } catch (error) {
       if (error.response && error.response.status === 409) {
-        setError(error.response.data.error || 'A client with this name or ITN already exists.');
+        setError(getApiErrorMessage(error, t, 'clients.errors.createDuplicate'));
       } else {
-        setError(error.response?.data?.error || 'Failed to create client. Please try again.');
+        setError(getApiErrorMessage(error, t, 'clients.errors.create'));
       }
     }
   };
@@ -217,20 +220,20 @@ function Clients() {
   const handleEditSaveInline = async () => {
     try {
       if (!editClientDraft.name.trim()) {
-        setError('Client name is required');
+        setError(t('clients.validation.nameRequired'));
         return;
       }
       // Duplicate check for name and ITN (ignore case and whitespace, exclude self)
       const normalize = str => (str || '').replace(/\s+/g, '').toLowerCase();
       const nameExists = clients.some(c => c.id !== editClientDraft.id && normalize(c.name) === normalize(editClientDraft.name));
       if (nameExists) {
-        setError('A client with this name already exists.');
+        setError(t('clients.validation.duplicateName'));
         return;
       }
       if (editClientDraft.itn && editClientDraft.itn.trim()) {
         const itnExists = clients.some(c => c.id !== editClientDraft.id && c.itn && normalize(c.itn) === normalize(editClientDraft.itn));
         if (itnExists) {
-          setError('A client with this ITN already exists.');
+          setError(t('clients.validation.duplicateItn'));
           return;
         }
       }
@@ -240,7 +243,7 @@ function Clients() {
       setEditClientDraft(null);
       setError(null);
     } catch (error) {
-      setError(error.response?.data?.error || 'Failed to update client. Please try again.');
+      setError(getApiErrorMessage(error, t, 'clients.errors.update'));
     }
   };
 
@@ -257,7 +260,7 @@ function Clients() {
     <Box>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Typography variant="h4">Clients</Typography>
+          <Typography variant="h4">{t('clients.title')}</Typography>
           <Box sx={{ display: 'flex', gap: 1, ml: 2 }}>
             {['internal', 'external'].map((key) => (
               <Chip
@@ -289,12 +292,12 @@ function Clients() {
         <Table size="small">
           <TableHead>
             <TableRow sx={{ height: 40, minHeight: 40 }}>
-              <TableCell align="left" sx={{ fontWeight: 'bold', p: 0, pt: 1, px: 2, py: 1, width: 550, maxWidth: 550 }}>Name</TableCell>
-              <TableCell align="left" sx={{ fontWeight: 'bold', p: 0, pt: 1, px: 2, py: 1, width: 150, maxWidth: 150 }}>ITN</TableCell>
-              <TableCell align="left" sx={{ fontWeight: 'bold', p: 0, pt: 1, px: 2, py: 1, width: 150, maxWidth: 150 }}>Type</TableCell>
-              <TableCell align="center" sx={{ fontWeight: 'bold', p: 0, pt: 1, px: 2, py: 1, width: 150, maxWidth: 150 }}>Projects</TableCell>
+              <TableCell align="left" sx={{ fontWeight: 'bold', p: 0, pt: 1, px: 2, py: 1, width: 550, maxWidth: 550 }}>{t('clients.name')}</TableCell>
+              <TableCell align="left" sx={{ fontWeight: 'bold', p: 0, pt: 1, px: 2, py: 1, width: 150, maxWidth: 150 }}>{t('clients.itn')}</TableCell>
+              <TableCell align="left" sx={{ fontWeight: 'bold', p: 0, pt: 1, px: 2, py: 1, width: 150, maxWidth: 150 }}>{t('clients.type')}</TableCell>
+              <TableCell align="center" sx={{ fontWeight: 'bold', p: 0, pt: 1, px: 2, py: 1, width: 150, maxWidth: 150 }}>{t('clients.projects')}</TableCell>
               {currentUser?.role === 'admin' && (
-                <TableCell align="right" sx={{ fontWeight: 'bold', p: 0, pt: 1, px: 2, py: 1, width: 200, maxWidth: 200 }}>Actions</TableCell>
+                <TableCell align="right" sx={{ fontWeight: 'bold', p: 0, pt: 1, px: 2, py: 1, width: 200, maxWidth: 200 }}>{t('clients.actions')}</TableCell>
               )}
             </TableRow>
           </TableHead>
@@ -305,7 +308,7 @@ function Clients() {
                   <TextField
                     size="small"
                     fullWidth
-                    placeholder="Client Name"
+                    placeholder={t('clients.clientName')}
                     value={addDraft.name}
                     onChange={e => setAddDraft(d => ({ ...d, name: e.target.value }))}
                     error={!!error && !addDraft.name.trim()}
@@ -324,7 +327,7 @@ function Clients() {
                   <TextField
                     size="small"
                     fullWidth
-                    placeholder="ITN"
+                    placeholder={t('clients.itn')}
                     value={addDraft.itn}
                     onChange={e => setAddDraft(d => ({ ...d, itn: e.target.value }))}
                     sx={{
@@ -355,12 +358,12 @@ function Clients() {
                       },
                     }}
                   >
-                    <MenuItem value="internal">Internal</MenuItem>
-                    <MenuItem value="external">External</MenuItem>
+                    <MenuItem value="internal">{t('clients.internal')}</MenuItem>
+                    <MenuItem value="external">{t('clients.external')}</MenuItem>
                   </TextField>
                 </TableCell>
                 <TableCell align="center" sx={{ px: 2, py: 1, width: 150, maxWidth: 150 }}></TableCell>
-                <TableCell align="right" sx={{ px: 2, py: 1, width: 200, maxWidth: 200 }}>
+                <TableCell align="right" sx={{ px: 2, py: 1, width: 260, maxWidth: 260 }}>
                   <Button size="small" variant="contained" color="primary" onClick={handleAddClient}
                     sx={{
                       minWidth: 70,
@@ -378,7 +381,7 @@ function Clients() {
                       },
                     }}
                   >
-                    Add
+                    {t('clients.add')}
                   </Button>
                 </TableCell>
               </TableRow>
@@ -454,12 +457,12 @@ function Clients() {
                           },
                         }}
                       >
-                        <MenuItem value="internal">Internal</MenuItem>
-                        <MenuItem value="external">External</MenuItem>
+                        <MenuItem value="internal">{t('clients.internal')}</MenuItem>
+                        <MenuItem value="external">{t('clients.external')}</MenuItem>
                       </TextField>
                     ) : (
                       <Chip
-                        label={client.type === 'internal' ? tagStyles.internal.label : tagStyles.external.label}
+                        label={client.type === 'internal' ? t('clients.internal') : t('clients.external')}
                         size="small"
                         sx={{
                           fontSize: '11px',
@@ -477,7 +480,7 @@ function Clients() {
                   <TableCell align="center" sx={{ px: 2, py: 1, width: 150, maxWidth: 150 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'center' }}>
                       <Chip
-                        label={`Active: ${activeCount}`}
+                        label={t('clients.activeCount', { count: activeCount })}
                         size="small"
                         sx={{
                           fontSize: '11px',
@@ -493,7 +496,7 @@ function Clients() {
                         }}
                       />
                       <Chip
-                        label={`Total: ${totalCount}`}
+                        label={t('clients.totalCount', { count: totalCount })}
                         size="small"
                         sx={{
                           fontSize: '11px',
@@ -511,9 +514,9 @@ function Clients() {
                     </Box>
                   </TableCell>
                   {currentUser?.role === 'admin' && (
-                    <TableCell align="right" sx={{ px: 2, py: 1, width: 200, maxWidth: 200 }}>
+                    <TableCell align="right" sx={{ px: 2, py: 1, width: 260, maxWidth: 260 }}>
                       {isEditing ? (
-                        <>
+                        <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 1, flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
                           <Button size="small" variant="contained" onClick={handleEditSaveInline}
                             sx={{
                               minWidth: 70,
@@ -535,7 +538,7 @@ function Clients() {
                               },
                             }}
                           >
-                            Save
+                            {t('common.actions.save')}
                           </Button>
                           <Button size="small" variant="contained" onClick={handleEditCancel}
                             startIcon={<CloseIcon />}
@@ -561,11 +564,11 @@ function Clients() {
                               },
                             }}
                           >
-                            Cancel
+                            {t('common.actions.cancel')}
                           </Button>
-                        </>
+                        </Box>
                       ) : (
-                        <>
+                        <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 1, flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
                           <Button size="small" variant="outlined" onClick={() => handleEditClick(client)}
                             sx={{
                               minWidth: 70,
@@ -585,7 +588,7 @@ function Clients() {
                                 color: '#5673DC',
                               },
                             }}>
-                            Edit
+                            {t('clients.edit')}
                           </Button>
                           <Button size="small" color="error" startIcon={<DeleteIcon />} onClick={() => handleDeleteClient(client)}
                             sx={{
@@ -607,9 +610,9 @@ function Clients() {
                                 color: '#d32f2f',
                               },
                             }}>
-                            Delete
+                            {t('clients.delete')}
                           </Button>
-                        </>
+                        </Box>
                       )}
                     </TableCell>
                   )}
@@ -621,12 +624,12 @@ function Clients() {
       </TableContainer>
       <ConfirmationDialog
         open={deleteDialogOpen}
-        title="Delete Client"
-        content={`Are you sure you want to delete the client "${clientToDelete?.name}" and all its projects and time entries?`}
+        title={t('clients.deleteTitle')}
+        content={t('clients.confirmDelete', { name: clientToDelete?.name })}
         onCancel={() => !deleteLoading && setDeleteDialogOpen(false)}
         onConfirm={confirmDeleteClient}
-        confirmLabel={deleteLoading ? <><CircularProgress size={18} color="inherit" sx={{ mr: 1 }} />Delete</> : 'Delete'}
-        cancelLabel="Cancel"
+        confirmLabel={deleteLoading ? <><CircularProgress size={18} color="inherit" sx={{ mr: 1 }} />{t('clients.delete')}</> : t('clients.delete')}
+        cancelLabel={t('common.actions.cancel')}
       />
     </Box>
   );

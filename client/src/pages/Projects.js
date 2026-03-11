@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Button,
@@ -27,13 +27,17 @@ import {
 } from '@mui/material';
 import axios from 'axios';
 import { format } from 'date-fns';
+import { ru } from 'date-fns/locale';
 import DeleteIcon from '@mui/icons-material/Delete';
 import Switch from '@mui/material/Switch';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import { useAuth } from '../context/AuthContext';
+import { useTranslation } from '../i18n/I18nProvider';
+import { getApiErrorMessage } from '../utils/apiErrorMessage';
 
 function Projects() {
+  const { t } = useTranslation();
   const [projects, setProjects] = useState([]);
   const [clients, setClients] = useState([]);
   const [open, setOpen] = useState(false);
@@ -72,7 +76,7 @@ function Projects() {
       setProjects(response.data);
     } catch (error) {
       console.error('Error fetching projects:', error);
-      setError('Failed to fetch projects. Please try again.');
+      setError(t('projects.errors.fetch'));
     }
   };
 
@@ -83,7 +87,7 @@ function Projects() {
       setClients(response.data);
     } catch (error) {
       console.error('Error fetching clients:', error);
-      setError('Failed to fetch clients. Please try again.');
+      setError(t('projects.errors.fetchClients'));
     }
   };
 
@@ -94,7 +98,7 @@ function Projects() {
       setTimeEntries(response.data.filter(entry => entry.project_id === projectId));
     } catch (error) {
       console.error('Error fetching time entries:', error);
-      setError('Failed to fetch time entries. Please try again.');
+      setError(t('projects.errors.fetchTimeEntries'));
     }
   };
 
@@ -125,24 +129,24 @@ function Projects() {
     if (!canEdit) return;
     try {
       if (!newProject.name.trim()) {
-        setError('Project name is required');
+        setError(t('projects.validation.nameRequired'));
         return;
       }
       if (!newProject.client_id) {
-        setError('Please select a client');
+        setError(t('projects.validation.clientRequired'));
         return;
       }
       // Duplicate check for name (ignore case and whitespace)
       const nameExists = projects.some(p => normalize(p.name) === normalize(newProject.name));
       if (nameExists) {
-        setError('A project with this name already exists.');
+        setError(t('projects.validation.duplicateName'));
         return;
       }
       // Duplicate check for code (if code is set, ignore case and whitespace)
       if (newProject.code && newProject.code.trim()) {
         const codeExists = projects.some(p => p.code && normalize(p.code) === normalize(newProject.code));
         if (codeExists) {
-          setError('A project with this code already exists.');
+          setError(t('projects.validation.duplicateCode'));
           return;
         }
       }
@@ -160,13 +164,13 @@ function Projects() {
       });
     } catch (error) {
       console.error('Error creating project:', error);
-      setError(error.response?.data?.error || 'Failed to create project. Please try again.');
+      setError(getApiErrorMessage(error, t, 'projects.errors.create'));
     }
   };
 
   const getClientName = (clientId) => {
     const client = clients.find((c) => c.id === clientId);
-    return client ? client.name : 'No Client';
+    return client ? client.name : t('projects.noClient');
   };
 
   const calculateDuration = (startTime, endTime) => {
@@ -195,24 +199,26 @@ function Projects() {
     if (!canEdit) return;
     try {
       if (!editProject.name.trim()) {
-        setError('Project name is required');
+        setError(t('projects.validation.nameRequired'));
+        return;
         return;
       }
       if (!editProject.client_id) {
-        setError('Please select a client');
+        setError(t('projects.validation.clientRequired'));
+        return;
         return;
       }
       // Duplicate check for name (exclude self, ignore case and whitespace)
       const nameExists = projects.some(p => p.id !== editProject.id && normalize(p.name) === normalize(editProject.name));
       if (nameExists) {
-        setError('A project with this name already exists.');
+        setError(t('projects.validation.duplicateName')); 
         return;
       }
       // Duplicate check for code (if code is set, exclude self, ignore case and whitespace)
       if (editProject.code && editProject.code.trim()) {
         const codeExists = projects.some(p => p.id !== editProject.id && p.code && normalize(p.code) === normalize(editProject.code));
         if (codeExists) {
-          setError('A project with this code already exists.');
+          setError(t('projects.validation.duplicateCode')); 
           return;
         }
       }
@@ -221,7 +227,7 @@ function Projects() {
       fetchProjects();
       handleEditClose();
     } catch (error) {
-      setError(error.response?.data?.error || 'Failed to update project. Please try again.');
+      setError(getApiErrorMessage(error, t, 'projects.errors.update'));
     }
   };
 
@@ -242,7 +248,7 @@ function Projects() {
       setProjectToDelete(null);
       fetchProjects();
     } catch (error) {
-      setError('Failed to delete project and its time entries.');
+      setError(t('projects.errors.delete'));
       setDeleteDialogOpen(false);
       setProjectToDelete(null);
     }
@@ -265,22 +271,22 @@ function Projects() {
     active: {
       selected: { background: '#F5F7FE', color: '#5673DC', border: '1px solid #5673DC' },
       default: { background: '#F5F7FA', color: '#90A0B7', border: 'none' },
-      label: 'Active',
+      label: t('projects.active'),
     },
     closed: {
       selected: { background: '#F5EAFE', color: '#A259E6', border: '1px solid #A259E6' },
       default: { background: '#F5F7FA', color: '#90A0B7', border: 'none' },
-      label: 'Closed',
+      label: t('projects.closed'),
     },
     external: {
       selected: { background: '#E6F0F5', color: '#3B6C74', border: '1px solid #3B6C74' },
       default: { background: '#F5F7FA', color: '#90A0B7', border: 'none' },
-      label: 'External',
+      label: t('projects.external'),
     },
     internal: {
       selected: { background: '#F5EAFE', color: '#7C3A6A', border: '1px solid #7C3A6A' },
       default: { background: '#F5F7FA', color: '#90A0B7', border: 'none' },
-      label: 'Internal',
+      label: t('projects.internal'),
     },
   };
 
@@ -288,7 +294,7 @@ function Projects() {
     <Box>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Typography variant="h4">Projects</Typography>
+          <Typography variant="h4">{t('projects.title')}</Typography>
           <Box sx={{ display: 'flex', gap: 1, ml: 2 }}>
             {Object.keys(tagStyles).map((key) => (
               <Chip
@@ -325,7 +331,7 @@ function Projects() {
               },
             }}
           >
-            Add Project
+            {t('projects.addProject')}
           </Button>
         )}
       </Box>
@@ -341,8 +347,8 @@ function Projects() {
           const expanded = expandedProjectIds.includes(project.id);
           return (
             <Grid item xs={12} sm={6} md={4} key={project.id}>
-              <Card sx={{ border: '1px solid #E2E4E9', borderRadius: '12px', boxShadow: 1, minHeight: 150, transition: 'box-shadow 0.2s', position: 'relative' }}>
-                <CardContent sx={{ p: 1.5, pb: '8px !important', minHeight: 110, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+              <Card sx={{ border: '1px solid #E2E4E9', borderRadius: '12px', boxShadow: 1, minHeight: 150, transition: 'box-shadow 0.2s' }}>
+                <CardContent sx={{ p: 1.5, pb: '12px !important', minHeight: 110, display: 'flex', flexDirection: 'column', justifyContent: 'flex-start' }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
                     <Tooltip title={project.name} placement="top" arrow>
                       <Typography variant="subtitle1" component="div" sx={{ fontWeight: 600, fontSize: 17, pr: 1, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -350,8 +356,31 @@ function Projects() {
                       </Typography>
                     </Tooltip>
                     <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 0, gap: 0.3 }}>
+                      <IconButton
+                        size="small"
+                        onClick={() => {
+                          if (expanded) {
+                            setExpandedProjectIds(expandedProjectIds.filter(id => id !== project.id));
+                          } else {
+                            setExpandedProjectIds([...expandedProjectIds, project.id]);
+                          }
+                        }}
+                        aria-label={expanded ? t('projects.collapse') : t('projects.expand')}
+                        sx={{
+                          height: 28,
+                          width: 28,
+                          color: '#5673DC',
+                          backgroundColor: 'rgba(86,115,220,0.08)',
+                          mr: 0.25,
+                          '&:hover': {
+                            backgroundColor: 'rgba(86,115,220,0.14)',
+                          },
+                        }}
+                      >
+                        {expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                      </IconButton>
                       <Typography sx={{ fontWeight: 500, fontSize: 13, color: project.active ? '#5673DC' : '#bdbdbd', lineHeight: 1, display: 'flex', alignItems: 'center', mr: 0.5 }}>
-                        {project.active ? 'Active' : 'Closed'}
+                        {project.active ? t('projects.activeStatus') : t('projects.closedStatus')}
                       </Typography>
                       <Switch
                         size="small"
@@ -362,7 +391,7 @@ function Projects() {
                             await axios.patch(`/api/projects/${project.id}/active`, { active: e.target.checked ? 1 : 0 });
                             fetchProjects();
                           } catch (err) {
-                            setError('Failed to update project status.');
+                            setError(t('projects.errors.updateStatus'));
                           }
                         }}
                         disabled={!canEdit}
@@ -388,11 +417,11 @@ function Projects() {
                   </Box>
                   {project.code !== undefined && (
                     <Typography variant="caption" sx={{ color: '#5673DC', fontWeight: 500, fontSize: 13, mb: 0.25, display: 'block', textAlign: 'left', mt: 0.5 }}>
-                      Code: {project.code ? project.code : 'N/A'}
+                      {t('projects.code')}: {project.code ? project.code : t('projects.noCode')}
                     </Typography>
                   )}
                   <Typography color="text.secondary" variant="body2" sx={{ mb: 0.25, fontSize: 13, lineHeight: 1.3 }}>
-                    Client: {getClientName(project.client_id)}{(() => {
+                    {t('projects.client')}: {getClientName(project.client_id)}{(() => {
                       const client = clients.find((c) => c.id === project.client_id);
                       return client && client.type ? ` (${client.type.charAt(0).toUpperCase() + client.type.slice(1)})` : '';
                     })()}
@@ -402,41 +431,6 @@ function Projects() {
                       {project.description}
                     </Typography>
                   )}
-                  <Box
-                    sx={{
-                      position: 'absolute',
-                      left: '50%',
-                      transform: 'translateX(-50%)',
-                      bottom: 2,
-                      zIndex: 2,
-                    }}
-                  >
-                    <IconButton
-                      size="small"
-                      onClick={() => {
-                        if (expanded) {
-                          setExpandedProjectIds(expandedProjectIds.filter(id => id !== project.id));
-                        } else {
-                          setExpandedProjectIds([...expandedProjectIds, project.id]);
-                        }
-                      }}
-                      aria-label={expanded ? 'Collapse' : 'Expand'}
-                      sx={{
-                        height: 32,
-                        width: 32,
-                        color: '#BDBDBD',
-                        background: 'transparent',
-                        transition: 'color 0.2s',
-                        boxShadow: 'none',
-                        '&:hover': {
-                          color: '#5673DC',
-                          background: 'rgba(86,115,220,0.08)',
-                        },
-                      }}
-                    >
-                      {expanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-                    </IconButton>
-                  </Box>
                   {expanded && (
                     <>
                       <Typography color="text.secondary" variant="body2" sx={{ fontSize: 13, lineHeight: 1.3, mb: 0.5 }}>
@@ -450,7 +444,7 @@ function Projects() {
                           onClick={() => handleTimeEntriesOpen(project)}
                           sx={{ minWidth: 70, height: 32, borderRadius: 2, fontWeight: 500, fontSize: 12, textTransform: 'none', px: 1.2, ml: 0, pl: 0 }}
                         >
-                          View Time Entries
+                          {t('projects.viewTimeEntries')}
                         </Button>
                         {/* Spacer to push edit/delete to right */}
                         <Box sx={{ flex: 1 }} />
@@ -479,7 +473,7 @@ function Projects() {
                             },
                           }}
                         >
-                          Edit
+                          {t('users.editUser')}
                         </Button>
                         {currentUser?.role === 'admin' && (
                           <Button
@@ -507,7 +501,7 @@ function Projects() {
                               },
                             }}
                           >
-                            Delete
+                            {t('projects.deleteProject')}
                           </Button>
                         )}
                       </Box>
@@ -521,7 +515,7 @@ function Projects() {
       </Grid>
 
       <Dialog open={open} onClose={handleClose}>
-        <DialogTitle>Add New Project</DialogTitle>
+        <DialogTitle>{t('projects.addProject')}</DialogTitle>
         <DialogContent>
           {error && (
             <Alert severity="error" sx={{ mb: 2 }}>
@@ -532,11 +526,11 @@ function Projects() {
             select
             fullWidth
             margin="dense"
-            label="Client"
+            label={t('projects.client')}
             value={newProject.client_id}
             onChange={(e) => setNewProject({ ...newProject, client_id: e.target.value })}
             error={!!error && !newProject.client_id}
-            helperText={!newProject.client_id ? 'Please select a client' : ''}
+            helperText={!newProject.client_id ? t('projects.validation.clientRequired') : ''}
           >
             {clients.map((client) => (
               <MenuItem key={client.id} value={client.id}>
@@ -547,23 +541,23 @@ function Projects() {
           <TextField
             autoFocus
             margin="dense"
-            label="Project Name"
+            label={t('projects.projectName')}
             fullWidth
             value={newProject.name}
             onChange={(e) => setNewProject({ ...newProject, name: e.target.value })}
             error={!!error && !newProject.name.trim()}
-            helperText={!newProject.name.trim() ? 'Project name is required' : ''}
+            helperText={!newProject.name.trim() ? t('projects.validation.nameRequired') : ''}
           />
           <TextField
             margin="dense"
-            label="Project Code (optional)"
+            label={t('projects.projectCode')}
             fullWidth
             value={newProject.code}
             onChange={(e) => setNewProject({ ...newProject, code: e.target.value })}
           />
           <TextField
             margin="dense"
-            label="Description"
+            label={t('projects.description')}
             fullWidth
             multiline
             rows={4}
@@ -593,7 +587,7 @@ function Projects() {
               },
             }}
           >
-            Cancel
+            {t('common.actions.cancel')}
           </Button>
           <Button onClick={handleSubmit} variant="contained" color="primary"
             sx={{
@@ -612,7 +606,7 @@ function Projects() {
               },
             }}
           >
-            Add Project
+            {t('projects.addProject')}
           </Button>
         </DialogActions>
       </Dialog>
@@ -623,19 +617,17 @@ function Projects() {
         maxWidth="md"
         fullWidth
       >
-        <DialogTitle>
-          Time Entries for {selectedProject?.name}
-        </DialogTitle>
+        <DialogTitle>{t('projects.timeEntriesFor', { name: selectedProject?.name })}</DialogTitle>
         <DialogContent>
           <TableContainer component={Paper}>
             <Table>
               <TableHead>
                 <TableRow>
                   <TableCell>#</TableCell>
-                  <TableCell>Date / Weekday</TableCell>
-                  <TableCell>User</TableCell>
-                  <TableCell>Hours</TableCell>
-                  <TableCell>Submission Date/Time</TableCell>
+                  <TableCell>{t('projects.dateWeekday')}</TableCell>
+                  <TableCell>{t('projects.user')}</TableCell>
+                  <TableCell>{t('projects.hours')}</TableCell>
+                  <TableCell>{t('projects.submissionDateTime')}</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -643,17 +635,17 @@ function Projects() {
                   <TableRow key={entry.id}>
                     <TableCell>{entry.entry_number}</TableCell>
                     <TableCell>
-                      {entry.date} ({['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date(entry.date).getDay()]})
+                      {entry.date} ({['Ãâ€™Ã‘Â','ÃÅ¸ÃÂ½','Ãâ€™Ã‘â€š','ÃÂ¡Ã‘â‚¬','ÃÂ§Ã‘â€š','ÃÅ¸Ã‘â€š','ÃÂ¡ÃÂ±'][new Date(entry.date).getDay()]})
                     </TableCell>
                     <TableCell>{entry.user_name}</TableCell>
                     <TableCell>{entry.hours}</TableCell>
-                    <TableCell>{format(new Date(entry.submission_time), 'PPpp')}</TableCell>
+                    <TableCell>{format(new Date(entry.submission_time), 'Pp', { locale: ru })}</TableCell>
                   </TableRow>
                 ))}
                 {timeEntries.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={4} align="center">
-                      No time entries found for this project
+                      {t('projects.noTimeEntries')}
                     </TableCell>
                   </TableRow>
                 )}
@@ -662,12 +654,12 @@ function Projects() {
           </TableContainer>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleTimeEntriesClose}>Close</Button>
+          <Button onClick={handleTimeEntriesClose}>{t('common.actions.close')}</Button>
         </DialogActions>
       </Dialog>
 
       <Dialog open={editOpen} onClose={handleEditClose}>
-        <DialogTitle>Edit Project</DialogTitle>
+        <DialogTitle>{t('projects.editProject')}</DialogTitle>
         <DialogContent>
           {error && (
             <Alert severity="error" sx={{ mb: 2 }}>
@@ -678,11 +670,11 @@ function Projects() {
             select
             fullWidth
             margin="dense"
-            label="Client"
+            label={t('projects.client')}
             value={editProject?.client_id || ''}
             onChange={(e) => setEditProject({ ...editProject, client_id: e.target.value })}
             error={!!error && !editProject?.client_id}
-            helperText={!editProject?.client_id ? 'Please select a client' : ''}
+            helperText={!editProject?.client_id ? t('projects.validation.clientRequired') : ''}
           >
             {clients.map((client) => (
               <MenuItem key={client.id} value={client.id}>
@@ -693,23 +685,23 @@ function Projects() {
           <TextField
             autoFocus
             margin="dense"
-            label="Project Name"
+            label={t('projects.projectName')}
             fullWidth
             value={editProject?.name || ''}
             onChange={(e) => setEditProject({ ...editProject, name: e.target.value })}
             error={!!error && !editProject?.name?.trim()}
-            helperText={!editProject?.name?.trim() ? 'Project name is required' : ''}
+            helperText={!editProject?.name?.trim() ? t('projects.validation.nameRequired') : ''}
           />
           <TextField
             margin="dense"
-            label="Project Code (optional)"
+            label={t('projects.projectCode')}
             fullWidth
             value={editProject?.code || ''}
             onChange={(e) => setEditProject({ ...editProject, code: e.target.value })}
           />
           <TextField
             margin="dense"
-            label="Description"
+            label={t('projects.description')}
             fullWidth
             multiline
             rows={4}
@@ -739,7 +731,7 @@ function Projects() {
               },
             }}
           >
-            Cancel
+            {t('common.actions.cancel')}
           </Button>
           <Button onClick={handleEditSave} variant="contained" color="primary"
             sx={{
@@ -758,15 +750,15 @@ function Projects() {
               },
             }}
           >
-            Save
+            {t('common.actions.save')}
           </Button>
         </DialogActions>
       </Dialog>
 
       <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
-        <DialogTitle>Delete Project</DialogTitle>
+        <DialogTitle>{t('projects.deleteProject')}</DialogTitle>
         <DialogContent>
-          <Typography>Are you sure you want to delete the project "{projectToDelete?.name}" and all its time entries?</Typography>
+          <Typography>{t('projects.confirmDelete', { name: projectToDelete?.name })}</Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDeleteDialogOpen(false)}
@@ -790,7 +782,7 @@ function Projects() {
               },
             }}
           >
-            Cancel
+            {t('common.actions.cancel')}
           </Button>
           <Button onClick={confirmDeleteProject} color="error" variant="contained"
             sx={{
@@ -809,7 +801,7 @@ function Projects() {
               },
             }}
           >
-            Delete
+            {t('projects.deleteProject')}
           </Button>
         </DialogActions>
       </Dialog>

@@ -2,6 +2,8 @@ import React from 'react';
 import { Box, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, TextField, MenuItem, Button, DialogActions, Typography, IconButton } from '@mui/material';
 import { Add, Remove } from '@mui/icons-material';
 import { format } from 'date-fns';
+import { ru } from 'date-fns/locale';
+import { useTranslation } from '../i18n/I18nProvider';
 
 function HourInput({ value, onChange }) {
   const handleDecrement = () => {
@@ -27,7 +29,9 @@ function HourInput({ value, onChange }) {
   );
 }
 
+
 function SingleProjectWeekEditor({ entry, projects, daysOfWeek, weekStart, onChange, onSave, onCancel, error, loading }) {
+  const { t } = useTranslation();
   const handleProjectChange = (e) => {
     onChange({ ...entry, project_id: e.target.value });
   };
@@ -47,18 +51,18 @@ function SingleProjectWeekEditor({ entry, projects, daysOfWeek, weekStart, onCha
         <Table size="small">
           <TableHead>
             <TableRow>
-              <TableCell>Project</TableCell>
+              <TableCell>{t('timeEntries.project')}</TableCell>
               {daysOfWeek.map((day, i) => (
                 <TableCell key={day.key} align="center">
                   <Typography variant="body2">
                     {day.label}
                   </Typography>
                   <Typography variant="caption" color="textSecondary">
-                    {format(new Date(weekStart.getTime() + i * 86400000), 'dd.MM')}
+                    {format(new Date(weekStart.getTime() + i * 86400000), 'dd.MM', { locale: ru })}
                   </Typography>
                 </TableCell>
               ))}
-              <TableCell align="center">Total</TableCell>
+              <TableCell align="center">{t('timeEntries.total')}</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -95,9 +99,9 @@ function SingleProjectWeekEditor({ entry, projects, daysOfWeek, weekStart, onCha
       </TableContainer>
       {error && <Typography color="error" sx={{ mb: 2 }}>{error}</Typography>}
       <DialogActions>
-        <Button onClick={onCancel}>Cancel</Button>
+        <Button onClick={onCancel}>{t('common.actions.cancel')}</Button>
         <Button onClick={onSave} variant="contained" color="primary" disabled={loading}>
-          Save
+          {t('common.actions.save')}
         </Button>
       </DialogActions>
     </Box>

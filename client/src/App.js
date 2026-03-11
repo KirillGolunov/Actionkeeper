@@ -1,8 +1,8 @@
-﻿import React, { useEffect } from 'react';
+import React, { useEffect } from 'react';
 import { Routes, Route, useLocation } from 'react-router-dom';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
-import { Container, Box } from '@mui/material';
+import { Box } from '@mui/material';
 import Navbar from './components/Navbar';
 import AutoLoginInfoDialog from './components/AutoLoginInfoDialog';
 import Projects from './pages/Projects';
@@ -19,6 +19,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import Profile from './pages/Profile';
 import Setup from './pages/Setup';
 import axios from 'axios';
+import { useTranslation } from './i18n/I18nProvider';
 
 const theme = createTheme({
   palette: {
@@ -34,9 +35,10 @@ const theme = createTheme({
 
 function AdminRoute({ children }) {
   const { user, loading } = useAuth();
+  const { t } = useTranslation();
   if (loading) return null;
   if (!user || user.role !== 'admin') {
-    return <div style={{ padding: 32, textAlign: 'center', fontSize: 20, color: '#b71c1c' }}>Not authorized</div>;
+    return <div style={{ padding: 32, textAlign: 'center', fontSize: 20, color: '#b71c1c' }}>{t('common.notAuthorized')}</div>;
   }
   return children;
 }
@@ -49,6 +51,7 @@ function SetupCheck() {
     location.pathname.startsWith('/invite/accept/') ||
     location.pathname === '/setup';
   const { isAuthenticated, loading } = useAuth();
+
   useEffect(() => {
     if (isAuthPage || loading || !isAuthenticated) return;
     axios.get('/api/users').catch(err => {
@@ -56,19 +59,18 @@ function SetupCheck() {
         err.response &&
         err.response.status === 403 &&
         err.response.data &&
-        typeof err.response.data.error === 'string' &&
-        err.response.data.error.includes('Initial setup required')
+        err.response.data.errorCode === 'setup.required'
       ) {
         window.location.href = '/setup';
       }
     });
   }, [location.pathname, isAuthPage, isAuthenticated, loading]);
+
   return null;
 }
 
 function App() {
   const location = useLocation();
-  console.log('App.js location.pathname:', location.pathname);
   const isAuthPage =
     location.pathname === '/signin' ||
     location.pathname.startsWith('/auth/magic-link/') ||
@@ -99,11 +101,7 @@ function App() {
                 <Route path="/clients" element={<ProtectedRoute><Clients /></ProtectedRoute>} />
                 <Route path="/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />
                 <Route path="/settings/smtp" element={<ProtectedRoute><AdminRoute><SMTPSettings /></AdminRoute></ProtectedRoute>} />
-                <Route path="/profile" element={
-                  <ProtectedRoute>
-                    <Profile />
-                  </ProtectedRoute>
-                } />
+                <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
                 <Route path="/setup" element={<Setup />} />
               </Routes>
             </Box>
@@ -114,5 +112,4 @@ function App() {
   );
 }
 
-export default App; 
-
+export default App;

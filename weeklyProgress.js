@@ -44,7 +44,7 @@ function endOfNextWeekSession(referenceDate = new Date()) {
 
 function getWorkDays(referenceDate = new Date()) {
   const { weekStart } = getWeekBounds(referenceDate);
-  const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+  const labels = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт'];
   return labels.map((label, index) => {
     const date = new Date(weekStart);
     date.setDate(weekStart.getDate() + index);

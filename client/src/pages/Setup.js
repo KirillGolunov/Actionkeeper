@@ -8,12 +8,15 @@ import {
   Paper,
   Grid,
   FormControlLabel,
-  Checkbox
+  Checkbox,
 } from '@mui/material';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from '../i18n/I18nProvider';
+import { getApiErrorMessage } from '../utils/apiErrorMessage';
 
 export default function Setup() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [admin, setAdmin] = useState({ name: '', surname: '', email: '' });
   const [smtp, setSmtp] = useState({ host: '', port: '', user: '', pass: '', from: '', secure: false });
@@ -27,6 +30,7 @@ export default function Setup() {
   const handleAdminChange = (e) => {
     setAdmin({ ...admin, [e.target.name]: e.target.value });
   };
+
   const handleSmtpChange = (e) => {
     const { name, value, type, checked } = e.target;
     setSmtp({
@@ -42,10 +46,10 @@ export default function Setup() {
     setLoading(true);
     try {
       await axios.post('/api/setup', { ...admin, smtp });
-      setSuccess('Setup complete! Redirecting to sign in...');
+      setSuccess(t('setup.completeSuccess'));
       setTimeout(() => navigate('/signin'), 2000);
     } catch (err) {
-      setError(err.response?.data?.error || 'Setup failed.');
+      setError(getApiErrorMessage(err, t, 'setup.failed'));
     } finally {
       setLoading(false);
     }
@@ -56,9 +60,9 @@ export default function Setup() {
     setTestEmailLoading(true);
     try {
       await axios.post('/api/smtp-test', { ...smtp, to: admin.email });
-      setTestEmailStatus({ type: 'success', msg: 'Test email sent successfully!' });
+      setTestEmailStatus({ type: 'success', msg: t('setup.testSuccess') });
     } catch (err) {
-      setTestEmailStatus({ type: 'error', msg: err.response?.data?.error || 'Failed to send test email.' });
+      setTestEmailStatus({ type: 'error', msg: getApiErrorMessage(err, t, 'setup.testFailed') });
     } finally {
       setTestEmailLoading(false);
     }
@@ -68,18 +72,15 @@ export default function Setup() {
     <Box sx={{ minHeight: '100vh', py: 2, px: { xs: 1, sm: 2 } }}>
       <Paper elevation={1} sx={{ border: '1px solid #E2E4E9', borderRadius: '12px', boxShadow: 1, maxWidth: 650, mx: 'auto', p: { xs: 2, sm: 4 }, mt: 4 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-          <Typography variant="h5" sx={{ fontWeight: 600, color: '#5673DC' }}>Initial Setup</Typography>
+          <Typography variant="h5" sx={{ fontWeight: 600, color: '#5673DC' }}>{t('setup.title')}</Typography>
         </Box>
         <Typography variant="body1" sx={{ mb: 2, color: '#222', fontSize: 14, lineHeight: 1.6 }}>
-        <b>Welcome to TimeTracker!</b><br />
-        TimeTracker helps your team log hours and stay on top of project work — simply and securely.<br />
-        To get started, enter your admin details and set up email so we can send magic login links (no passwords needed!).<br />
-        You can test your email settings before finishing.<br />
-        When you're all set, hit <b>Complete Setup</b> and you're good to go!
+          <b>{t('setup.introTitle')}</b><br />
+          {t('setup.introBody')}
         </Typography>
         {!isProduction && (
           <Alert severity="info" sx={{ mb: 2 }}>
-            Local development tip: you can leave SMTP blank and finish setup.
+            {t('setup.localDevTip')}
           </Alert>
         )}
         {error && <Alert severity="error" sx={{ mb: 1 }}>{error}</Alert>}
@@ -87,21 +88,21 @@ export default function Setup() {
         <form onSubmit={handleSubmit}>
           <Grid container spacing={2}>
             <Grid item xs={12} sm={6}>
-              <Typography variant="subtitle1" sx={{ mb: 1, color: '#5673DC' }}>Admin User</Typography>
-              <TextField label="Name" name="name" value={admin.name} onChange={handleAdminChange} fullWidth required size="small" sx={{ mb: 1 }} />
-              <TextField label="Surname" name="surname" value={admin.surname} onChange={handleAdminChange} fullWidth required size="small" sx={{ mb: 1 }} />
-              <TextField label="Email" name="email" value={admin.email} onChange={handleAdminChange} fullWidth required size="small" sx={{ mb: 1 }} />
+              <Typography variant="subtitle1" sx={{ mb: 1, color: '#5673DC' }}>{t('setup.adminSection')}</Typography>
+              <TextField label={t('fields.name')} name="name" value={admin.name} onChange={handleAdminChange} fullWidth required size="small" sx={{ mb: 1 }} />
+              <TextField label={t('fields.surname')} name="surname" value={admin.surname} onChange={handleAdminChange} fullWidth required size="small" sx={{ mb: 1 }} />
+              <TextField label={t('fields.email')} name="email" value={admin.email} onChange={handleAdminChange} fullWidth required size="small" sx={{ mb: 1 }} />
             </Grid>
             <Grid item xs={12} sm={6}>
-              <Typography variant="subtitle1" sx={{ mb: 1, color: '#5673DC' }}>SMTP Settings</Typography>
-              <TextField label="Host" name="host" value={smtp.host} onChange={handleSmtpChange} fullWidth required={isProduction} size="small" sx={{ mb: 1 }} />
-              <TextField label="Port" name="port" value={smtp.port} onChange={handleSmtpChange} fullWidth required={isProduction} size="small" sx={{ mb: 1 }} />
-              <TextField label="User" name="user" value={smtp.user} onChange={handleSmtpChange} fullWidth required={isProduction} size="small" sx={{ mb: 1 }} />
-              <TextField label="Password" name="pass" value={smtp.pass} onChange={handleSmtpChange} type="password" fullWidth required={isProduction} size="small" sx={{ mb: 1 }} />
-              <TextField label="From Email" name="from" value={smtp.from} onChange={handleSmtpChange} fullWidth required={isProduction} size="small" sx={{ mb: 1 }} />
+              <Typography variant="subtitle1" sx={{ mb: 1, color: '#5673DC' }}>{t('setup.smtpSection')}</Typography>
+              <TextField label={t('fields.host')} name="host" value={smtp.host} onChange={handleSmtpChange} fullWidth required={isProduction} size="small" sx={{ mb: 1 }} />
+              <TextField label={t('fields.port')} name="port" value={smtp.port} onChange={handleSmtpChange} fullWidth required={isProduction} size="small" sx={{ mb: 1 }} />
+              <TextField label={t('fields.user')} name="user" value={smtp.user} onChange={handleSmtpChange} fullWidth required={isProduction} size="small" sx={{ mb: 1 }} />
+              <TextField label={t('fields.password')} name="pass" value={smtp.pass} onChange={handleSmtpChange} type="password" fullWidth required={isProduction} size="small" sx={{ mb: 1 }} />
+              <TextField label={t('fields.fromEmail')} name="from" value={smtp.from} onChange={handleSmtpChange} fullWidth required={isProduction} size="small" sx={{ mb: 1 }} />
               <FormControlLabel
                 control={<Checkbox name="secure" checked={smtp.secure} onChange={handleSmtpChange} size="small" />}
-                label={<span style={{ fontSize: 14 }}>Use SSL/TLS (secure connection)</span>}
+                label={<span style={{ fontSize: 14 }}>{t('setup.secure')}</span>}
                 sx={{ mb: 1 }}
               />
               <Button
@@ -112,11 +113,9 @@ export default function Setup() {
                 fullWidth
                 size="small"
               >
-                {testEmailLoading ? 'Sending...' : 'Send Test Email'}
+                {testEmailLoading ? t('setup.sending') : t('setup.sendTestEmail')}
               </Button>
-              {testEmailStatus && (
-                <Alert severity={testEmailStatus.type} sx={{ mt: 0.5, fontSize: 14 }}>{testEmailStatus.msg}</Alert>
-              )}
+              {testEmailStatus && <Alert severity={testEmailStatus.type} sx={{ mt: 0.5, fontSize: 14 }}>{testEmailStatus.msg}</Alert>}
             </Grid>
             <Grid item xs={12}>
               <Button
@@ -128,7 +127,7 @@ export default function Setup() {
                 fullWidth
                 size="medium"
               >
-                {loading ? 'Setting up...' : 'Complete Setup'}
+                {loading ? t('setup.settingUp') : t('setup.completeSetup')}
               </Button>
             </Grid>
           </Grid>
@@ -136,5 +135,4 @@ export default function Setup() {
       </Paper>
     </Box>
   );
-} 
-
+}

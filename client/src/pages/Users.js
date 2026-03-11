@@ -31,8 +31,11 @@ import CloseIcon from '@mui/icons-material/Close';
 import AutorenewIcon from '@mui/icons-material/Autorenew';
 import Snackbar from '@mui/material/Snackbar';
 import { useAuth } from '../context/AuthContext';
+import { useTranslation } from '../i18n/I18nProvider';
+import { getApiErrorMessage } from '../utils/apiErrorMessage';
 
 function Users() {
+  const { t } = useTranslation();
   const [users, setUsers] = useState([]);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState(null);
@@ -69,22 +72,22 @@ function Users() {
     active: {
       selected: { background: '#F5F7FE', color: '#5673DC', border: '1px solid #5673DC' },
       default: { background: '#F5F7FA', color: '#90A0B7', border: 'none' },
-      label: 'Active',
+      label: t('users.active'),
     },
     deleted: {
       selected: { background: '#F5EAFE', color: '#A259E6', border: '1px solid #A259E6' },
       default: { background: '#F5F7FA', color: '#90A0B7', border: 'none' },
-      label: 'Deleted',
+      label: t('users.deleted'),
     },
     user: {
       selected: { background: '#E6F0F5', color: '#3B6C74', border: '1px solid #3B6C74' },
       default: { background: '#F5F7FA', color: '#90A0B7', border: 'none' },
-      label: 'User',
+      label: t('users.user'),
     },
     admin: {
       selected: { background: '#F5EAFE', color: '#7C3A6A', border: '1px solid #7C3A6A' },
       default: { background: '#F5F7FA', color: '#90A0B7', border: 'none' },
-      label: 'Admin',
+      label: t('users.admin'),
     },
   };
 
@@ -100,7 +103,7 @@ function Users() {
       setUsers(response.data);
     } catch (error) {
       console.error('Error fetching users:', error);
-      setError('Failed to fetch users. Please try again.');
+      setError(t('users.errors.fetch'));
     }
   };
 
@@ -125,19 +128,19 @@ function Users() {
 
   const handleSubmit = () => {
     if (!newUser.name.trim()) {
-      setError('Name is required');
+      setError(t('users.validation.nameRequired'));
       return;
     }
     if (!newUser.surname.trim()) {
-      setError('Surname is required');
+      setError(t('users.validation.surnameRequired'));
       return;
     }
     if (!newUser.email.trim()) {
-      setError('Email is required');
+      setError(t('users.validation.emailRequired'));
       return;
     }
     if (!isValidEmail(newUser.email)) {
-      setError('Please enter a valid email address');
+      setError(t('users.validation.emailInvalid'));
       return;
     }
     setInviteDialogOpen(true);
@@ -158,10 +161,10 @@ function Users() {
       setNewUser({ name: '', surname: '', email: '', role: 'user' });
       setAddDraft({ name: '', surname: '', email: '', role: 'user' });
       setInviteDialogOpen(false);
-      setSnackbarMsg('Invitation sent successfully!');
+      setSnackbarMsg(t('users.invitationSent'));
       setSnackbarOpen(true);
     } catch (error) {
-      setError(error.response?.data?.error || 'Failed to send invitation.');
+      setError(getApiErrorMessage(error, t, 'users.errors.sendInvitation'));
     } finally {
       setInviteLoading(false);
     }
@@ -186,26 +189,26 @@ function Users() {
   const handleEditSave = async () => {
     try {
       if (!editUser.name.trim()) {
-        setError('Name is required');
+        setError(t('users.validation.nameRequired'));
         return;
       }
       if (!editUser.surname.trim()) {
-        setError('Surname is required');
+        setError(t('users.validation.surnameRequired'));
         return;
       }
       if (!editUser.email.trim()) {
-        setError('Email is required');
+        setError(t('users.validation.emailRequired'));
         return;
       }
       if (!isValidEmail(editUser.email)) {
-        setError('Please enter a valid email address');
+        setError(t('users.validation.emailInvalid'));
         return;
       }
       await axios.patch(`/api/users/${editUser.id}`, editUser);
       fetchUsers();
       handleEditClose();
     } catch (error) {
-      setError(error.response?.data?.error || 'Failed to update user. Please try again.');
+      setError(getApiErrorMessage(error, t, 'users.errors.update'));
     }
   };
 
@@ -231,7 +234,7 @@ function Users() {
       setDeleteLoading(false);
       fetchUsers();
     } catch (error) {
-      setError('Failed to delete user and/or their time entries.');
+      setError(t('users.errors.delete'));
       setDeleteDialogOpen(false);
       setUserToDelete(null);
       setDeleteLoading(false);
@@ -250,19 +253,19 @@ function Users() {
 
   const handleAddUser = () => {
     if (!addDraft.name.trim()) {
-      setError('Name is required');
+      setError(t('users.validation.nameRequired'));
       return;
     }
     if (!addDraft.surname.trim()) {
-      setError('Surname is required');
+      setError(t('users.validation.surnameRequired'));
       return;
     }
     if (!addDraft.email.trim()) {
-      setError('Email is required');
+      setError(t('users.validation.emailRequired'));
       return;
     }
     if (!isValidEmail(addDraft.email)) {
-      setError('Please enter a valid email address');
+      setError(t('users.validation.emailInvalid'));
       return;
     }
     // Set newUser to addDraft and open the invite modal
@@ -285,11 +288,11 @@ function Users() {
   const handleEditSaveInline = async () => {
     try {
       if (!editUserDraft.name.trim() || !editUserDraft.surname.trim() || !editUserDraft.email.trim()) {
-        setError('All fields are required');
+        setError(t('users.validation.allRequired'));
         return;
       }
       if (!isValidEmail(editUserDraft.email)) {
-        setError('Please enter a valid email address');
+        setError(t('users.validation.emailInvalid'));
         return;
       }
       await axios.patch(`/api/users/${editUserDraft.id}`, editUserDraft);
@@ -298,7 +301,7 @@ function Users() {
       setEditUserDraft(null);
       setError(null);
     } catch (error) {
-      setError(error.response?.data?.error || 'Failed to update user. Please try again.');
+      setError(getApiErrorMessage(error, t, 'users.errors.update'));
     }
   };
 
@@ -319,11 +322,11 @@ function Users() {
     try {
       await axios.post('/api/invitations', { email: resendEmail, invited_by: null });
       fetchInvitations();
-      setSnackbarMsg('Invitation resent successfully!');
+      setSnackbarMsg(t('users.invitationResent'));
       setSnackbarOpen(true);
       setTimeout(() => setResendDialogOpen(false), 1200);
     } catch (error) {
-      setResendError(error.response?.data?.error || 'Failed to resend invitation.');
+      setResendError(getApiErrorMessage(error, t, 'users.errors.resendInvitation'));
     } finally {
       setResendLoading(false);
     }
@@ -333,7 +336,7 @@ function Users() {
     <Box>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Typography variant="h4">Users</Typography>
+          <Typography variant="h4">{t('users.title')}</Typography>
           <Box sx={{ display: 'flex', gap: 1, ml: 2 }}>
             {Object.keys(tagStyles).map((key) => (
               <Chip
@@ -366,13 +369,13 @@ function Users() {
         <Table size="small">
           <TableHead>
             <TableRow sx={{ height: 40, minHeight: 40 }}>
-              <TableCell sx={{ fontWeight: 'bold', p: 0, pt: 1, px: 2, py: 1, width: 300, maxWidth: 300, minWidth: 220 }}>Surname</TableCell>
-              <TableCell sx={{ fontWeight: 'bold', p: 0, pt: 1, px: 2, py: 1, width: 260, maxWidth: 260, minWidth: 180 }}>Name</TableCell>
-              <TableCell sx={{ fontWeight: 'bold', p: 0, pt: 1, px: 2, py: 1 }}>Email</TableCell>
-              <TableCell sx={{ fontWeight: 'bold', p: 0, pt: 1, px: 2, py: 1 }}>Role</TableCell>
-              <TableCell sx={{ fontWeight: 'bold', p: 0, pt: 1, px: 2, py: 1, width: 120, maxWidth: 120 }}>Status</TableCell>
+              <TableCell sx={{ fontWeight: 'bold', p: 0, pt: 1, px: 2, py: 1, width: 300, maxWidth: 300, minWidth: 220 }}>{t('users.surname')}</TableCell>
+              <TableCell sx={{ fontWeight: 'bold', p: 0, pt: 1, px: 2, py: 1, width: 260, maxWidth: 260, minWidth: 180 }}>{t('users.name')}</TableCell>
+              <TableCell sx={{ fontWeight: 'bold', p: 0, pt: 1, px: 2, py: 1 }}>{t('users.email')}</TableCell>
+              <TableCell sx={{ fontWeight: 'bold', p: 0, pt: 1, px: 2, py: 1 }}>{t('users.role')}</TableCell>
+              <TableCell sx={{ fontWeight: 'bold', p: 0, pt: 1, px: 2, py: 1, width: 120, maxWidth: 120 }}>{t('users.status')}</TableCell>
               {currentUser?.role === 'admin' && (
-                <TableCell align="right" sx={{ fontWeight: 'bold', p: 0, pt: 1, px: 2, py: 1 }}>Actions</TableCell>
+                <TableCell align="right" sx={{ fontWeight: 'bold', p: 0, pt: 1, px: 2, py: 1, width: 320, minWidth: 320 }}>{t('users.actions')}</TableCell>
               )}
             </TableRow>
           </TableHead>
@@ -383,7 +386,7 @@ function Users() {
                   <TextField
                     size="small"
                     fullWidth
-                    placeholder="Surname"
+                    placeholder={t('users.surname')}
                     value={addDraft.surname}
                     onChange={e => setAddDraft(d => ({ ...d, surname: e.target.value }))}
                     sx={{ background: '#f7f8fa', borderRadius: 2, '& .MuiOutlinedInput-root': { fontSize: 14, borderRadius: 2, background: '#f7f8fa' } }}
@@ -393,7 +396,7 @@ function Users() {
                   <TextField
                     size="small"
                     fullWidth
-                    placeholder="Name"
+                    placeholder={t('users.name')}
                     value={addDraft.name}
                     onChange={e => setAddDraft(d => ({ ...d, name: e.target.value }))}
                     sx={{ background: '#f7f8fa', borderRadius: 2, '& .MuiOutlinedInput-root': { fontSize: 14, borderRadius: 2, background: '#f7f8fa' } }}
@@ -403,7 +406,7 @@ function Users() {
                   <TextField
                     size="small"
                     fullWidth
-                    placeholder="Email"
+                    placeholder={t('users.email')}
                     value={addDraft.email}
                     onChange={e => setAddDraft(d => ({ ...d, email: e.target.value }))}
                     sx={{ background: '#f7f8fa', borderRadius: 2, '& .MuiOutlinedInput-root': { fontSize: 14, borderRadius: 2, background: '#f7f8fa' } }}
@@ -418,12 +421,12 @@ function Users() {
                     onChange={e => setAddDraft(d => ({ ...d, role: e.target.value }))}
                     sx={{ background: '#f7f8fa', borderRadius: 2, '& .MuiOutlinedInput-root': { fontSize: 14, borderRadius: 2, background: '#f7f8fa' } }}
                   >
-                    <MenuItem value="user">User</MenuItem>
-                    <MenuItem value="admin">Admin</MenuItem>
+                    <MenuItem value="user">{t('users.user')}</MenuItem>
+                    <MenuItem value="admin">{t('users.admin')}</MenuItem>
                   </TextField>
                 </TableCell>
                 <TableCell sx={{ px: 2, py: 1, width: 120, maxWidth: 120 }}></TableCell>
-                <TableCell align="right" sx={{ px: 2, py: 1 }}>
+                <TableCell align="right" sx={{ px: 2, py: 1, width: 320, minWidth: 320 }}>
                   <Button size="small" variant="contained" onClick={handleAddUser}
                     sx={{
                       minWidth: 70,
@@ -439,7 +442,7 @@ function Users() {
                       '&:hover': { backgroundColor: '#4A69D9' },
                     }}
                   >
-                    Add
+                    {t('users.add')}
                   </Button>
                 </TableCell>
               </TableRow>
@@ -501,12 +504,12 @@ function Users() {
                         onChange={e => setEditUserDraft(d => ({ ...d, role: e.target.value }))}
                         sx={{ background: '#f7f8fa', borderRadius: 2, '& .MuiOutlinedInput-root': { fontSize: 14, borderRadius: 2, background: '#f7f8fa' } }}
                       >
-                        <MenuItem value="user">User</MenuItem>
-                        <MenuItem value="admin">Admin</MenuItem>
+                        <MenuItem value="user">{t('users.user')}</MenuItem>
+                        <MenuItem value="admin">{t('users.admin')}</MenuItem>
                       </TextField>
                     ) : (
                       <Chip
-                        label={user.role === 'admin' ? 'Admin' : 'User'}
+                        label={user.role === 'admin' ? t('users.admin') : t('users.user')}
                         size="small"
                         sx={user.deleted ? {
                           fontSize: '11px',
@@ -555,23 +558,23 @@ function Users() {
                         onChange={e => setEditUserDraft(d => ({ ...d, deleted: e.target.value === 'deleted' ? 1 : 0 }))}
                         sx={{ background: '#f7f8fa', borderRadius: 2, '& .MuiOutlinedInput-root': { fontSize: 14, borderRadius: 2, background: '#f7f8fa' } }}
                       >
-                        <MenuItem value="active">Active</MenuItem>
-                        <MenuItem value="deleted">Deleted</MenuItem>
+                        <MenuItem value="active">{t('users.active')}</MenuItem>
+                        <MenuItem value="deleted">{t('users.deleted')}</MenuItem>
                       </TextField>
                     ) : (
                       user.deleted ? (
-                        <Chip label="Deleted" size="small" sx={{ fontSize: '11px', height: '20px', minWidth: '64px', borderRadius: '6px', background: '#F5F7FA', color: '#bdbdbd', border: '1px solid #bdbdbd', fontWeight: 400 }} />
+                        <Chip label={t('users.deleted')} size="small" sx={{ fontSize: '11px', height: '20px', minWidth: '64px', borderRadius: '6px', background: '#F5F7FA', color: '#bdbdbd', border: '1px solid #bdbdbd', fontWeight: 400 }} />
                       ) : user.invited ? (
-                        <Chip label="Invited" size="small" sx={{ fontSize: '11px', height: '20px', minWidth: '64px', borderRadius: '6px', background: '#FFF8E1', color: '#B28704', border: '1px solid #FFD600', fontWeight: 400 }} />
+                        <Chip label={t('users.invited')} size="small" sx={{ fontSize: '11px', height: '20px', minWidth: '64px', borderRadius: '6px', background: '#FFF8E1', color: '#B28704', border: '1px solid #FFD600', fontWeight: 400 }} />
                       ) : (
-                        <Chip label="Active" size="small" sx={{ fontSize: '11px', height: '20px', minWidth: '64px', borderRadius: '6px', background: '#F5F7FE', color: '#5673DC', border: '1px solid #5673DC', fontWeight: 400 }} />
+                        <Chip label={t('users.active')} size="small" sx={{ fontSize: '11px', height: '20px', minWidth: '64px', borderRadius: '6px', background: '#F5F7FE', color: '#5673DC', border: '1px solid #5673DC', fontWeight: 400 }} />
                       )
                     )}
                   </TableCell>
                   {currentUser?.role === 'admin' && (
-                    <TableCell align="right" sx={{ px: 2, py: 1 }}>
+                    <TableCell align="right" sx={{ px: 2, py: 1, width: 320, minWidth: 320 }}>
                       {isEditing ? (
-                        <>
+                        <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 1, flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
                           <Button size="small" variant="contained" onClick={handleEditSaveInline}
                             sx={{
                               minWidth: 70,
@@ -590,7 +593,7 @@ function Users() {
                               '&:hover': { background: '#4A69D9', border: '1.5px solid #4A69D9' },
                             }}
                           >
-                            Save
+                            {t('common.actions.save')}
                           </Button>
                           <Button size="small" variant="contained" onClick={handleEditCancel}
                             startIcon={<CloseIcon />}
@@ -608,18 +611,17 @@ function Users() {
                               py: 0,
                               boxShadow: 'none',
                               margin: 0,
-                              ml: 1,
                               '&:hover': { background: '#ffd6d6', border: '1.5px solid #b71c1c', color: '#b71c1c' },
                             }}
                           >
-                            Cancel
+                            {t('common.actions.cancel')}
                           </Button>
-                        </>
+                        </Box>
                       ) : (
-                        <>
+                        <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 1, flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
                           {user.invited === 1 && !user.deleted && (
-                            <Tooltip title="Resend invitation">
-                              <Button size="small" onClick={() => handleResendClick(user.email)} sx={{ minWidth: 36, color: '#fff', background: '#5673DC', borderRadius: 2, mr: 1, '&:hover': { background: '#4A69D9' } }}>
+                            <Tooltip title={t('users.resendInvitation')}>
+                              <Button size="small" onClick={() => handleResendClick(user.email)} sx={{ minWidth: 36, width: 36, height: 32, color: '#fff', background: '#5673DC', borderRadius: 2, flexShrink: 0, '&:hover': { background: '#4A69D9' } }}>
                                 <AutorenewIcon fontSize="small" />
                               </Button>
                             </Tooltip>
@@ -640,7 +642,7 @@ function Users() {
                               '&:hover': { background: 'rgba(86,115,220,0.10)', border: '1.5px solid #5673DC', color: '#5673DC' },
                             }}
                           >
-                            Edit
+                            {t('users.editUser')}
                           </Button>
                           <Button size="small" color="error" startIcon={<DeleteIcon />} onClick={() => handleDeleteUser(user)}
                             sx={{
@@ -655,13 +657,12 @@ function Users() {
                               boxShadow: 'none',
                               textTransform: 'none',
                               px: 1.2,
-                              ml: 1,
                               '&:hover': { background: 'rgba(211,47,47,0.10)', border: '1.5px solid #d32f2f', color: '#d32f2f' },
                             }}
                           >
-                            Delete
+                            {t('clients.delete')}
                           </Button>
-                        </>
+                        </Box>
                       )}
                     </TableCell>
                   )}
@@ -673,30 +674,30 @@ function Users() {
       </TableContainer>
 
       <Dialog open={open} onClose={handleClose}>
-        <DialogTitle>Add New User</DialogTitle>
+        <DialogTitle>{t('users.addUser')}</DialogTitle>
         <DialogContent>
           <TextField
             autoFocus
             margin="dense"
-            label="Name"
+            label={t('users.name')}
             fullWidth
             value={newUser.name}
             onChange={(e) => setNewUser({ ...newUser, name: e.target.value })}
             error={!!error && !newUser.name.trim()}
-            helperText={!newUser.name.trim() ? 'Name is required' : ''}
+            helperText={!newUser.name.trim() ? t('users.validation.nameRequired') : ''}
           />
           <TextField
             margin="dense"
-            label="Surname"
+            label={t('users.surname')}
             fullWidth
             value={newUser.surname}
             onChange={(e) => setNewUser({ ...newUser, surname: e.target.value })}
             error={!!error && !newUser.surname.trim()}
-            helperText={!newUser.surname.trim() ? 'Surname is required' : ''}
+            helperText={!newUser.surname.trim() ? t('users.validation.surnameRequired') : ''}
           />
           <TextField
             margin="dense"
-            label="Email"
+            label={t('users.email')}
             type="email"
             fullWidth
             value={newUser.email}
@@ -704,9 +705,9 @@ function Users() {
             error={!!error && (!newUser.email.trim() || !isValidEmail(newUser.email))}
             helperText={
               !newUser.email.trim()
-                ? 'Email is required'
+                ? t('users.validation.emailRequired')
                 : !isValidEmail(newUser.email)
-                ? 'Please enter a valid email address'
+                ? t('users.validation.emailInvalid')
                 : ''
             }
           />
@@ -714,12 +715,12 @@ function Users() {
             select
             fullWidth
             margin="dense"
-            label="Role"
+            label={t('users.role')}
             value={newUser.role}
             onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
           >
-            <MenuItem value="user">User</MenuItem>
-            <MenuItem value="admin">Admin</MenuItem>
+            <MenuItem value="user">{t('users.user')}</MenuItem>
+            <MenuItem value="admin">{t('users.admin')}</MenuItem>
           </TextField>
         </DialogContent>
         <DialogActions>
@@ -744,7 +745,7 @@ function Users() {
               },
             }}
           >
-            Cancel
+            {t('common.actions.cancel')}
           </Button>
           <Button onClick={handleSubmit} variant="contained" color="primary"
             sx={{
@@ -763,13 +764,13 @@ function Users() {
               },
             }}
           >
-            Add User
+            {t('users.addUser')}
           </Button>
         </DialogActions>
       </Dialog>
 
       <Dialog open={editOpen} onClose={handleEditClose}>
-        <DialogTitle>Edit User</DialogTitle>
+        <DialogTitle>{t('users.editUser')}</DialogTitle>
         <DialogContent>
           <TextField
             autoFocus
@@ -779,7 +780,7 @@ function Users() {
             value={editUser?.name || ''}
             onChange={(e) => setEditUser({ ...editUser, name: e.target.value })}
             error={!!error && !editUser?.name?.trim()}
-            helperText={!editUser?.name?.trim() ? 'Name is required' : ''}
+            helperText={!editUser?.name?.trim() ? t('users.validation.nameRequired') : ''}
           />
           <TextField
             margin="dense"
@@ -788,7 +789,7 @@ function Users() {
             value={editUser?.surname || ''}
             onChange={(e) => setEditUser({ ...editUser, surname: e.target.value })}
             error={!!error && !editUser?.surname?.trim()}
-            helperText={!editUser?.surname?.trim() ? 'Surname is required' : ''}
+            helperText={!editUser?.surname?.trim() ? t('users.validation.surnameRequired') : ''}
           />
           <TextField
             margin="dense"
@@ -800,9 +801,9 @@ function Users() {
             error={!!error && (!editUser?.email?.trim() || !isValidEmail(editUser?.email))}
             helperText={
               !editUser?.email?.trim()
-                ? 'Email is required'
+                ? t('users.validation.emailRequired')
                 : !isValidEmail(editUser?.email)
-                ? 'Please enter a valid email address'
+                ? t('users.validation.emailInvalid')
                 : ''
             }
           />
@@ -865,18 +866,18 @@ function Users() {
       </Dialog>
 
       <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
-        <DialogTitle>Delete User</DialogTitle>
+        <DialogTitle>{t('common.actions.delete')}</DialogTitle>
         <DialogContent>
-          <Typography>Are you sure you want to delete the user "{userToDelete?.surname} {userToDelete?.name}"?</Typography>
+          <Typography>{t('users.confirmDelete', { name: `${userToDelete?.surname || ""} ${userToDelete?.name || ""}`.trim() })}</Typography>
           <FormControl component="fieldset" sx={{ mt: 2 }}>
-            <FormLabel component="legend">What should happen to this user's logged hours?</FormLabel>
+            <FormLabel component="legend">{t('users.deleteHoursQuestion')}</FormLabel>
             <RadioGroup
               value={deleteOption}
               onChange={e => setDeleteOption(e.target.value)}
               sx={{ mt: 1 }}
             >
-              <FormControlLabel value="keep" control={<Radio />} label="Keep logged hours (delete user only)" />
-              <FormControlLabel value="delete" control={<Radio />} label="Delete user and all logged hours" />
+              <FormControlLabel value="keep" control={<Radio />} label={t('users.keepHours')} />
+              <FormControlLabel value="delete" control={<Radio />} label={t('users.deleteHours')} />
             </RadioGroup>
           </FormControl>
         </DialogContent>
@@ -922,7 +923,7 @@ function Users() {
             }}
             disabled={deleteLoading}
           >
-            {deleteLoading ? 'Deleting...' : 'Delete User'}
+            {deleteLoading ? t('users.deleting') : t('users.deleteUser')}
           </Button>
         </DialogActions>
       </Dialog>
@@ -932,10 +933,10 @@ function Users() {
           sx: { borderRadius: 3, p: 0, minWidth: 380, background: '#F7F8FA' }
         }}
       >
-        <DialogTitle sx={{ fontWeight: 700, color: '#5673DC', fontSize: 20, pb: 0, pt: 2, px: 3, background: 'transparent' }}>Send Invitation</DialogTitle>
+        <DialogTitle sx={{ fontWeight: 700, color: '#5673DC', fontSize: 20, pb: 0, pt: 2, px: 3, background: 'transparent' }}>{t('users.sendInvitation')}</DialogTitle>
         <DialogContent sx={{ px: 3, pt: 2, pb: 1 }}>
           <Typography sx={{ fontSize: 16, color: '#222', mb: 1.5 }}>
-            Send invitation to <b>{newUser.email}</b>? The user will receive an email to join.
+            {t('users.sendTo', { email: newUser.email })}
           </Typography>
           {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
         </DialogContent>
@@ -972,7 +973,7 @@ function Users() {
               '&:hover': { backgroundColor: '#4A69D9' },
             }}
           >
-            {inviteLoading ? 'Sending...' : 'Send Invitation'}
+            {inviteLoading ? t('users.sending') : t('users.sendInvitation')}
           </Button>
         </DialogActions>
       </Dialog>
@@ -982,10 +983,10 @@ function Users() {
           sx: { borderRadius: 3, p: 0, minWidth: 380, background: '#F7F8FA' }
         }}
       >
-        <DialogTitle sx={{ fontWeight: 700, color: '#5673DC', fontSize: 20, pb: 0, pt: 2, px: 3, background: 'transparent' }}>Resend Invitation</DialogTitle>
+        <DialogTitle sx={{ fontWeight: 700, color: '#5673DC', fontSize: 20, pb: 0, pt: 2, px: 3, background: 'transparent' }}>{t('users.resendInvitation')}</DialogTitle>
         <DialogContent sx={{ px: 3, pt: 2, pb: 1 }}>
           <Typography sx={{ fontSize: 16, color: '#222', mb: 1.5 }}>
-            Resend invitation to <b>{resendEmail}</b>?
+            {t('users.resendTo', { email: resendEmail })}
           </Typography>
           {resendError && <Alert severity="error" sx={{ mt: 2 }}>{resendError}</Alert>}
         </DialogContent>
@@ -1022,7 +1023,7 @@ function Users() {
               '&:hover': { backgroundColor: '#4A69D9' },
             }}
           >
-            {resendLoading ? 'Resending...' : 'Resend Invitation'}
+            {resendLoading ? t('users.resending') : t('users.resendInvitation')}
           </Button>
         </DialogActions>
       </Dialog>

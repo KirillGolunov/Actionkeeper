@@ -3,8 +3,11 @@ import { useParams, useNavigate, Link as RouterLink } from 'react-router-dom';
 import { Box, Typography, CircularProgress, Alert, Button } from '@mui/material';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
+import { useTranslation } from '../i18n/I18nProvider';
+import { getApiErrorMessage } from '../utils/apiErrorMessage';
 
 export default function MagicLinkCallback() {
+  const { t } = useTranslation();
   const { token } = useParams();
   const navigate = useNavigate();
   const { login } = useAuth();
@@ -21,29 +24,29 @@ export default function MagicLinkCallback() {
         didRedirect = true;
         navigate('/', { replace: true });
       } catch (err) {
-        setError(err.response?.data?.error || 'Invalid or expired link.');
+        setError(getApiErrorMessage(err, t, 'auth.magicLink.invalidOrExpired'));
         setLoading(false);
       }
     };
     verifyToken();
     return () => { if (didRedirect) setError(null); };
-  }, [token, navigate, login]);
+  }, [token, navigate, login, t]);
 
   return (
     <Box sx={{ minHeight: '100vh', background: '#F7F8FA', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
       {loading ? (
         <>
           <CircularProgress sx={{ mb: 3 }} />
-          <Typography sx={{ fontWeight: 600, color: '#5673DC', fontSize: 18 }}>Logging you in…</Typography>
+          <Typography sx={{ fontWeight: 600, color: '#5673DC', fontSize: 18 }}>{t('auth.magicLink.loggingIn')}</Typography>
         </>
       ) : error ? (
         <Box sx={{ textAlign: 'center' }}>
           <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>
           <Button variant="contained" component={RouterLink} to="/signin" sx={{ background: '#5673DC', '&:hover': { background: '#4A69D9' } }}>
-            Go to Sign In
+            {t('auth.magicLink.goToSignIn')}
           </Button>
         </Box>
       ) : null}
     </Box>
   );
-} 
+}
