@@ -11,6 +11,7 @@ import Avatar from '@mui/material/Avatar';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import IconButton from '@mui/material/IconButton';
+import AutoLoginBadge from './AutoLoginBadge';
 
 export default function Navbar() {
   const { user, logout, sessionStatus } = useAuth();
@@ -46,27 +47,36 @@ export default function Navbar() {
         </Box>
         {user && progress && (
           <Tooltip title={sessionStatus?.message || ''} arrow>
-            <Box sx={{ ml: 2, px: 1.5, py: 0.75, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.14)', minWidth: 220 }}>
-              <Typography sx={{ fontSize: 11, fontWeight: 700, lineHeight: 1.1 }}>Autologin</Typography>
-              <Typography sx={{ fontSize: 12, opacity: 0.95, mt: 0.35 }}>
-                {progress.completedDays}/{progress.requiredDays} days completed
-              </Typography>
-              <Box sx={{ display: 'flex', gap: 0.5, mt: 0.75 }}>
-                {progress.days.map((day) => (
-                  <Box key={day.date} sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 28 }}>
-                    <Box
-                      sx={{
-                        width: 20,
-                        height: 8,
-                        borderRadius: 999,
-                        backgroundColor: day.complete ? '#9BE7B1' : day.isToday ? '#FFD36E' : 'rgba(255,255,255,0.38)',
-                        outline: day.isToday ? '1px solid rgba(255,255,255,0.9)' : 'none',
-                        outlineOffset: 1,
-                      }}
-                    />
-                    <Typography sx={{ fontSize: 10, mt: 0.35, opacity: 0.95 }}>{day.label}</Typography>
-                  </Box>
-                ))}
+            <Box sx={{ ml: 2, pl: 1.5, pr: 1.1, py: 0.9, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.14)', display: 'inline-flex', alignItems: 'center', gap: 1.1, width: 'fit-content', maxWidth: '100%' }}>
+              <Box sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                <Typography sx={{ fontSize: 11, fontWeight: 700, lineHeight: 1.1 }}>Autologin</Typography>
+                <Typography sx={{ fontSize: 12, opacity: 0.95, mt: 0.35 }}>
+                  {progress.completedDays}/{progress.requiredDays} days completed
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 0.5, mt: 0.6 }}>
+                  {progress.days.map((day) => (
+                    <Box key={day.date} sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 28 }}>
+                      <Box
+                        sx={{
+                          width: 20,
+                          height: 8,
+                          borderRadius: 999,
+                          backgroundColor: day.complete ? '#9BE7B1' : day.isToday ? '#FFD36E' : 'rgba(255,255,255,0.38)',
+                          outline: day.isToday ? '1px solid rgba(255,255,255,0.9)' : 'none',
+                          outlineOffset: 1,
+                        }}
+                      />
+                      <Typography sx={{ fontSize: 10, mt: 0.35, opacity: 0.95 }}>{day.label}</Typography>
+                    </Box>
+                  ))}
+                </Box>
+              </Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', alignSelf: 'stretch' }}>
+                <AutoLoginBadge
+                  qualified={progress.qualified}
+                  weekStart={progress.weekStart}
+                  userEmail={user?.email}
+                />
               </Box>
             </Box>
           </Tooltip>
