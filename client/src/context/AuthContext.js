@@ -65,13 +65,20 @@ export function AuthProvider({ children }) {
   }, []);
 
   const login = async (token) => {
+    setLoading(true);
     localStorage.setItem('jwt', token);
     const decoded = jwtDecode(token);
     setUser(decoded);
     setIsAuthenticated(true);
     setAuthError(null);
     axios.defaults.headers.common.Authorization = `Bearer ${token}`;
-    await refreshSessionStatus();
+    try {
+      await refreshSessionStatus();
+    } catch (error) {
+      throw error;
+    } finally {
+      setLoading(false);
+    }
   };
 
   const logout = async () => {
@@ -103,6 +110,18 @@ export function useAuth() {
 }
 
 if (typeof window !== 'undefined') {
+  axios.interceptors.request.use(
+    config => {
+      const token = localStorage.getItem('jwt');
+      if (token) {
+        config.headers = config.headers || {};
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+      return config;
+    },
+    error => Promise.reject(error)
+  );
+
   axios.interceptors.response.use(
     response => response,
     error => {
@@ -115,9 +134,19 @@ if (typeof window !== 'undefined') {
         window.location.href = '/setup';
       }
       if (error.response && error.response.status === 401 && typeof window !== 'undefined') {
-        localStorage.removeItem('jwt');
-        delete axios.defaults.headers.common.Authorization;
-        window.location.href = '/signin';
+        const errorCode = error.response?.data?.errorCode;
+        const shouldForceSignIn = [
+          'auth.invalid_or_expired_token',
+          'auth.session_not_found',
+          'auth.session_expired',
+          'auth.session_validation_failed',
+        ].includes(errorCode);
+
+        if (shouldForceSignIn) {
+          localStorage.removeItem('jwt');
+          delete axios.defaults.headers.common.Authorization;
+          window.location.href = '/signin';
+        }
       }
       return Promise.reject(error);
     }

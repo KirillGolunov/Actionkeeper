@@ -511,7 +511,8 @@ function getAutoLoginMessage(progress) {
 
 async function issueSessionForUser(user, referenceDate = new Date()) {
   const tokenId = generateSessionTokenId();
-  const expiresAt = endOfWeekSession(referenceDate);
+  const weekExpiry = endOfWeekSession(referenceDate);
+  const expiresAt = weekExpiry > referenceDate ? weekExpiry : endOfNextWeekSession(referenceDate);
   const progress = await getWeekProgress(db, user.id, referenceDate);
 
   await runDb(
@@ -1362,7 +1363,8 @@ app.post('/api/smtp-test', async (req, res) => {
 
 // POST /api/invitations - create and send invitation
 app.post('/api/invitations', async (req, res) => {
-  const { email, invited_by, name, surname } = req.body;
+  const { email, invited_by, name, surname, role } = req.body;
+  const invitedRole = role === 'admin' ? 'admin' : 'user';
   if (!email) return sendApiError(res, 400, 'invitationEmailRequired');
   // Check if user exists
   db.get('SELECT * FROM users WHERE email = ?', [email], (err, userRow) => {
@@ -1370,10 +1372,19 @@ app.post('/api/invitations', async (req, res) => {
     if (!userRow) {
       // Insert placeholder user with invited=1, use name/surname if provided
       db.run('INSERT INTO users (name, surname, email, role, invited, deleted) VALUES (?, ?, ?, ?, 1, 0)',
-        [name || '', surname || '', email, 'user'],
+        [name || '', surname || '', email, invitedRole],
         function(err2) {
           if (err2) return res.status(500).json({ error: err2.message });
           // Continue to invitation logic below
+          insertInvitation();
+        }
+      );
+    } else if (userRow.invited || userRow.deleted) {
+      db.run(
+        'UPDATE users SET name = ?, surname = ?, role = ?, deleted = 0, invited = 1 WHERE id = ?',
+        [name ?? userRow.name, surname ?? userRow.surname, invitedRole, userRow.id],
+        function(err2) {
+          if (err2) return res.status(500).json({ error: err2.message });
           insertInvitation();
         }
       );
@@ -1746,6 +1757,8 @@ app.get('/api/setup-required', async (req, res) => {
   await checkFirstRun();
   res.json({ setupRequired });
 });
+
+app.use('/avatars', express.static(path.join(__dirname, 'client', 'public', 'avatars')));
 
 // Serve static files from the React app (adjust path if needed)
 app.use(express.static(path.join(__dirname, 'client', 'build')));

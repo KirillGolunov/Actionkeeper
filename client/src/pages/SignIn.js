@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { Box, Typography, TextField, Button, Alert, Paper, CircularProgress, Link } from '@mui/material';
 import axios from 'axios';
-import { useLocation } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useTranslation } from '../i18n/I18nProvider';
+import { useAuth } from '../context/AuthContext';
 import { getApiErrorMessage } from '../utils/apiErrorMessage';
 
 export default function SignIn() {
   const { t } = useTranslation();
   const location = useLocation();
+  const { isAuthenticated, loading: authLoading } = useAuth();
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -45,6 +47,10 @@ export default function SignIn() {
       setLoading(false);
     }
   };
+
+  if (!authLoading && isAuthenticated) {
+    return <Navigate to="/" replace />;
+  }
 
   return (
     <Box sx={{ minHeight: '100vh', background: '#F7F8FA', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>

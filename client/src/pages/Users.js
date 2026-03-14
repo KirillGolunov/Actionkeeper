@@ -57,11 +57,8 @@ function Users() {
   const [addDraft, setAddDraft] = useState({ name: '', surname: '', email: '', role: 'user' });
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
   const [inviteLoading, setInviteLoading] = useState(false);
-  const [inviteSuccess, setInviteSuccess] = useState(null);
-  const [invitations, setInvitations] = useState([]);
   const [resendDialogOpen, setResendDialogOpen] = useState(false);
   const [resendLoading, setResendLoading] = useState(false);
-  const [resendSuccess, setResendSuccess] = useState(null);
   const [resendError, setResendError] = useState(null);
   const [resendEmail, setResendEmail] = useState(null);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
@@ -90,7 +87,8 @@ function Users() {
       label: t('users.admin'),
     },
   };
-
+  // Initial load intentionally runs once on mount.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     fetchUsers();
     fetchInvitations();
@@ -110,15 +108,10 @@ function Users() {
   const fetchInvitations = async () => {
     try {
       const response = await axios.get('/api/invitations');
-      setInvitations(response.data);
+      return response.data;
     } catch (error) {
-      // Optionally handle error
+      return [];
     }
-  };
-
-  const handleOpen = () => {
-    setError(null);
-    setOpen(true);
   };
 
   const handleClose = () => {
@@ -155,6 +148,7 @@ function Users() {
         invited_by: null,
         name: newUser.name,
         surname: newUser.surname,
+        role: newUser.role,
       });
       fetchUsers();
       fetchInvitations();
@@ -172,12 +166,6 @@ function Users() {
 
   const isValidEmail = (email) => {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-  };
-
-  const handleEditOpen = (user) => {
-    setError(null);
-    setEditUser(user);
-    setEditOpen(true);
   };
 
   const handleEditClose = () => {
@@ -306,18 +294,15 @@ function Users() {
   };
 
   // Helper: check if user is invited
-  const getInvitation = (email) => invitations.find(inv => inv.email === email && inv.accepted === 0);
 
   // Resend invitation logic
   const handleResendClick = (email) => {
     setResendEmail(email);
-    setResendDialogOpen(true);
-    setResendSuccess(null);
+    setResendDialogOpen(true);
     setResendError(null);
   };
   const handleResendConfirm = async () => {
-    setResendLoading(true);
-    setResendSuccess(null);
+    setResendLoading(true);
     setResendError(null);
     try {
       await axios.post('/api/invitations', { email: resendEmail, invited_by: null });

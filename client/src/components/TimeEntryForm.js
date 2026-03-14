@@ -1,5 +1,5 @@
 import React from 'react';
-import { TextField, MenuItem, Button, DialogContent, DialogActions, Box } from '@mui/material';
+import { TextField, MenuItem, Button, DialogContent, DialogActions } from '@mui/material';
 import { useTranslation } from '../i18n/I18nProvider';
 
 function TimeEntryForm({ entry, projects, users, error, onChange, onSubmit, onCancel, submitLabel }) {

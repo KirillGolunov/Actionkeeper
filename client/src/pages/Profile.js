@@ -6,7 +6,6 @@ import {
   Button,
   Alert,
   CircularProgress,
-  MenuItem,
   Avatar,
   LinearProgress,
   Grid,
@@ -16,20 +15,6 @@ import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from '../i18n/I18nProvider';
 import { getApiErrorMessage } from '../utils/apiErrorMessage';
-
-const LANGUAGES = [
-  { value: 'en', label: 'English' },
-  { value: 'ru', label: 'Russian' },
-  { value: 'es', label: 'Spanish' },
-  // Add more as needed
-];
-
-const TIMEZONES = [
-  { value: 'UTC', label: 'UTC' },
-  { value: 'Europe/Moscow', label: 'Moscow' },
-  { value: 'America/New_York', label: 'New York' },
-  // Add more as needed
-];
 
 export default function Profile() {
   const { t } = useTranslation();
@@ -43,6 +28,8 @@ export default function Profile() {
   const [uploadError, setUploadError] = useState(null);
   const [avatarPreview, setAvatarPreview] = useState('');
 
+  // Profile data is reloaded when the signed-in user changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!user) return;
     setLoading(true);
@@ -56,7 +43,7 @@ export default function Profile() {
         setError(t('profile.errors.load')); 
         setLoading(false);
       });
-  }, [user]);
+  }, [user, t]);
 
   const handleChange = (e) => {
     setProfile({ ...profile, [e.target.name]: e.target.value });

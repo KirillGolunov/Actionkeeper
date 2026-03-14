@@ -16,10 +16,6 @@ export default function DayHourBar({ hours = 0, isWeekend = false }) {
   let color = '#5673DC'; // blue
   if (hours > 8) color = '#d32f2f'; // red
 
-  // Border color logic
-  let borderColor = '#bdbdbd'; // grey
-  if (hours >= 8) borderColor = '#5673DC'; // blue
-
   if (isWeekend) {
     return (
       <div style={{ position: 'relative', height: 48, width: BAR_WIDTH, margin: '0 auto', borderRadius: 4, background: '#ccc', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
