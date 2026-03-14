@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate, Link as RouterLink } from 'react-router-dom';
+import { useParams, Link as RouterLink } from 'react-router-dom';
 import { Box, Typography, CircularProgress, Alert, Button } from '@mui/material';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
@@ -9,28 +9,36 @@ import { getApiErrorMessage } from '../utils/apiErrorMessage';
 export default function MagicLinkCallback() {
   const { t } = useTranslation();
   const { token } = useParams();
-  const navigate = useNavigate();
   const { login } = useAuth();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    let didRedirect = false;
+    const requestKey = `magic-link-request:${token}`;
+    const requestState = sessionStorage.getItem(requestKey);
+
+    if (requestState === 'in-flight' || requestState === 'done') {
+      return;
+    }
+
+    sessionStorage.setItem(requestKey, 'in-flight');
+
     const verifyToken = async () => {
       try {
         const res = await axios.get(`/api/auth/magic-link/${token}`);
-        login(res.data.token);
+        await login(res.data.token);
         localStorage.setItem('user', JSON.stringify(res.data.user));
-        didRedirect = true;
-        navigate('/', { replace: true });
+        sessionStorage.setItem(requestKey, 'done');
+        window.location.replace('/');
       } catch (err) {
+        sessionStorage.removeItem(requestKey);
         setError(getApiErrorMessage(err, t, 'auth.magicLink.invalidOrExpired'));
         setLoading(false);
       }
     };
+
     verifyToken();
-    return () => { if (didRedirect) setError(null); };
-  }, [token, navigate, login, t]);
+  }, [token, login, t]);
 
   return (
     <Box sx={{ minHeight: '100vh', background: '#F7F8FA', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>

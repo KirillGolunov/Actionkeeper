@@ -2,15 +2,8 @@ import React, { useState, useEffect } from 'react';
 import {
   Box,
   Button,
-  Card,
-  CardContent,
   Typography,
   TextField,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Grid,
   MenuItem,
   Table,
   TableBody,
@@ -35,15 +28,7 @@ import { getApiErrorMessage } from '../utils/apiErrorMessage';
 function Clients() {
   const { t } = useTranslation();
   const [clients, setClients] = useState([]);
-  const [open, setOpen] = useState(false);
-  const [editOpen, setEditOpen] = useState(false);
   const [error, setError] = useState(null);
-  const [newClient, setNewClient] = useState({
-    name: '',
-    type: 'internal',
-    itn: '',
-  });
-  const [editClient, setEditClient] = useState(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [clientToDelete, setClientToDelete] = useState(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
@@ -74,7 +59,8 @@ function Clients() {
   };
 
   const [filters, setFilters] = useState({ internal: false, external: false });
-
+  // Initial load intentionally runs once on mount.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     fetchClients();
     fetchProjects();
@@ -100,65 +86,6 @@ function Clients() {
     }
   };
 
-  const handleClose = () => {
-    setError(null);
-    setOpen(false);
-  };
-
-  const handleEditOpen = (client) => {
-    setError(null);
-    setEditClient(client);
-    setEditOpen(true);
-  };
-
-  const handleEditClose = () => {
-    setError(null);
-    setEditOpen(false);
-    setEditClient(null);
-  };
-
-  const handleSubmit = async () => {
-    try {
-      if (!newClient.name.trim()) {
-        setError(t('clients.validation.nameRequired'));
-        return;
-      }
-
-      console.log('Submitting new client:', newClient);
-      const response = await axios.post('/api/clients', newClient);
-      console.log('Client created:', response.data);
-      
-      fetchClients();
-      handleClose();
-      setNewClient({
-        name: '',
-        type: 'internal',
-        itn: '',
-      });
-    } catch (error) {
-      console.error('Error creating client:', error);
-      if (error.response && error.response.status === 409) {
-        setError(getApiErrorMessage(error, t, 'clients.errors.createDuplicate'));
-      } else {
-        setError(getApiErrorMessage(error, t, 'clients.errors.create'));
-      }
-    }
-  };
-
-  const handleEditSave = async () => {
-    try {
-      if (!editClient.name.trim()) {
-        setError(t('clients.validation.nameRequired'));
-        return;
-      }
-      await axios.patch(`/api/clients/${editClient.id}`, editClient);
-      fetchClients();
-      handleEditClose();
-    } catch (error) {
-      setError(getApiErrorMessage(error, t, 'clients.errors.update'));
-    }
-  };
-
   const handleDeleteClient = (client) => {
     setClientToDelete(client);
     setDeleteDialogOpen(true);
@@ -181,18 +108,13 @@ function Clients() {
     }
   };
 
-  const handleOpen = () => {
-    setError(null);
-    setOpen(true);
-  };
-
   const handleAddClient = async () => {
     try {
       if (!addDraft.name.trim()) {
         setError(t('clients.validation.nameRequired'));
         return;
       }
-      const response = await axios.post('/api/clients', addDraft);
+      await axios.post('/api/clients', addDraft);
       fetchClients();
       setAddDraft({ name: '', type: 'internal', itn: '' });
       setError(null);

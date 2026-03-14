@@ -4,7 +4,6 @@ import {
   Button,
   Card,
   CardContent,
-  CardActions,
   Typography,
   TextField,
   Dialog,
@@ -63,7 +62,8 @@ function Projects() {
 
   // Helper to normalize strings: remove all whitespace and lowercase
   const normalize = str => (str || '').replace(/\s+/g, '').toLowerCase();
-
+  // Initial load intentionally runs once on mount.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     fetchProjects();
     fetchClients();
@@ -173,15 +173,6 @@ function Projects() {
     return client ? client.name : t('projects.noClient');
   };
 
-  const calculateDuration = (startTime, endTime) => {
-    const start = new Date(startTime);
-    const end = new Date(endTime);
-    const diffInMilliseconds = end - start;
-    const hours = Math.floor(diffInMilliseconds / (1000 * 60 * 60));
-    const minutes = Math.floor((diffInMilliseconds % (1000 * 60 * 60)) / (1000 * 60));
-    return `${hours}h ${minutes}m`;
-  };
-
   const handleEditOpen = (project) => {
     if (!canEdit) return;
     setError(null);
@@ -201,11 +192,9 @@ function Projects() {
       if (!editProject.name.trim()) {
         setError(t('projects.validation.nameRequired'));
         return;
-        return;
       }
       if (!editProject.client_id) {
         setError(t('projects.validation.clientRequired'));
-        return;
         return;
       }
       // Duplicate check for name (exclude self, ignore case and whitespace)

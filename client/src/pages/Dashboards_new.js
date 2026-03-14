@@ -5,7 +5,7 @@ import {
   CardContent,
   Typography,
   MenuItem,
-  TextField,
+
   IconButton,
   Switch,
   FormControlLabel,
@@ -18,6 +18,7 @@ import {
   Paper,
   Menu,
   Button,
+
 } from '@mui/material';
 import { PieChart, Pie, Cell, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from 'recharts';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
@@ -26,21 +27,12 @@ import RemoveIcon from '@mui/icons-material/Remove';
 import axios from 'axios';
 import { startOfWeek, startOfMonth, startOfQuarter, startOfYear, format, addMonths, addQuarters, addYears, endOfMonth, endOfQuarter, endOfYear } from 'date-fns';
 import { ru } from 'date-fns/locale';
-import WeekSelector from '../components/WeekSelector';
 import { LeftArrow, RightArrow } from '../components/ArrowIcons';
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from '../i18n/I18nProvider';
 import Chip from '@mui/material/Chip';
 
 const COLORS = ['#8785d4','#5673DC', '#00C49F', '#FFBB28', '#FF8042'];
-
-const timeRanges = [
-  { value: 'week', label: 'This Week' },
-  { value: 'month', label: 'This Month' },
-  { value: 'quarter', label: 'This Quarter' },
-  { value: 'year', label: 'This Year' },
-  { value: 'all', label: 'All Time' },
-];
 
 function getPeriodLabel(period, date, t) {
   switch (period) {
@@ -73,11 +65,12 @@ function DashboardsNew() {
     { value: 'year', label: t('dashboard.periods.year') },
     { value: 'all', label: t('dashboard.periods.all') },
   ];
+
   const [timeRange, setTimeRange] = useState('month');
   const [projectData, setProjectData] = useState([]);
   const [userData, setUserData] = useState([]);
   const [clientTypeData, setClientTypeData] = useState([]);
-  const [loading, setLoading] = useState(true);
+
   const [error, setError] = useState(null);
   const [expandedProjects, setExpandedProjects] = useState([]);
   const [showProjectPercent, setShowProjectPercent] = useState(false);
@@ -93,7 +86,7 @@ function DashboardsNew() {
   // Add state for detail data for expanded views
   const [projectDetailData, setProjectDetailData] = useState([]);
   const [userDetailData, setUserDetailData] = useState([]);
-  const [clientTypeDetailData, setClientTypeDetailData] = useState([]);
+
 
   const getDateRange = () => {
     let startDate;
@@ -139,28 +132,24 @@ function DashboardsNew() {
 
   const fetchData = async () => {
     try {
-      setLoading(true);
+
       setError(null);
       const { startDate, endDate } = getDateRange();
       const dateParams = startDate ? `?startDate=${startDate}&endDate=${endDate}` : '';
-      const [projectRes, userRes, clientTypeRes, projectDetailRes, userDetailRes, clientTypeDetailRes] = await Promise.all([
+      const [projectRes, userRes, clientTypeRes, projectDetailRes, userDetailRes] = await Promise.all([
         axios.get(`/api/analytics/time-by-project-total${dateParams}`),
         axios.get(`/api/analytics/time-by-user-total${dateParams}`),
         axios.get(`/api/analytics/time-by-client-type-total${dateParams}`),
         axios.get(`/api/analytics/time-by-project${dateParams}`),
         axios.get(`/api/analytics/time-by-user${dateParams}`),
-        axios.get(`/api/analytics/time-by-client-type${dateParams}`),
       ]);
       setProjectData(projectRes.data);
       setUserData(userRes.data);
       setClientTypeData(clientTypeRes.data);
       setProjectDetailData(projectDetailRes.data);
       setUserDetailData(userDetailRes.data);
-      setClientTypeDetailData(clientTypeDetailRes.data);
     } catch (err) {
       setError(t('dashboard.errors.fetch')); 
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -176,9 +165,8 @@ function DashboardsNew() {
     return value;
   };
 
-  // Helper: get user's project IDs and client types
-  const myProjectIds = new Set(userData.filter(u => u.user_id === currentUser?.id).map(u => u.project_id));
-  const myClientTypes = new Set(projectData.filter(p => myProjectIds.has(p.project_id)).map(p => p.client_type || p.type));
+  // Helper: get user's project IDs and client types
+
 
   // --- PIE WIDGET: Internal vs External Hours ---
   let pieData = [];
@@ -537,20 +525,6 @@ function DashboardsNew() {
         return false;
     }
   }
-
-  // --- DEBUG LOGGING ---
-  useEffect(() => {
-    console.log('[Dashboard] Raw projectData:', projectData);
-    console.log('[Dashboard] Raw userData:', userData);
-    console.log('[Dashboard] Raw clientTypeData:', clientTypeData);
-    // Pie widget data
-    console.log('[Dashboard] Computed pieData:', pieData);
-    // Bar widget data
-    console.log('[Dashboard] Computed barData:', barData);
-    // Table data
-    console.log('[Dashboard] Computed tableProjectData:', tableProjectData);
-    console.log('[Dashboard] Computed tableUserData:', tableUserData);
-  }, [projectData, userData, clientTypeData, pieData, barData, tableProjectData, tableUserData]);
 
   // Filter button styles (from Projects page)
   const filterTagStyles = {

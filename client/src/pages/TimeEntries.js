@@ -23,7 +23,6 @@ import { ru } from 'date-fns/locale';
 import axios from 'axios';
 import { Add, Delete, Remove, Edit as EditIcon, Save as SaveIcon } from '@mui/icons-material';
 import CloseIcon from '@mui/icons-material/Close';
-import TimeEntryForm from '../components/TimeEntryForm';
 import SingleProjectWeekEditor from '../components/SingleProjectWeekEditor';
 import DayHourBar from '../components/DayHourBar';
 import useTimeEntries from '../hooks/useTimeEntries';
@@ -125,13 +124,6 @@ function TimeEntries() {
   const [projects, setProjects] = useState([]);
   const [users, setUsers] = useState([]);
   const [error, setError] = useState(null);
-  const [newEntry, setNewEntry] = useState({
-    project_id: '',
-    user_id: '',
-    date: '',
-    hours: '',
-    description: '',
-  });
   const [weekStart, setWeekStart] = useState(getMonday(new Date()));
   const [selectedUser, setSelectedUser] = useState('');
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -150,7 +142,8 @@ function TimeEntries() {
     userId: selectedUser,
     weekStart,
   });
-
+  // Initial data load intentionally runs once on mount.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     fetchTimeEntries();
     fetchProjects();
@@ -273,53 +266,7 @@ function TimeEntries() {
       console.error('Error fetching users:', error);
       setError(t('timeEntries.errors.fetchUsers')); 
     }
-  };
-
-  const handleClose = () => {
-    setError(null);
-  };
-
-  const handleSubmit = async () => {
-    try {
-      if (!newEntry.project_id) {
-        setError(t('timeEntries.validation.projectRequired'));
-        return;
-      }
-
-      if (!newEntry.user_id) {
-        setError(t('timeEntries.validation.userRequired'));
-        return;
-      }
-
-      if (!newEntry.date) {
-        setError(t('timeEntries.validation.dateRequired'));
-        return;
-      }
-
-      if (!newEntry.hours) {
-        setError(t('timeEntries.validation.hoursRequired'));
-        return;
-      }
-
-      console.log('Submitting new time entry:', newEntry);
-      const response = await axios.post('/api/time-entries', newEntry);
-      console.log('Time entry created:', response.data);
-      
-      fetchTimeEntries();
-      refreshSessionStatus().catch(() => {});
-      handleClose();
-      setNewEntry({
-        project_id: '',
-        user_id: '',
-        date: '',
-        hours: '',
-        description: '',
-      });
-    } catch (error) {
-      console.error('Error creating time entry:', error);
-      setError(getApiErrorMessage(error, t, 'timeEntries.errors.create')); 
-    }
-  };
+  };
 
   const dayTotals = daysOfWeek.map(day =>
     weeklyProjects.reduce((sum, entry) => sum + (parseFloat(entry.hours[day.key]?.value) || 0), 0)
@@ -621,11 +568,6 @@ function TimeEntries() {
     } finally {
       setEditLoading(false);
     }
-  };
-
-  const handleDeleteEntry = (entry) => {
-    setEntryToDelete(entry);
-    setConfirmDialogOpen(true);
   };
 
   const handleConfirmDelete = async () => {

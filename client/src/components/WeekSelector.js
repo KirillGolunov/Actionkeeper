@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Button, Typography, IconButton } from '@mui/material';
+import { Box, Typography, IconButton } from '@mui/material';
 import { LeftArrow, RightArrow } from './ArrowIcons';
 import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
