@@ -25,8 +25,8 @@ import {
   Chip,
 } from '@mui/material';
 import axios from 'axios';
-import { format } from 'date-fns';
-import { ru } from 'date-fns/locale';
+import { format, parseISO } from 'date-fns';
+import { enUS, ru } from 'date-fns/locale';
 import DeleteIcon from '@mui/icons-material/Delete';
 import Switch from '@mui/material/Switch';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
@@ -36,7 +36,7 @@ import { useTranslation } from '../i18n/I18nProvider';
 import { getApiErrorMessage } from '../utils/apiErrorMessage';
 
 function Projects() {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const [projects, setProjects] = useState([]);
   const [clients, setClients] = useState([]);
   const [open, setOpen] = useState(false);
@@ -246,6 +246,19 @@ function Projects() {
   const sortedEntries = [...timeEntries]
     .sort((a, b) => new Date(b.submission_time) - new Date(a.submission_time))
     .map((entry, idx) => ({ ...entry, entry_number: idx + 1 }));
+
+  const dateLocale = locale === 'ru' ? ru : enUS;
+
+  const formatEntryWeekday = (dateValue) => {
+    if (!dateValue) return '';
+
+    try {
+      return format(parseISO(dateValue), 'EEEE', { locale: dateLocale });
+    } catch (error) {
+      console.error('Failed to format project entry weekday:', error);
+      return '';
+    }
+  };
 
   const filteredProjects = projects.filter(project => {
     const client = clients.find((c) => c.id === project.client_id);
@@ -623,12 +636,10 @@ function Projects() {
                 {sortedEntries.map((entry) => (
                   <TableRow key={entry.id}>
                     <TableCell>{entry.entry_number}</TableCell>
-                    <TableCell>
-                      {entry.date} ({['Ãâ€™Ã‘Â','ÃÅ¸ÃÂ½','Ãâ€™Ã‘â€š','ÃÂ¡Ã‘â‚¬','ÃÂ§Ã‘â€š','ÃÅ¸Ã‘â€š','ÃÂ¡ÃÂ±'][new Date(entry.date).getDay()]})
-                    </TableCell>
+                    <TableCell>{entry.date} ({formatEntryWeekday(entry.date)})</TableCell>
                     <TableCell>{entry.user_name}</TableCell>
                     <TableCell>{entry.hours}</TableCell>
-                    <TableCell>{format(new Date(entry.submission_time), 'Pp', { locale: ru })}</TableCell>
+                    <TableCell>{format(new Date(entry.submission_time), 'Pp', { locale: dateLocale })}</TableCell>
                   </TableRow>
                 ))}
                 {timeEntries.length === 0 && (
@@ -798,7 +809,5 @@ function Projects() {
   );
 }
 
-export default Projects; 
-
-
+export default Projects;
 
