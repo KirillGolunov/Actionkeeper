@@ -2,7 +2,7 @@
     email {$ACME_EMAIL}
 }
 
-actionlog.ru, www.actionlog.ru {
+{$APP_DOMAIN:actionlog.ru}, www.{$APP_DOMAIN:actionlog.ru} {
     encode gzip
 
     @api path /api/*

@@ -11,11 +11,13 @@ node_modules/
 /dist
 
 # Misc
+.env
 .DS_Store
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
+smtp_settings.json
 
 # Logs
 npm-debug.log*
