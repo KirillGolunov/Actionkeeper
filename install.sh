@@ -10,6 +10,9 @@ APP_BASE_URL=${APP_BASE_URL:-$default_url}
 if [[ ! "$APP_BASE_URL" =~ ^https?:// ]]; then
   APP_BASE_URL="https://$APP_BASE_URL"
 fi
+APP_DOMAIN=${APP_BASE_URL#http://}
+APP_DOMAIN=${APP_DOMAIN#https://}
+APP_DOMAIN=${APP_DOMAIN%%/*}
 
 default_acme_email="admin@actionlog.ru"
 read -p "Enter email for Let's Encrypt notifications [$default_acme_email]: " ACME_EMAIL
@@ -34,6 +37,7 @@ DB_PATH="/app/data/time_tracker.db"
 cat > .env <<EOF
 NODE_ENV=production
 APP_BASE_URL=$APP_BASE_URL
+APP_DOMAIN=$APP_DOMAIN
 SMTP_HOST=$SMTP_HOST
 SMTP_PORT=$SMTP_PORT
 SMTP_USER=$SMTP_USER
@@ -46,6 +50,7 @@ ACME_EMAIL=$ACME_EMAIL
 EOF
 
 echo ".env file created!"
+echo "Detected public domain: $APP_DOMAIN"
 
 echo
 read -p "Do you want to pull and start the app now? (y/n): " START_NOW

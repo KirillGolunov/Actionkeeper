@@ -72,10 +72,21 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           password: ${{ secrets.SSH_PASSWORD }}
           script: |
+            set -euo pipefail
             docker login ${{ env.REGISTRY }} -u ${{ github.repository_owner }} -p ${{ secrets.GHCR_TOKEN }}
             cd /root/TimeTracker
+
+            backup_dir=$(mktemp -d)
+            if [ -f .env ]; then cp .env "$backup_dir/.env"; fi
+            if [ -f smtp_settings.json ]; then cp smtp_settings.json "$backup_dir/smtp_settings.json"; fi
+
             git fetch origin
             git reset --hard origin/main
+
+            if [ -f "$backup_dir/.env" ]; then cp "$backup_dir/.env" .env; fi
+            if [ -f "$backup_dir/smtp_settings.json" ]; then cp "$backup_dir/smtp_settings.json" smtp_settings.json; fi
+            rm -rf "$backup_dir"
+
             docker compose pull
             docker compose up -d --remove-orphans
             docker image prune -f
