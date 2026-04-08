@@ -13,20 +13,11 @@ import {
   Grid,
   MenuItem,
   Alert,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Paper,
   IconButton,
   Tooltip,
   Chip,
 } from '@mui/material';
 import axios from 'axios';
-import { format, parseISO } from 'date-fns';
-import { enUS, ru } from 'date-fns/locale';
 import DeleteIcon from '@mui/icons-material/Delete';
 import Switch from '@mui/material/Switch';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
@@ -34,16 +25,17 @@ import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from '../i18n/I18nProvider';
 import { getApiErrorMessage } from '../utils/apiErrorMessage';
+import ProjectAnalyticsDialog from '../components/ProjectAnalyticsDialog';
+import ProjectAnalyticsButton from '../components/ProjectAnalyticsButton';
 
 function Projects() {
-  const { t, locale } = useTranslation();
+  const { t } = useTranslation();
   const [projects, setProjects] = useState([]);
   const [clients, setClients] = useState([]);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState(null);
-  const [timeEntriesOpen, setTimeEntriesOpen] = useState(false);
+  const [analyticsOpen, setAnalyticsOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState(null);
-  const [timeEntries, setTimeEntries] = useState([]);
   const [newProject, setNewProject] = useState({ 
     name: '', 
     description: '',
@@ -91,17 +83,6 @@ function Projects() {
     }
   };
 
-  const fetchTimeEntries = async (projectId) => {
-    try {
-      const response = await axios.get(`/api/time-entries?project_id=${projectId}`);
-      console.log('Fetched time entries:', response.data);
-      setTimeEntries(response.data.filter(entry => entry.project_id === projectId));
-    } catch (error) {
-      console.error('Error fetching time entries:', error);
-      setError(t('projects.errors.fetchTimeEntries'));
-    }
-  };
-
   const handleOpen = () => {
     if (!canEdit) return;
     setError(null);
@@ -113,16 +94,14 @@ function Projects() {
     setOpen(false);
   };
 
-  const handleTimeEntriesOpen = async (project) => {
+  const handleAnalyticsOpen = (project) => {
     setSelectedProject(project);
-    await fetchTimeEntries(project.id);
-    setTimeEntriesOpen(true);
+    setAnalyticsOpen(true);
   };
 
-  const handleTimeEntriesClose = () => {
-    setTimeEntriesOpen(false);
+  const handleAnalyticsClose = () => {
+    setAnalyticsOpen(false);
     setSelectedProject(null);
-    setTimeEntries([]);
   };
 
   const handleSubmit = async () => {
@@ -240,23 +219,6 @@ function Projects() {
       setError(t('projects.errors.delete'));
       setDeleteDialogOpen(false);
       setProjectToDelete(null);
-    }
-  };
-
-  const sortedEntries = [...timeEntries]
-    .sort((a, b) => new Date(b.submission_time) - new Date(a.submission_time))
-    .map((entry, idx) => ({ ...entry, entry_number: idx + 1 }));
-
-  const dateLocale = locale === 'ru' ? ru : enUS;
-
-  const formatEntryWeekday = (dateValue) => {
-    if (!dateValue) return '';
-
-    try {
-      return format(parseISO(dateValue), 'EEEE', { locale: dateLocale });
-    } catch (error) {
-      console.error('Failed to format project entry weekday:', error);
-      return '';
     }
   };
 
@@ -438,18 +400,10 @@ function Projects() {
                       <Typography color="text.secondary" variant="body2" sx={{ fontSize: 13, lineHeight: 1.3, mb: 0.5 }}>
                         {project.description}
                       </Typography>
-                      <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', mt: 0.5, mb: 1 }}>
-                        {/* Left: View Time Entries */}
-                        <Button 
-                          size="small" 
-                          color="primary"
-                          onClick={() => handleTimeEntriesOpen(project)}
-                          sx={{ minWidth: 70, height: 32, borderRadius: 2, fontWeight: 500, fontSize: 12, textTransform: 'none', px: 1.2, ml: 0, pl: 0 }}
-                        >
-                          {t('projects.viewTimeEntries')}
-                        </Button>
-                        {/* Spacer to push edit/delete to right */}
-                        <Box sx={{ flex: 1 }} />
+                        <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', mt: 0.5, mb: 1 }}>
+                          <ProjectAnalyticsButton onClick={() => handleAnalyticsOpen(project)} />
+                          {/* Spacer to push edit/delete to right */}
+                          <Box sx={{ flex: 1 }} />
                         {/* Right: Edit and Delete */}
                         <Button
                           size="small"
@@ -613,50 +567,11 @@ function Projects() {
         </DialogActions>
       </Dialog>
 
-      <Dialog
-        open={timeEntriesOpen}
-        onClose={handleTimeEntriesClose}
-        maxWidth="md"
-        fullWidth
-      >
-        <DialogTitle>{t('projects.timeEntriesFor', { name: selectedProject?.name })}</DialogTitle>
-        <DialogContent>
-          <TableContainer component={Paper}>
-            <Table>
-              <TableHead>
-                <TableRow>
-                  <TableCell>#</TableCell>
-                  <TableCell>{t('projects.dateWeekday')}</TableCell>
-                  <TableCell>{t('projects.user')}</TableCell>
-                  <TableCell>{t('projects.hours')}</TableCell>
-                  <TableCell>{t('projects.submissionDateTime')}</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {sortedEntries.map((entry) => (
-                  <TableRow key={entry.id}>
-                    <TableCell>{entry.entry_number}</TableCell>
-                    <TableCell>{entry.date} ({formatEntryWeekday(entry.date)})</TableCell>
-                    <TableCell>{entry.user_name}</TableCell>
-                    <TableCell>{entry.hours}</TableCell>
-                    <TableCell>{format(new Date(entry.submission_time), 'Pp', { locale: dateLocale })}</TableCell>
-                  </TableRow>
-                ))}
-                {timeEntries.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={4} align="center">
-                      {t('projects.noTimeEntries')}
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleTimeEntriesClose}>{t('common.actions.close')}</Button>
-        </DialogActions>
-      </Dialog>
+      <ProjectAnalyticsDialog
+        open={analyticsOpen}
+        project={selectedProject}
+        onClose={handleAnalyticsClose}
+      />
 
       <Dialog open={editOpen} onClose={handleEditClose}>
         <DialogTitle>{t('projects.editProject')}</DialogTitle>

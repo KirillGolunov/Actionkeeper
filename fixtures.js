@@ -1,32 +1,87 @@
 require('dotenv').config();
 
+const fs = require('fs');
+const path = require('path');
 const sqlite3 = require('sqlite3').verbose();
-const dbPath = process.env.DB_PATH || './time_tracker.db';
-const db = new sqlite3.Database(dbPath, (err) => {
-  if (err) {
-    console.error('Error connecting to database:', err);
-    process.exit(1);
-  }
-  console.log(`Connected to database: ${dbPath}`);
-});
 
-// Create tables if they don't exist
-async function createTables() {
-  console.log('Creating tables if they\'re not exist...');
-  
+const targetDbPath = process.env.DB_PATH || './time_tracker.db';
+const defaultSourcePath = 'C:/Users/golun/Desktop/data/time_tracker.db';
+const sourceDbPath = process.env.SOURCE_DB_PATH || defaultSourcePath;
+
+function openDatabase(dbFilePath) {
+  return new Promise((resolve, reject) => {
+    const db = new sqlite3.Database(dbFilePath, (err) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      resolve(db);
+    });
+  });
+}
+
+function run(db, sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.run(sql, params, function onRun(err) {
+      if (err) {
+        reject(err);
+        return;
+      }
+      resolve(this);
+    });
+  });
+}
+
+function all(db, sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.all(sql, params, (err, rows) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      resolve(rows);
+    });
+  });
+}
+
+async function closeDatabase(db) {
+  await new Promise((resolve, reject) => {
+    db.close((err) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+async function ensureSchema(db) {
+  console.log('Ensuring target schema...');
+
   const tables = [
     `CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
+      surname TEXT,
       email TEXT UNIQUE NOT NULL,
       role TEXT NOT NULL CHECK(role IN ('admin', 'user')),
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      deleted INTEGER DEFAULT 0,
+      invited INTEGER DEFAULT 0,
+      phone TEXT,
+      department TEXT,
+      job_title TEXT,
+      avatar_url TEXT,
+      language TEXT,
+      timezone TEXT
     )`,
     `CREATE TABLE IF NOT EXISTS clients (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
       type TEXT NOT NULL CHECK(type IN ('internal', 'external')),
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      itn TEXT
     )`,
     `CREATE TABLE IF NOT EXISTS projects (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -34,6 +89,8 @@ async function createTables() {
       description TEXT,
       client_id INTEGER,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      active INTEGER DEFAULT 1,
+      code TEXT,
       FOREIGN KEY (client_id) REFERENCES clients (id)
     )`,
     `CREATE TABLE IF NOT EXISTS time_entries (
@@ -41,202 +98,223 @@ async function createTables() {
       project_id INTEGER NOT NULL,
       user_id INTEGER NOT NULL,
       date TEXT NOT NULL,
-      hours INTEGER NOT NULL,
+      hours REAL NOT NULL,
       description TEXT,
+      submission_time DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (project_id) REFERENCES projects (id),
       FOREIGN KEY (user_id) REFERENCES users (id)
-    )`
+    )`,
   ];
 
   for (const sql of tables) {
-    await new Promise((resolve, reject) => {
-      db.run(sql, (err) => {
-        if (err) {
-          console.error('Error creating table:', err);
-          reject(err);
-        }
-        resolve();
-      });
-    });
+    await run(db, sql);
   }
-  console.log('Tables created successfully');
-}
 
-const users = [
-  { name: 'Alice', email: 'alice@example.com', role: 'user' },
-  { name: 'Bob', email: 'bob@example.com', role: 'user' },
-  { name: 'Manager', email: 'manager@example.com', role: 'admin' }
-];
+  const optionalColumns = {
+    users: [
+      ['deleted', 'INTEGER DEFAULT 0'],
+      ['invited', 'INTEGER DEFAULT 0'],
+      ['phone', 'TEXT'],
+      ['department', 'TEXT'],
+      ['job_title', 'TEXT'],
+      ['avatar_url', 'TEXT'],
+      ['language', 'TEXT'],
+      ['timezone', 'TEXT'],
+    ],
+    clients: [['itn', 'TEXT']],
+    projects: [
+      ['active', 'INTEGER DEFAULT 1'],
+      ['code', 'TEXT'],
+    ],
+    time_entries: [
+      ['description', 'TEXT'],
+      ['submission_time', 'DATETIME'],
+    ],
+  };
 
-const clients = [
-  { name: 'Acme Corp', type: 'external' },
-  { name: 'Internal Ops', type: 'internal' }
-];
+  for (const [tableName, columns] of Object.entries(optionalColumns)) {
+    const existingColumns = await all(db, `PRAGMA table_info(${tableName})`);
+    const existingColumnNames = new Set(existingColumns.map((column) => column.name));
 
-const projects = [
-  { name: 'Website Redesign', description: 'Redesign the Acme Corp website', clientIndex: 0 },
-  { name: 'Mobile App', description: 'Develop a new mobile app for Acme', clientIndex: 0 },
-  { name: 'Internal Dashboard', description: 'Build dashboard for internal ops', clientIndex: 1 }
-];
-
-const weekStart = new Date('2025-05-05T00:00:00.000Z');
-const timeEntries = [
-  // Alice logs 8h Mon, 6h Tue for Website Redesign
-  { userIndex: 0, projectIndex: 0, days: [{ offset: 0, hours: 8 }, { offset: 1, hours: 6 }] },
-  // Alice logs 4h Wed for Mobile App
-  { userIndex: 0, projectIndex: 1, days: [{ offset: 2, hours: 4 }] },
-  // Bob logs 7h Mon for Internal Dashboard
-  { userIndex: 1, projectIndex: 2, days: [{ offset: 0, hours: 7 }] }
-];
-
-// Clear existing data, but keep existing admin users for local access.
-async function clearTables() {
-  console.log('Clearing existing data...');
-  const statements = [
-    { label: 'time_entries', sql: 'DELETE FROM time_entries' },
-    { label: 'projects', sql: 'DELETE FROM projects' },
-    { label: 'clients', sql: 'DELETE FROM clients' },
-    { label: 'users (non-admin)', sql: "DELETE FROM users WHERE role != 'admin'" }
-  ];
-  for (const statement of statements) {
-    await new Promise((resolve, reject) => {
-      db.run(statement.sql, (err) => {
-        if (err) {
-          console.error(`Error clearing ${statement.label}:`, err);
-          reject(err);
-          return;
-        }
-        console.log(`Cleared ${statement.label}`);
-        resolve();
-      });
-    });
-  }
-}
-
-// Insert data
-async function insertFixtures() {
-  try {
-    // Create tables first
-    await createTables();
-    // Clear existing data
-    await clearTables();
-
-    console.log('Inserting users...');
-    // Insert users and collect their IDs
-    for (let i = 0; i < users.length; i++) {
-      const user = users[i];
-      await new Promise((resolve, reject) => {
-        db.get('SELECT id FROM users WHERE email = ?', [user.email], (lookupErr, existingUser) => {
-          if (lookupErr) {
-            console.error(`Error looking up user ${user.name}:`, lookupErr);
-            reject(lookupErr);
-            return;
-          }
-          if (existingUser) {
-            user.id = existingUser.id;
-            console.log(`Reused existing user ${user.name} with ID ${existingUser.id}`);
-            resolve();
-            return;
-          }
-          db.run(
-            'INSERT INTO users (name, email, role) VALUES (?, ?, ?)',
-            [user.name, user.email, user.role],
-            function(err) {
-              if (err) {
-                console.error(`Error inserting user ${user.name}:`, err);
-                reject(err);
-                return;
-              }
-              user.id = this.lastID;
-              console.log(`Inserted user ${user.name} with ID ${this.lastID}`);
-              resolve();
-            }
-          );
-        });
-      });
-    }
-
-    console.log('Inserting clients...');
-    // Insert clients and collect their IDs
-    for (let i = 0; i < clients.length; i++) {
-      const client = clients[i];
-      await new Promise((resolve, reject) => {
-        db.run(
-          'INSERT INTO clients (name, type) VALUES (?, ?)',
-          [client.name, client.type],
-          function(err) {
-            if (err) {
-              console.error(`Error inserting client ${client.name}:`, err);
-              reject(err);
-            }
-            client.id = this.lastID;
-            console.log(`Inserted client ${client.name} with ID ${this.lastID}`);
-            resolve();
-          }
-        );
-      });
-    }
-
-    console.log('Inserting projects...');
-    // Insert projects and collect their IDs
-    for (let i = 0; i < projects.length; i++) {
-      const project = projects[i];
-      const client = clients[project.clientIndex];
-      await new Promise((resolve, reject) => {
-        db.run(
-          'INSERT INTO projects (name, description, client_id) VALUES (?, ?, ?)',
-          [project.name, project.description, client.id],
-          function(err) {
-            if (err) {
-              console.error(`Error inserting project ${project.name}:`, err);
-              reject(err);
-            }
-            project.id = this.lastID;
-            console.log(`Inserted project ${project.name} with ID ${this.lastID}`);
-            resolve();
-          }
-        );
-      });
-    }
-
-    console.log('Inserting time entries...');
-    for (const entry of timeEntries) {
-      const user = users[entry.userIndex];
-      const project = projects[entry.projectIndex];
-      for (const day of entry.days) {
-        const start = new Date(weekStart);
-        start.setDate(start.getDate() + day.offset);
-        start.setHours(9, 0, 0, 0);
-        const end = new Date(start.getTime() + day.hours * 60 * 60 * 1000);
-        await new Promise((resolve, reject) => {
-          db.run(
-            'INSERT INTO time_entries (user_id, project_id, date, hours, description) VALUES (?, ?, ?, ?, ?)',
-            [user.id, project.id, start.toISOString(), day.hours, ''],
-            function(err) {
-              if (err) {
-                console.error('Error inserting time entry:', err);
-                reject(err);
-              }
-              resolve();
-            }
-          );
-        });
+    for (const [columnName, columnType] of columns) {
+      if (!existingColumnNames.has(columnName)) {
+        console.log(`Adding missing column ${tableName}.${columnName}`);
+        await run(db, `ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnType}`);
       }
     }
-    console.log('All fixtures loaded successfully');
-    db.close(() => {
-      console.log('Database connection closed');
-      process.exit(0);
-    });
-  } catch (error) {
-    console.error('Error inserting fixtures:', error);
-    db.close(() => {
-      console.log('Database connection closed');
-      process.exit(1);
-    });
   }
 }
 
-// Run the insertion
-insertFixtures(); 
+async function clearTargetData(db) {
+  console.log('Clearing target tables...');
+  await run(db, 'PRAGMA foreign_keys = OFF');
+  await run(db, 'DELETE FROM time_entries');
+  await run(db, 'DELETE FROM projects');
+  await run(db, 'DELETE FROM clients');
+  await run(db, 'DELETE FROM users');
+  await run(db, "DELETE FROM sqlite_sequence WHERE name IN ('time_entries', 'projects', 'clients', 'users')");
+  await run(db, 'PRAGMA foreign_keys = ON');
+}
+
+async function loadSourceData(sourceDb) {
+  console.log(`Loading source data from ${sourceDbPath}`);
+
+  const users = await all(
+    sourceDb,
+    `SELECT
+       id, name, surname, email, role, created_at, deleted, invited,
+       phone, department, job_title, avatar_url, language, timezone
+     FROM users
+     ORDER BY id`
+  );
+  const clients = await all(
+    sourceDb,
+    `SELECT id, name, type, created_at, itn
+     FROM clients
+     ORDER BY id`
+  );
+  const projects = await all(
+    sourceDb,
+    `SELECT id, name, description, client_id, created_at, active, code
+     FROM projects
+     ORDER BY id`
+  );
+  const timeEntries = await all(
+    sourceDb,
+    `SELECT id, project_id, user_id, date, hours, description, submission_time, created_at
+     FROM time_entries
+     ORDER BY id`
+  );
+
+  return { users, clients, projects, timeEntries };
+}
+
+async function insertImportedData(targetDb, dataset) {
+  console.log('Importing users...');
+  for (const user of dataset.users) {
+    await run(
+      targetDb,
+      `INSERT INTO users (
+        id, name, surname, email, role, created_at, deleted, invited,
+        phone, department, job_title, avatar_url, language, timezone
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        user.id,
+        user.name,
+        user.surname,
+        user.email,
+        user.role,
+        user.created_at,
+        user.deleted || 0,
+        user.invited || 0,
+        user.phone,
+        user.department,
+        user.job_title,
+        user.avatar_url,
+        user.language,
+        user.timezone,
+      ]
+    );
+  }
+
+  console.log('Importing clients...');
+  for (const client of dataset.clients) {
+    await run(
+      targetDb,
+      `INSERT INTO clients (id, name, type, created_at, itn)
+       VALUES (?, ?, ?, ?, ?)`,
+      [client.id, client.name, client.type, client.created_at, client.itn]
+    );
+  }
+
+  console.log('Importing projects...');
+  for (const project of dataset.projects) {
+    await run(
+      targetDb,
+      `INSERT INTO projects (id, name, description, client_id, created_at, active, code)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        project.id,
+        project.name,
+        project.description,
+        project.client_id,
+        project.created_at,
+        project.active == null ? 1 : project.active,
+        project.code,
+      ]
+    );
+  }
+
+  console.log('Importing time entries...');
+  for (const entry of dataset.timeEntries) {
+    await run(
+      targetDb,
+      `INSERT INTO time_entries (id, project_id, user_id, date, hours, description, submission_time, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        entry.id,
+        entry.project_id,
+        entry.user_id,
+        entry.date,
+        entry.hours,
+        entry.description,
+        entry.submission_time,
+        entry.created_at,
+      ]
+    );
+  }
+}
+
+async function main() {
+  if (!fs.existsSync(path.resolve(sourceDbPath))) {
+    console.error(`Source database not found: ${sourceDbPath}`);
+    process.exit(1);
+  }
+
+  let sourceDb;
+  let targetDb;
+
+  try {
+    sourceDb = await openDatabase(sourceDbPath);
+    targetDb = await openDatabase(targetDbPath);
+
+    console.log(`Connected to target database: ${targetDbPath}`);
+    await ensureSchema(targetDb);
+    await clearTargetData(targetDb);
+
+    const dataset = await loadSourceData(sourceDb);
+    console.log(
+      `Loaded ${dataset.users.length} users, ${dataset.clients.length} clients, ${dataset.projects.length} projects, ${dataset.timeEntries.length} time entries`
+    );
+
+    await insertImportedData(targetDb, dataset);
+
+    console.log('Fixtures imported successfully from source database');
+    await closeDatabase(sourceDb);
+    await closeDatabase(targetDb);
+    process.exit(0);
+  } catch (error) {
+    console.error('Failed to import fixtures:', error);
+
+    if (sourceDb) {
+      try {
+        await closeDatabase(sourceDb);
+      } catch (closeErr) {
+        console.error('Failed to close source database:', closeErr);
+      }
+    }
+
+    if (targetDb) {
+      try {
+        await closeDatabase(targetDb);
+      } catch (closeErr) {
+        console.error('Failed to close target database:', closeErr);
+      }
+    }
+
+    process.exit(1);
+  }
+}
+
+main();
