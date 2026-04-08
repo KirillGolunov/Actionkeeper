@@ -31,6 +31,8 @@ import { LeftArrow, RightArrow } from '../components/ArrowIcons';
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from '../i18n/I18nProvider';
 import Chip from '@mui/material/Chip';
+import ProjectAnalyticsDialog from '../components/ProjectAnalyticsDialog';
+import ProjectAnalyticsButton from '../components/ProjectAnalyticsButton';
 
 const COLORS = ['#8785d4','#5673DC', '#00C49F', '#FFBB28', '#FF8042'];
 
@@ -57,7 +59,7 @@ function getPeriodLabel(period, date, t) {
 }
 
 function DashboardsNew() {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const timeRanges = [
     { value: 'week', label: t('dashboard.periods.week') },
     { value: 'month', label: t('dashboard.periods.month') },
@@ -81,6 +83,8 @@ function DashboardsNew() {
   const [periodDate, setPeriodDate] = useState(new Date());
   const [myProjects, setMyProjects] = useState(false);
   const [clientType, setClientType] = useState(null);
+  const [analyticsOpen, setAnalyticsOpen] = useState(false);
+  const [selectedProject, setSelectedProject] = useState(null);
   const { user: currentUser } = useAuth();
 
   // Add state for detail data for expanded views
@@ -159,6 +163,15 @@ function DashboardsNew() {
   }, [timeRange, periodDate]);
 
   const formatHours = (hours) => Math.round(hours * 100) / 100;
+  const handleAnalyticsOpen = (project) => {
+    if (!project?.id) return;
+    setSelectedProject(project);
+    setAnalyticsOpen(true);
+  };
+  const handleAnalyticsClose = () => {
+    setAnalyticsOpen(false);
+    setSelectedProject(null);
+  };
   const localizeClientType = (value) => {
     if (value === 'internal') return t('dashboard.filters.internal');
     if (value === 'external') return t('dashboard.filters.external');
@@ -321,12 +334,20 @@ function DashboardsNew() {
   } else {
     // Aggregate by project_name
     tableProjectData = filteredProjectDetail.reduce((acc, row) => {
-      const project = row.project_name;
-      if (!acc[project]) acc[project] = 0;
-      acc[project] += row.total_hours;
+      const projectKey = row.project_id || row.project_name;
+      if (!acc[projectKey]) {
+        acc[projectKey] = {
+          project_id: row.project_id,
+          project_name: row.project_name,
+          project_code: row.project_code,
+          client_name: row.client_name,
+          total_hours: 0,
+        };
+      }
+      acc[projectKey].total_hours += row.total_hours;
       return acc;
     }, {});
-    tableProjectData = Object.entries(tableProjectData).map(([project_name, total_hours]) => ({ project_name, total_hours }));
+    tableProjectData = Object.values(tableProjectData);
   }
   const totalSystemHours = viewByUser
     ? tableUserData.reduce((sum, u) => sum + u.total_hours, 0)
@@ -358,7 +379,15 @@ function DashboardsNew() {
       const isExpanded = expandedProjects.includes(user);
       const userProjects = filteredUserDetail
         .filter(d => d.user_name === user && d.total_hours > 0)
-        .map(d => ({ project: d.project_name, hours: d.total_hours }));
+        .map(d => ({
+          project: {
+            id: d.project_id,
+            name: d.project_name,
+            code: d.project_code,
+            clientName: d.client_name,
+          },
+          hours: d.total_hours,
+        }));
       const userTotalHours = userObj.total_hours;
       const percent = totalSystemHours > 0 ? (userTotalHours / totalSystemHours) * 100 : 0;
       userRows.push(
@@ -387,14 +416,15 @@ function DashboardsNew() {
               />
             </Box>
           </TableCell>
+          <TableCell sx={{ width: 72 }} />
         </TableRow>
       );
       if (isExpanded && userProjects.length > 0) {
         userProjects.forEach(p => {
           const projectPercent = (p.hours / userTotalHours) * 100;
           userRows.push(
-            <TableRow key={user + '-' + p.project} sx={{ bgcolor: '#f5f5f5' }}>
-              <TableCell sx={{ pl: 6, width: 550, minWidth: 550, maxWidth: 550, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.project}</TableCell>
+            <TableRow key={user + '-' + p.project.id} sx={{ bgcolor: '#f5f5f5' }}>
+              <TableCell sx={{ pl: 6, width: 550, minWidth: 550, maxWidth: 550, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{getProjectDisplay({ project_name: p.project.name, project_code: p.project.code })}</TableCell>
               <TableCell>
                 {showProjectPercent
                   ? `${Math.round(projectPercent)}%`
@@ -413,6 +443,9 @@ function DashboardsNew() {
                   />
                 </Box>
               </TableCell>
+              <TableCell align="center" sx={{ width: 72 }}>
+                <ProjectAnalyticsButton onClick={() => handleAnalyticsOpen(p.project)} />
+              </TableCell>
             </TableRow>
           );
         });
@@ -420,7 +453,7 @@ function DashboardsNew() {
       if (isExpanded && userProjects.length === 0) {
         userRows.push(
           <TableRow key={user + '-no-projects'} sx={{ bgcolor: '#f5f5f5' }}>
-            <TableCell colSpan={3} align="center">
+            <TableCell colSpan={4} align="center">
               <Typography color="text.secondary">{t('dashboard.widgets.noProjectDataForUser')}</Typography>
             </TableCell>
           </TableRow>
@@ -460,6 +493,18 @@ function DashboardsNew() {
               />
             </Box>
           </TableCell>
+          <TableCell align="center" sx={{ width: 72 }}>
+            <ProjectAnalyticsButton
+              onClick={() =>
+                handleAnalyticsOpen({
+                  id: project.project_id,
+                  name: project.project_name,
+                  code: project.project_code,
+                  clientName: project.client_name,
+                })
+              }
+            />
+          </TableCell>
         </TableRow>
       );
       if (isExpanded && usersForProjectFiltered.length > 0) {
@@ -486,6 +531,7 @@ function DashboardsNew() {
                   />
                 </Box>
               </TableCell>
+              <TableCell sx={{ width: 72 }} />
             </TableRow>
           );
         });
@@ -493,7 +539,7 @@ function DashboardsNew() {
       if (isExpanded && usersForProjectFiltered.length === 0) {
         projectRows.push(
           <TableRow key={project.project_name + '-no-users'} sx={{ bgcolor: '#f5f5f5' }}>
-            <TableCell colSpan={3} align="center">
+            <TableCell colSpan={4} align="center">
               <Typography color="text.secondary">{t('dashboard.widgets.noUserDataForProject')}</Typography>
             </TableCell>
           </TableRow>
@@ -755,12 +801,13 @@ function DashboardsNew() {
                     <TableCell sx={{ fontWeight: 600, width: 550, minWidth: 550, maxWidth: 550, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{viewByUser ? t('dashboard.table.user') : t('dashboard.table.project')}</TableCell>
                     <TableCell sx={{ fontWeight: 600 }}>{t('dashboard.table.totalHours')}</TableCell>
                     <TableCell sx={{ fontWeight: 600 }}>{t('dashboard.table.load')}</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 600, width: 72 }}>{locale === 'ru' ? 'Аналитика' : 'Analytics'}</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {tableRows.length > 0 ? tableRows : (
                     <TableRow>
-                      <TableCell colSpan={3} align="center">
+                      <TableCell colSpan={4} align="center">
                         <Typography color="text.secondary">{t('dashboard.widgets.noProjectData')}</Typography>
                       </TableCell>
                     </TableRow>
@@ -783,6 +830,11 @@ function DashboardsNew() {
         )}
         <MenuItem disabled>{t('dashboard.options.widgetSettingsSoon')}</MenuItem>
       </Menu>
+      <ProjectAnalyticsDialog
+        open={analyticsOpen}
+        project={selectedProject}
+        onClose={handleAnalyticsClose}
+      />
     </Box>
   );
 }

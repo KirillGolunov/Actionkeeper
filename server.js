@@ -117,6 +117,53 @@ function sendApiError(res, status, errorKey, params = {}, extra = {}) {
     ...extra,
   });
 }
+
+function formatDateOnly(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getAnalyticsRangeBounds(range, anchorDateValue = null) {
+  if (range === 'all') {
+    return { startDate: null, endDate: null };
+  }
+
+  const anchorDate = anchorDateValue ? new Date(anchorDateValue) : new Date();
+  const now = new Date();
+  const safeAnchor = Number.isNaN(anchorDate.getTime()) ? now : anchorDate;
+  const start = new Date(safeAnchor);
+  const end = new Date(safeAnchor);
+
+  if (range === 'week') {
+    const day = start.getDay();
+    const offset = day === 0 ? -6 : 1 - day;
+    start.setDate(start.getDate() + offset);
+    end.setDate(start.getDate() + 6);
+  } else if (range === 'month') {
+    start.setDate(1);
+    end.setMonth(start.getMonth() + 1, 0);
+  } else if (range === 'quarter') {
+    const quarterStartMonth = Math.floor(start.getMonth() / 3) * 3;
+    start.setMonth(quarterStartMonth, 1);
+    end.setMonth(quarterStartMonth + 3, 0);
+  } else if (range === 'year') {
+    start.setMonth(0, 1);
+    end.setMonth(11, 31);
+  } else {
+    return { startDate: null, endDate: null };
+  }
+
+  if (end > now) {
+    end.setTime(now.getTime());
+  }
+
+  return {
+    startDate: formatDateOnly(start),
+    endDate: formatDateOnly(end),
+  };
+}
 // Setup-required middleware (must be before all API/static routes)
 const setupBypassPaths = new Set([
   '/api/setup',
@@ -1231,6 +1278,194 @@ app.get('/api/analytics/time-by-client-type', authenticateJWT, (req, res) => {
     }
     res.json(rows);
   });
+});
+
+app.get('/api/projects/:id/analytics', authenticateJWT, (req, res) => {
+  const { id } = req.params;
+  const allowedRanges = new Set(['week', 'month', 'quarter', 'year', 'all']);
+  const range = allowedRanges.has(req.query.range) ? req.query.range : 'month';
+  const anchorDate = req.query.anchorDate || null;
+  const { startDate, endDate } = getAnalyticsRangeBounds(range, anchorDate);
+  const conditions = ['t.project_id = ?'];
+  const params = [id];
+
+  if (startDate && endDate) {
+    conditions.push('substr(t.date, 1, 10) >= ?');
+    conditions.push('substr(t.date, 1, 10) <= ?');
+    params.push(startDate, endDate);
+  }
+
+  const whereClause = `WHERE ${conditions.join(' AND ')}`;
+
+  db.get(
+    `SELECT p.id, p.name, p.code, c.name as client_name
+     FROM projects p
+     LEFT JOIN clients c ON c.id = p.client_id
+     WHERE p.id = ?`,
+    [id],
+    (projectErr, project) => {
+      if (projectErr) {
+        return res.status(500).json({ error: projectErr.message });
+      }
+
+      if (!project) {
+        return sendApiError(res, 404, 'projectsNotFound');
+      }
+
+      db.get(
+        `SELECT MAX(substr(t.date, 1, 10)) as last_entry_date
+         FROM time_entries t
+         WHERE t.project_id = ?`,
+        [id],
+        (projectActivityErr, projectActivityRow) => {
+          if (projectActivityErr) {
+            return res.status(500).json({ error: projectActivityErr.message });
+          }
+
+          db.get(
+        `SELECT
+           COUNT(DISTINCT t.user_id) as participants_count,
+           COALESCE(SUM(t.hours), 0) as total_hours,
+           MIN(substr(t.date, 1, 10)) as first_entry_date,
+           MAX(substr(t.date, 1, 10)) as last_entry_date
+         FROM time_entries t
+         ${whereClause}`,
+        params,
+        (summaryErr, summaryRow) => {
+          if (summaryErr) {
+            return res.status(500).json({ error: summaryErr.message });
+          }
+
+          db.all(
+            `SELECT
+               t.user_id as user_id,
+               TRIM(COALESCE(u.surname, '') || ' ' || COALESCE(u.name, '')) as user_name,
+               COALESCE(SUM(t.hours), 0) as total_hours
+             FROM time_entries t
+             LEFT JOIN users u ON u.id = t.user_id
+             ${whereClause}
+             GROUP BY t.user_id
+             ORDER BY total_hours DESC, user_name ASC`,
+            params,
+            (membersErr, membersRows) => {
+              if (membersErr) {
+                return res.status(500).json({ error: membersErr.message });
+              }
+
+              db.all(
+                `SELECT
+                   substr(t.date, 1, 10) as entry_date,
+                   t.user_id as user_id,
+                   COALESCE(SUM(t.hours), 0) as total_hours
+                 FROM time_entries t
+                 ${whereClause}
+                 GROUP BY substr(t.date, 1, 10), t.user_id
+                 ORDER BY entry_date ASC, t.user_id ASC`,
+                params,
+                (dailyErr, dailyRows) => {
+                  if (dailyErr) {
+                    return res.status(500).json({ error: dailyErr.message });
+                  }
+
+                  const buildResponse = (baseline = { totalHours: 0, byUser: {} }) => {
+                    const dailyMap = new Map();
+                    dailyRows.forEach((row) => {
+                      if (!dailyMap.has(row.entry_date)) {
+                        dailyMap.set(row.entry_date, {
+                          date: row.entry_date,
+                          totalHours: 0,
+                          users: [],
+                        });
+                      }
+
+                      const point = dailyMap.get(row.entry_date);
+                      const hours = Number(row.total_hours) || 0;
+                      point.totalHours += hours;
+                      point.users.push({
+                        userId: row.user_id,
+                        hours,
+                      });
+                    });
+
+                    const daily = Array.from(dailyMap.values());
+                    const totalHours = Number(summaryRow?.total_hours) || 0;
+                    const activeDays = daily.length;
+
+                    return res.json({
+                      project: {
+                        id: project.id,
+                        name: project.name,
+                        code: project.code,
+                        clientName: project.client_name,
+                      },
+                      range,
+                      summary: {
+                        participantsCount: Number(summaryRow?.participants_count) || 0,
+                        totalHours,
+                        averagePerDay: activeDays > 0 ? totalHours / activeDays : 0,
+                        firstEntryDate: summaryRow?.first_entry_date || null,
+                        lastEntryDate: projectActivityRow?.last_entry_date || null,
+                      },
+                      members: membersRows.map((row) => ({
+                        userId: row.user_id,
+                        userName: row.user_name || 'Unknown User',
+                        totalHours: Number(row.total_hours) || 0,
+                      })),
+                      cumulativeBaseline: baseline,
+                      daily,
+                    });
+                  };
+
+                  if (!startDate) {
+                    return buildResponse();
+                  }
+
+                  db.get(
+                    `SELECT COALESCE(SUM(t.hours), 0) as total_hours
+                     FROM time_entries t
+                     WHERE t.project_id = ? AND substr(t.date, 1, 10) < ?`,
+                    [id, startDate],
+                    (baselineTotalErr, baselineTotalRow) => {
+                      if (baselineTotalErr) {
+                        return res.status(500).json({ error: baselineTotalErr.message });
+                      }
+
+                      db.all(
+                        `SELECT
+                           t.user_id as user_id,
+                           COALESCE(SUM(t.hours), 0) as total_hours
+                         FROM time_entries t
+                         WHERE t.project_id = ? AND substr(t.date, 1, 10) < ?
+                         GROUP BY t.user_id`,
+                        [id, startDate],
+                        (baselineUsersErr, baselineUsersRows) => {
+                          if (baselineUsersErr) {
+                            return res.status(500).json({ error: baselineUsersErr.message });
+                          }
+
+                          const byUser = {};
+                          baselineUsersRows.forEach((row) => {
+                            byUser[row.user_id] = Number(row.total_hours) || 0;
+                          });
+
+                          return buildResponse({
+                            totalHours: Number(baselineTotalRow?.total_hours) || 0,
+                            byUser,
+                          });
+                        }
+                      );
+                    }
+                  );
+                }
+              );
+            }
+          );
+        }
+          );
+        }
+      );
+    }
+  );
 });
 
 // Batch insert time entries
