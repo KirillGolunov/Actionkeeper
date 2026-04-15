@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Button,
@@ -87,14 +87,7 @@ function Users() {
       label: t('users.admin'),
     },
   };
-  // Initial load intentionally runs once on mount.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    fetchUsers();
-    fetchInvitations();
-  }, []);
-
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     try {
       const response = await axios.get('/api/users');
       console.log('Fetched users:', response.data);
@@ -103,16 +96,21 @@ function Users() {
       console.error('Error fetching users:', error);
       setError(t('users.errors.fetch'));
     }
-  };
+  }, [t]);
 
-  const fetchInvitations = async () => {
+  const fetchInvitations = useCallback(async () => {
     try {
       const response = await axios.get('/api/invitations');
       return response.data;
     } catch (error) {
       return [];
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchUsers();
+    fetchInvitations();
+  }, [fetchUsers, fetchInvitations]);
 
   const handleClose = () => {
     setError(null);

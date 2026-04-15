@@ -86,6 +86,8 @@ const apiErrors = {
   clientsDuplicate: { errorCode: 'clients.duplicate', error: 'A client with this {{reason}} already exists.' },
   projectsDuplicateName: { errorCode: 'projects.duplicate_name', error: 'A project with this name already exists.' },
   projectsDuplicateCode: { errorCode: 'projects.duplicate_code', error: 'A project with this code already exists.' },
+  projectsCategoryRequired: { errorCode: 'projects.category_required', error: 'Project category is required.' },
+  projectsCategoryInvalid: { errorCode: 'projects.category_invalid', error: 'Project category is invalid.' },
   projectsNoFieldsToUpdate: { errorCode: 'projects.no_fields_to_update', error: 'No fields to update.' },
   projectsNotFound: { errorCode: 'projects.not_found', error: 'Project not found' },
   timeEntriesDuplicate: { errorCode: 'time_entries.duplicate', error: 'Duplicate time entry for this user, project, and day.' },
@@ -96,6 +98,16 @@ const apiErrors = {
   smtpIncomplete: { errorCode: 'smtp.incomplete', error: 'SMTP settings are incomplete.' },
   uploadNoFile: { errorCode: 'upload.no_file', error: 'No file uploaded' },
 };
+
+const PROJECT_CATEGORIES = [
+  'external_delivery',
+  'internal_project',
+  'operations',
+  'people_development',
+  'time_off',
+];
+const PROJECT_CATEGORY_TRANSITION = 'unclassified';
+const PROJECT_CATEGORY_VALUES = [...PROJECT_CATEGORIES, PROJECT_CATEGORY_TRANSITION];
 
 function formatApiError(template, params = {}) {
   return Object.entries(params).reduce((message, entry) => {
@@ -163,6 +175,15 @@ function getAnalyticsRangeBounds(range, anchorDateValue = null) {
     startDate: formatDateOnly(start),
     endDate: formatDateOnly(end),
   };
+}
+
+function normalizeProjectCategory(category) {
+  if (typeof category !== 'string') return '';
+  return category.trim().toLowerCase();
+}
+
+function isValidProjectCategory(category) {
+  return PROJECT_CATEGORY_VALUES.includes(normalizeProjectCategory(category));
 }
 // Setup-required middleware (must be before all API/static routes)
 const setupBypassPaths = new Set([
@@ -333,6 +354,7 @@ async function createTables() {
       description TEXT,
       client_id INTEGER,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      category TEXT NOT NULL DEFAULT 'unclassified',
       FOREIGN KEY (client_id) REFERENCES clients (id)
     )`, (err) => {
       if (err) {
@@ -393,6 +415,26 @@ async function createTables() {
     db.run(`ALTER TABLE projects ADD COLUMN code TEXT`, err => {
       if (err && !/duplicate column/.test(err.message)) reject(err); else resolve();
     });
+  });
+
+  // Migration: add category column if not exist
+  await new Promise((resolve, reject) => {
+    db.run(`ALTER TABLE projects ADD COLUMN category TEXT NOT NULL DEFAULT 'unclassified'`, err => {
+      if (err && !/duplicate column/.test(err.message)) reject(err); else resolve();
+    });
+  });
+
+  // Migration: backfill missing categories for older projects
+  await new Promise((resolve, reject) => {
+    db.run(
+      `UPDATE projects
+       SET category = ?
+       WHERE category IS NULL OR TRIM(category) = ''`,
+      [PROJECT_CATEGORY_TRANSITION],
+      err => {
+        if (err) reject(err); else resolve();
+      }
+    );
   });
 
   // Migration: add itn column if not exist
@@ -876,7 +918,7 @@ app.delete('/api/clients/:id/full', authenticateJWT, (req, res) => {
 
 // Projects routes
 app.get('/api/projects', authenticateJWT, (req, res) => {
-  db.all('SELECT p.*, c.name as client_name FROM projects p LEFT JOIN clients c ON p.client_id = c.id ORDER BY p.name', [], (err, rows) => {
+  db.all('SELECT p.*, c.name as client_name FROM projects p LEFT JOIN clients c ON p.client_id = c.id ORDER BY p.category, p.name', [], (err, rows) => {
     if (err) {
       res.status(500).json({ error: err.message });
       return;
@@ -887,6 +929,15 @@ app.get('/api/projects', authenticateJWT, (req, res) => {
 
 app.post('/api/projects', authenticateJWT, (req, res) => {
   const { name, description, client_id, active, code } = req.body;
+  const category = normalizeProjectCategory(req.body.category);
+
+  if (!category) {
+    return sendApiError(res, 400, 'projectsCategoryRequired');
+  }
+  if (!PROJECT_CATEGORIES.includes(category)) {
+    return sendApiError(res, 400, 'projectsCategoryInvalid');
+  }
+
   // Check for duplicate name (case-insensitive)
   db.get('SELECT * FROM projects WHERE LOWER(name) = LOWER(?)', [name], (err, row) => {
     if (err) return res.status(500).json({ error: err.message });
@@ -897,26 +948,26 @@ app.post('/api/projects', authenticateJWT, (req, res) => {
         if (err2) return res.status(500).json({ error: err2.message });
         if (row2) return sendApiError(res, 409, 'projectsDuplicateCode');
         // No duplicates, proceed to insert
-        db.run('INSERT INTO projects (name, description, client_id, active, code) VALUES (?, ?, ?, ?, ?)', 
-          [name, description, client_id, active !== undefined ? active : 1, code || null], 
+        db.run('INSERT INTO projects (name, description, client_id, active, code, category) VALUES (?, ?, ?, ?, ?, ?)', 
+          [name, description, client_id, active !== undefined ? active : 1, code || null, category], 
           function(err3) {
             if (err3) {
               res.status(500).json({ error: err3.message });
               return;
             }
-            res.json({ id: this.lastID, name, description, client_id, active: active !== undefined ? active : 1, code: code || null });
+            res.json({ id: this.lastID, name, description, client_id, active: active !== undefined ? active : 1, code: code || null, category });
           });
       });
     } else {
       // No code, proceed to insert
-      db.run('INSERT INTO projects (name, description, client_id, active, code) VALUES (?, ?, ?, ?, ?)', 
-        [name, description, client_id, active !== undefined ? active : 1, null], 
+      db.run('INSERT INTO projects (name, description, client_id, active, code, category) VALUES (?, ?, ?, ?, ?, ?)', 
+        [name, description, client_id, active !== undefined ? active : 1, null, category], 
         function(err3) {
           if (err3) {
             res.status(500).json({ error: err3.message });
             return;
           }
-          res.json({ id: this.lastID, name, description, client_id, active: active !== undefined ? active : 1, code: null });
+          res.json({ id: this.lastID, name, description, client_id, active: active !== undefined ? active : 1, code: null, category });
         });
     }
   });
@@ -926,6 +977,17 @@ app.post('/api/projects', authenticateJWT, (req, res) => {
 app.patch('/api/projects/:id', authenticateJWT, (req, res) => {
   const { id } = req.params;
   const { name, description, client_id, active, code } = req.body;
+  const category = req.body.category !== undefined ? normalizeProjectCategory(req.body.category) : undefined;
+
+  if (req.body.category !== undefined) {
+    if (!category) {
+      return sendApiError(res, 400, 'projectsCategoryRequired');
+    }
+    if (!PROJECT_CATEGORIES.includes(category)) {
+      return sendApiError(res, 400, 'projectsCategoryInvalid');
+    }
+  }
+
   // Check for duplicate name (exclude self)
   if (name !== undefined) {
     db.get('SELECT * FROM projects WHERE LOWER(name) = LOWER(?) AND id != ?', [name, id], (err, row) => {
@@ -960,6 +1022,7 @@ app.patch('/api/projects/:id', authenticateJWT, (req, res) => {
     if (client_id !== undefined) { fields.push('client_id = ?'); values.push(client_id); }
     if (active !== undefined) { fields.push('active = ?'); values.push(active); }
     if (code !== undefined) { fields.push('code = ?'); values.push(code); }
+    if (category !== undefined) { fields.push('category = ?'); values.push(category); }
     if (fields.length === 0) {
       return sendApiError(res, 400, 'projectsNoFieldsToUpdate');
     }
@@ -976,7 +1039,7 @@ app.patch('/api/projects/:id', authenticateJWT, (req, res) => {
           sendApiError(res, 404, 'projectsNotFound');
           return;
         }
-        res.json({ id, name, description, client_id, active, code });
+        res.json({ id, name, description, client_id, active, code, category });
       }
     );
   }
@@ -1184,6 +1247,7 @@ app.get('/api/analytics/time-by-user', authenticateJWT, (req, res) => {
       t.project_id,
       p.name as project_name,
       p.code as project_code,
+      p.category as project_category,
       c.name as client_name,
       c.type as client_type,
       SUM(t.hours) as total_hours
@@ -1218,6 +1282,7 @@ app.get('/api/analytics/time-by-project', authenticateJWT, (req, res) => {
       t.project_id,
       p.name as project_name,
       p.code as project_code,
+      p.category as project_category,
       c.name as client_name,
       c.type as client_type,
       t.user_id,
@@ -1885,6 +1950,7 @@ app.get('/api/analytics/time-by-project-total', authenticateJWT, (req, res) => {
       t.project_id,
       p.name as project_name,
       p.code as project_code,
+      p.category as project_category,
       c.name as client_name,
       c.type as client_type,
       SUM(t.hours) as total_hours

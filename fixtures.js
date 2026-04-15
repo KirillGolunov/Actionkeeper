@@ -91,6 +91,7 @@ async function ensureSchema(db) {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       active INTEGER DEFAULT 1,
       code TEXT,
+      category TEXT NOT NULL DEFAULT 'unclassified',
       FOREIGN KEY (client_id) REFERENCES clients (id)
     )`,
     `CREATE TABLE IF NOT EXISTS time_entries (
@@ -126,6 +127,7 @@ async function ensureSchema(db) {
     projects: [
       ['active', 'INTEGER DEFAULT 1'],
       ['code', 'TEXT'],
+      ['category', "TEXT NOT NULL DEFAULT 'unclassified'"],
     ],
     time_entries: [
       ['description', 'TEXT'],
@@ -160,6 +162,9 @@ async function clearTargetData(db) {
 async function loadSourceData(sourceDb) {
   console.log(`Loading source data from ${sourceDbPath}`);
 
+  const sourceProjectColumns = await all(sourceDb, 'PRAGMA table_info(projects)');
+  const sourceHasProjectCategory = sourceProjectColumns.some((column) => column.name === 'category');
+
   const users = await all(
     sourceDb,
     `SELECT
@@ -176,7 +181,9 @@ async function loadSourceData(sourceDb) {
   );
   const projects = await all(
     sourceDb,
-    `SELECT id, name, description, client_id, created_at, active, code
+    `SELECT id, name, description, client_id, created_at, active, code${
+      sourceHasProjectCategory ? ', category' : ", 'unclassified' AS category"
+    }
      FROM projects
      ORDER BY id`
   );
@@ -232,8 +239,8 @@ async function insertImportedData(targetDb, dataset) {
   for (const project of dataset.projects) {
     await run(
       targetDb,
-      `INSERT INTO projects (id, name, description, client_id, created_at, active, code)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO projects (id, name, description, client_id, created_at, active, code, category)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         project.id,
         project.name,
@@ -242,6 +249,7 @@ async function insertImportedData(targetDb, dataset) {
         project.created_at,
         project.active == null ? 1 : project.active,
         project.code,
+        project.category || 'unclassified',
       ]
     );
   }

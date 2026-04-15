@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Button,
@@ -19,6 +19,7 @@ import {
 } from '@mui/material';
 import axios from 'axios';
 import DeleteIcon from '@mui/icons-material/Delete';
+import AddIcon from '@mui/icons-material/Add';
 import Switch from '@mui/material/Switch';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
@@ -27,9 +28,26 @@ import { useTranslation } from '../i18n/I18nProvider';
 import { getApiErrorMessage } from '../utils/apiErrorMessage';
 import ProjectAnalyticsDialog from '../components/ProjectAnalyticsDialog';
 import ProjectAnalyticsButton from '../components/ProjectAnalyticsButton';
+import {
+  PROJECT_CATEGORY_OPTIONS,
+  PROJECT_CATEGORY_ORDER,
+  PROJECT_CATEGORY_TRANSITION,
+  getProjectCategoryMeta,
+} from '../utils/projectCategories';
 
 function Projects() {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
+  const isRussian = locale === 'ru';
+  const categoryFieldLabel = isRussian ? 'Категория' : 'Category';
+  const categoryHelpText = isRussian
+    ? 'Категория обязательна для новых и обновляемых проектов.'
+    : 'Category is required for new and updated projects.';
+  const categoryRequiredText = isRussian
+    ? 'Выберите категорию проекта'
+    : 'Please select a project category';
+  const unclassifiedFilterLabel = isRussian
+    ? 'Требуют классификации'
+    : 'Needs classification';
   const [projects, setProjects] = useState([]);
   const [clients, setClients] = useState([]);
   const [open, setOpen] = useState(false);
@@ -41,47 +59,53 @@ function Projects() {
     description: '',
     client_id: '',
     code: '',
+    category: '',
   });
   const [editOpen, setEditOpen] = useState(false);
   const [editProject, setEditProject] = useState(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [projectToDelete, setProjectToDelete] = useState(null);
   const [expandedProjectIds, setExpandedProjectIds] = useState([]);
-  const [filters, setFilters] = useState({ active: false, closed: false, external: false, internal: false });
+  const [filters, setFilters] = useState({
+    active: true,
+    closed: false,
+    external_delivery: false,
+    internal_project: false,
+    operations: false,
+    people_development: false,
+    time_off: false,
+    unclassified: false,
+  });
   const { user: currentUser } = useAuth();
   const canEdit = currentUser?.role === 'admin';
-  console.log('[Projects] currentUser:', currentUser);
 
   // Helper to normalize strings: remove all whitespace and lowercase
   const normalize = str => (str || '').replace(/\s+/g, '').toLowerCase();
-  // Initial load intentionally runs once on mount.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    fetchProjects();
-    fetchClients();
-  }, []);
 
-  const fetchProjects = async () => {
+  const fetchProjects = useCallback(async () => {
     try {
       const response = await axios.get('/api/projects');
-      console.log('Fetched projects:', response.data);
       setProjects(response.data);
     } catch (error) {
       console.error('Error fetching projects:', error);
       setError(t('projects.errors.fetch'));
     }
-  };
+  }, [t]);
 
-  const fetchClients = async () => {
+  const fetchClients = useCallback(async () => {
     try {
       const response = await axios.get('/api/clients');
-      console.log('Fetched clients:', response.data);
       setClients(response.data);
     } catch (error) {
       console.error('Error fetching clients:', error);
       setError(t('projects.errors.fetchClients'));
     }
-  };
+  }, [t]);
+
+  useEffect(() => {
+    fetchProjects();
+    fetchClients();
+  }, [fetchProjects, fetchClients]);
 
   const handleOpen = () => {
     if (!canEdit) return;
@@ -115,6 +139,10 @@ function Projects() {
         setError(t('projects.validation.clientRequired'));
         return;
       }
+      if (!newProject.category) {
+        setError(categoryRequiredText);
+        return;
+      }
       // Duplicate check for name (ignore case and whitespace)
       const nameExists = projects.some(p => normalize(p.name) === normalize(newProject.name));
       if (nameExists) {
@@ -129,9 +157,7 @@ function Projects() {
           return;
         }
       }
-      console.log('Submitting new project:', newProject);
-      const response = await axios.post('/api/projects', newProject);
-      console.log('Project created:', response.data);
+      await axios.post('/api/projects', newProject);
       
       fetchProjects();
       handleClose();
@@ -140,6 +166,7 @@ function Projects() {
         description: '',
         client_id: '',
         code: '',
+        category: '',
       });
     } catch (error) {
       console.error('Error creating project:', error);
@@ -176,6 +203,10 @@ function Projects() {
         setError(t('projects.validation.clientRequired'));
         return;
       }
+      if (!editProject.category) {
+        setError(categoryRequiredText);
+        return;
+      }
       // Duplicate check for name (exclude self, ignore case and whitespace)
       const nameExists = projects.some(p => p.id !== editProject.id && normalize(p.name) === normalize(editProject.name));
       if (nameExists) {
@@ -190,8 +221,8 @@ function Projects() {
           return;
         }
       }
-      const { name, description, client_id, code } = editProject;
-      await axios.patch(`/api/projects/${editProject.id}`, { name, description, client_id, code });
+      const { name, description, client_id, code, category } = editProject;
+      await axios.patch(`/api/projects/${editProject.id}`, { name, description, client_id, code, category });
       fetchProjects();
       handleEditClose();
     } catch (error) {
@@ -222,16 +253,47 @@ function Projects() {
     }
   };
 
+  const activeCategoryFilters = Object.entries(filters)
+    .filter(([key, enabled]) => enabled && !['active', 'closed'].includes(key))
+    .map(([key]) => key);
+
   const filteredProjects = projects.filter(project => {
-    const client = clients.find((c) => c.id === project.client_id);
-    if (filters.active && !project.active) return false;
-    if (filters.closed && project.active) return false;
-    if (filters.external && (!client || client.type !== 'external')) return false;
-    if (filters.internal && (!client || client.type !== 'internal')) return false;
+    const statusVisible = (project.active && filters.active) || (!project.active && filters.closed);
+    if (!statusVisible) return false;
+    if (activeCategoryFilters.length > 0 && !activeCategoryFilters.includes(project.category || PROJECT_CATEGORY_TRANSITION.value)) {
+      return false;
+    }
     return true;
   });
 
-  const tagStyles = {
+  const sortedProjects = [...filteredProjects].sort((a, b) => {
+    const categoryIndexA = PROJECT_CATEGORY_ORDER.indexOf(a.category || PROJECT_CATEGORY_TRANSITION.value);
+    const categoryIndexB = PROJECT_CATEGORY_ORDER.indexOf(b.category || PROJECT_CATEGORY_TRANSITION.value);
+    if (categoryIndexA !== categoryIndexB) return categoryIndexA - categoryIndexB;
+    return a.name.localeCompare(b.name, isRussian ? 'ru' : 'en', { sensitivity: 'base' });
+  });
+
+  const groupedProjects = PROJECT_CATEGORY_ORDER
+    .map((categoryValue) => ({
+      categoryValue,
+      meta: getProjectCategoryMeta(categoryValue),
+      projects: sortedProjects.filter((project) => (project.category || PROJECT_CATEGORY_TRANSITION.value) === categoryValue),
+    }))
+    .filter((group) => group.projects.length > 0);
+
+  const getCategoryChipStyles = (categoryValue) => {
+    const palette = {
+      external_delivery: { background: '#EAF4EC', color: '#245C34', border: '1px solid #7FB48F' },
+      internal_project: { background: '#EEF1FF', color: '#4256B2', border: '1px solid #93A2E8' },
+      operations: { background: '#FFF4E8', color: '#9A5B10', border: '1px solid #E5B16D' },
+      people_development: { background: '#F7ECFF', color: '#7A3FA0', border: '1px solid #C59BDF' },
+      time_off: { background: '#FBECEC', color: '#A23D3D', border: '1px solid #E0A0A0' },
+      unclassified: { background: '#F3F4F6', color: '#5F6B7A', border: '1px dashed #AAB3BE' },
+    };
+    return palette[categoryValue] || palette.unclassified;
+  };
+
+  const statusTagStyles = {
     active: {
       selected: { background: '#F5F7FE', color: '#5673DC', border: '1px solid #5673DC' },
       default: { background: '#F5F7FA', color: '#90A0B7', border: 'none' },
@@ -242,62 +304,202 @@ function Projects() {
       default: { background: '#F5F7FA', color: '#90A0B7', border: 'none' },
       label: t('projects.closed'),
     },
-    external: {
-      selected: { background: '#E6F0F5', color: '#3B6C74', border: '1px solid #3B6C74' },
-      default: { background: '#F5F7FA', color: '#90A0B7', border: 'none' },
-      label: t('projects.external'),
+  };
+
+  const categoryFilterOptions = [
+    ...PROJECT_CATEGORY_OPTIONS.map((category) => ({
+      key: category.value,
+      label: category.label,
+      shortLabel: {
+        external_delivery: isRussian ? 'Внешние' : 'External',
+        internal_project: isRussian ? 'Внутренние' : 'Internal',
+        operations: isRussian ? 'Операционка' : 'Operations',
+        people_development: isRussian ? 'Развитие' : 'Development',
+        time_off: isRussian ? 'Отсутствия' : 'Time off',
+      }[category.value] || category.label,
+    })),
+    {
+      key: PROJECT_CATEGORY_TRANSITION.value,
+      label: unclassifiedFilterLabel,
+      shortLabel: isRussian ? 'Без категории' : 'Unclassified',
     },
-    internal: {
-      selected: { background: '#F5EAFE', color: '#7C3A6A', border: '1px solid #7C3A6A' },
-      default: { background: '#F5F7FA', color: '#90A0B7', border: 'none' },
-      label: t('projects.internal'),
-    },
+  ];
+
+  const statusFilterOptions = Object.keys(statusTagStyles).map((key) => ({
+    key,
+    label: statusTagStyles[key].label,
+  }));
+
+  const hasActiveFilters = Object.values(filters).some(Boolean);
+
+  const resetFilters = () => {
+    setFilters({
+      active: true,
+      closed: false,
+      external_delivery: false,
+      internal_project: false,
+      operations: false,
+      people_development: false,
+      time_off: false,
+      unclassified: false,
+    });
   };
 
   return (
-    <Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Typography variant="h4">{t('projects.title')}</Typography>
-          <Box sx={{ display: 'flex', gap: 1, ml: 2 }}>
-            {Object.keys(tagStyles).map((key) => (
-              <Chip
-                key={key}
-                label={tagStyles[key].label}
-                clickable
-                onClick={() => setFilters(f => ({ ...f, [key]: !f[key] }))}
-                sx={{
-                  fontSize: '12px',
-                  height: '24px',
-                  borderRadius: '6px',
-                  px: 1.5,
-                  fontWeight: 400,
-                  boxShadow: 'none',
-                  ...((filters[key]) ? tagStyles[key].selected : tagStyles[key].default),
-                }}
-              />
-            ))}
+    <Box
+      sx={{
+        background: 'linear-gradient(180deg, #F6F8FE 0%, #F9FBFF 100%)',
+        minHeight: '100%',
+        mx: -3,
+        mt: -3,
+        px: 3,
+        pt: 3,
+        pb: 4,
+      }}
+    >
+      <Box sx={{ mb: 2.5 }}>
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: { xs: 'flex-start', md: 'center' },
+            justifyContent: 'space-between',
+            gap: 2,
+            flexDirection: { xs: 'column', md: 'row' },
+            mb: 1.5,
+          }}
+        >
+          <Box>
+            <Typography variant="h4" sx={{ mb: 0.25 }}>
+              {t('projects.title')}
+            </Typography>
+            <Typography sx={{ color: '#7C89A3', fontSize: 14 }}>
+              {`${projects.length} ${isRussian ? 'проекта в каталоге' : 'projects in catalog'}`}
+            </Typography>
           </Box>
+          {canEdit && (
+            <Button
+              variant="contained"
+              color="primary"
+              startIcon={<AddIcon />}
+              onClick={handleOpen}
+              sx={{
+                alignSelf: { xs: 'stretch', md: 'auto' },
+                minHeight: 40,
+                borderRadius: '12px',
+                px: 2,
+                backgroundColor: '#5B75E7',
+                color: '#FFFFFF',
+                fontSize: 15,
+                fontWeight: 500,
+                textTransform: 'none',
+                boxShadow: '0 8px 18px rgba(91,117,231,0.16)',
+                '&:hover': {
+                  backgroundColor: '#4A69D9',
+                  boxShadow: '0 10px 22px rgba(74,105,217,0.2)',
+                },
+              }}
+            >
+              {t('projects.addProject')}
+            </Button>
+          )}
         </Box>
-        {canEdit && (
-          <Button variant="contained" color="primary" onClick={handleOpen}
+
+        <Box
+          sx={{
+            background: 'rgba(255, 255, 255, 0.82)',
+            border: '1px solid rgba(210, 220, 242, 0.85)',
+            borderRadius: '16px',
+            px: { xs: 1.5, md: 2 },
+            py: 1.5,
+            boxShadow: '0 10px 30px rgba(91, 117, 231, 0.06)',
+            backdropFilter: 'blur(10px)',
+          }}
+        >
+          <Box
             sx={{
-              backgroundColor: '#8196E4',
-              color: '#FFFFFF',
-              borderRadius: '8px',
-              px: 2,
-              py: 0.8,
-              fontSize: 16,
-              textTransform: 'none',
-              boxShadow: 3,
-              '&:hover': {
-                backgroundColor: '#4A69D9',
-              },
+              display: 'flex',
+              alignItems: { xs: 'flex-start', md: 'center' },
+              justifyContent: 'space-between',
+              gap: 2,
+              flexDirection: { xs: 'column', md: 'row' },
             }}
           >
-            {t('projects.addProject')}
-          </Button>
-        )}
+            <Box sx={{ flex: 1, width: '100%', display: 'flex', flexDirection: 'column', gap: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, flexDirection: { xs: 'column', sm: 'row' } }}>
+                <Typography sx={{ minWidth: 72, color: '#69758C', fontSize: 14, fontWeight: 600, pt: 0.6 }}>
+                  {isRussian ? 'Статус' : 'Status'}
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                  {statusFilterOptions.map((status) => (
+                    <Chip
+                      key={status.key}
+                      label={status.label}
+                      clickable
+                      onClick={() => setFilters((currentFilters) => ({ ...currentFilters, [status.key]: !currentFilters[status.key] }))}
+                      sx={{
+                        height: 32,
+                        borderRadius: '10px',
+                        px: 0.75,
+                        fontSize: 13,
+                        fontWeight: 500,
+                        boxShadow: 'none',
+                        ...(filters[status.key] ? statusTagStyles[status.key].selected : statusTagStyles[status.key].default),
+                      }}
+                    />
+                  ))}
+                </Box>
+              </Box>
+
+              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, flexDirection: { xs: 'column', sm: 'row' } }}>
+                <Typography sx={{ minWidth: 72, color: '#69758C', fontSize: 14, fontWeight: 600, pt: 0.6 }}>
+                  {isRussian ? 'Категории' : 'Categories'}
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                  {categoryFilterOptions.map((category) => (
+                    <Chip
+                      key={category.key}
+                      label={category.shortLabel}
+                      clickable
+                      onClick={() => setFilters((currentFilters) => ({ ...currentFilters, [category.key]: !currentFilters[category.key] }))}
+                      sx={{
+                        height: 32,
+                        borderRadius: '10px',
+                        px: 0.75,
+                        fontSize: 13,
+                        fontWeight: 500,
+                        boxShadow: 'none',
+                        ...(filters[category.key]
+                          ? getCategoryChipStyles(category.key)
+                          : { background: '#F5F7FA', color: '#7D8AA5', border: 'none' }),
+                      }}
+                    />
+                  ))}
+                </Box>
+              </Box>
+            </Box>
+
+            {hasActiveFilters && (
+              <Button
+                onClick={resetFilters}
+                sx={{
+                  alignSelf: { xs: 'flex-start', md: 'center' },
+                  color: '#5673DC',
+                  textTransform: 'none',
+                  fontWeight: 500,
+                  fontSize: 14,
+                  minWidth: 'auto',
+                  px: 0,
+                  '&:hover': {
+                    background: 'transparent',
+                    color: '#4256B2',
+                  },
+                }}
+              >
+                {isRussian ? 'Сбросить фильтры' : 'Reset filters'}
+              </Button>
+            )}
+          </Box>
+        </Box>
       </Box>
 
       {error && (
@@ -306,169 +508,217 @@ function Projects() {
         </Alert>
       )}
 
-      <Grid container spacing={3}>
-        {filteredProjects.map((project) => {
-          const expanded = expandedProjectIds.includes(project.id);
-          return (
-            <Grid item xs={12} sm={6} md={4} key={project.id}>
-              <Card sx={{ border: '1px solid #E2E4E9', borderRadius: '12px', boxShadow: 1, minHeight: 150, transition: 'box-shadow 0.2s' }}>
-                <CardContent sx={{ p: 1.5, pb: '12px !important', minHeight: 110, display: 'flex', flexDirection: 'column', justifyContent: 'flex-start' }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
-                    <Tooltip title={project.name} placement="top" arrow>
-                      <Typography variant="subtitle1" component="div" sx={{ fontWeight: 600, fontSize: 17, pr: 1, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {project.name}
-                      </Typography>
-                    </Tooltip>
-                    <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 0, gap: 0.3 }}>
-                      <IconButton
-                        size="small"
-                        onClick={() => {
-                          if (expanded) {
-                            setExpandedProjectIds(expandedProjectIds.filter(id => id !== project.id));
-                          } else {
-                            setExpandedProjectIds([...expandedProjectIds, project.id]);
-                          }
-                        }}
-                        aria-label={expanded ? t('projects.collapse') : t('projects.expand')}
-                        sx={{
-                          height: 28,
-                          width: 28,
-                          color: '#5673DC',
-                          backgroundColor: 'rgba(86,115,220,0.08)',
-                          mr: 0.25,
-                          '&:hover': {
-                            backgroundColor: 'rgba(86,115,220,0.14)',
-                          },
-                        }}
-                      >
-                        {expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
-                      </IconButton>
-                      <Typography sx={{ fontWeight: 500, fontSize: 13, color: project.active ? '#5673DC' : '#bdbdbd', lineHeight: 1, display: 'flex', alignItems: 'center', mr: 0.5 }}>
-                        {project.active ? t('projects.activeStatus') : t('projects.closedStatus')}
-                      </Typography>
-                      <Switch
-                        size="small"
-                        checked={!!project.active}
-                        onChange={async (e) => {
-                          if (!canEdit) return;
-                          try {
-                            await axios.patch(`/api/projects/${project.id}/active`, { active: e.target.checked ? 1 : 0 });
-                            fetchProjects();
-                          } catch (err) {
-                            setError(t('projects.errors.updateStatus'));
-                          }
-                        }}
-                        disabled={!canEdit}
-                        sx={{
-                          '& .MuiSwitch-switchBase.Mui-checked': {
-                            color: '#fff',
-                          },
-                          '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                            backgroundColor: '#5673DC',
-                            opacity: 1,
-                          },
-                          '& .MuiSwitch-thumb': {
-                            backgroundColor: '#fff',
-                            boxShadow: '1',
-                          },
-                          '& .MuiSwitch-track': {
-                            backgroundColor: '#E2E4E9',
-                            opacity: 1,
-                          },
-                        }}
-                      />
-                    </Box>
-                  </Box>
-                  {project.code !== undefined && (
-                    <Typography variant="caption" sx={{ color: '#5673DC', fontWeight: 500, fontSize: 13, mb: 0.25, display: 'block', textAlign: 'left', mt: 0.5 }}>
-                      {t('projects.code')}: {project.code ? project.code : t('projects.noCode')}
-                    </Typography>
-                  )}
-                  <Typography color="text.secondary" variant="body2" sx={{ mb: 0.25, fontSize: 13, lineHeight: 1.3 }}>
-                    {t('projects.client')}: {getClientName(project.client_id)}{(() => {
-                      const client = clients.find((c) => c.id === project.client_id);
-                      return client && client.type ? ` (${client.type.charAt(0).toUpperCase() + client.type.slice(1)})` : '';
-                    })()}
-                  </Typography>
-                  {!expanded && project.description && (
-                    <Typography color="text.secondary" variant="body2" sx={{ fontSize: 13, lineHeight: 1.3, mb: 0.25, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {project.description}
-                    </Typography>
-                  )}
-                  {expanded && (
-                    <>
-                      <Typography color="text.secondary" variant="body2" sx={{ fontSize: 13, lineHeight: 1.3, mb: 0.5 }}>
-                        {project.description}
-                      </Typography>
-                        <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', mt: 0.5, mb: 1 }}>
-                          <ProjectAnalyticsButton onClick={() => handleAnalyticsOpen(project)} />
-                          {/* Spacer to push edit/delete to right */}
-                          <Box sx={{ flex: 1 }} />
-                        {/* Right: Edit and Delete */}
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          onClick={() => handleEditOpen(project)}
-                          sx={{
-                            minWidth: 70,
-                            height: 32,
-                            borderRadius: 2,
-                            border: '1.5px solid #E2E4E9',
-                            color: '#222',
-                            background: '#f7f8fa',
-                            fontWeight: 500,
-                            fontSize: 12,
-                            boxShadow: 'none',
-                            textTransform: 'none',
-                            px: 1.2,
-                            ml: 1,
-                            '&:hover': {
-                              background: 'rgba(86,115,220,0.10)',
-                              border: '1.5px solid #5673DC',
-                              color: '#5673DC',
-                            },
-                          }}
-                        >
-                          {t('users.editUser')}
-                        </Button>
-                        {currentUser?.role === 'admin' && (
-                          <Button
-                            size="small"
-                            color="error"
-                            startIcon={<DeleteIcon />}
-                            onClick={() => handleDeleteProject(project)}
-                            sx={{
-                              minWidth: 70,
-                              height: 32,
-                              borderRadius: 2,
-                              border: '1.5px solid #E2E4E9',
-                              color: '#d32f2f',
-                              background: '#f7f8fa',
-                              fontWeight: 500,
-                              fontSize: 12,
-                              boxShadow: 'none',
-                              textTransform: 'none',
-                              px: 1.2,
-                              ml: 1,
-                              '&:hover': {
-                                background: 'rgba(211,47,47,0.10)',
-                                border: '1.5px solid #d32f2f',
-                                color: '#d32f2f',
-                              },
-                            }}
-                          >
-                            {t('projects.deleteProject')}
-                          </Button>
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+        {groupedProjects.map((group) => (
+          <Box key={group.categoryValue}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+              <Typography variant="h6" sx={{ fontSize: 18, fontWeight: 600 }}>
+                {group.meta.label}
+              </Typography>
+              <Chip
+                size="small"
+                label={group.projects.length}
+                sx={{
+                  height: 22,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  borderRadius: '999px',
+                  ...getCategoryChipStyles(group.categoryValue),
+                }}
+              />
+            </Box>
+            <Grid container spacing={3}>
+              {group.projects.map((project) => {
+                const expanded = expandedProjectIds.includes(project.id);
+                const categoryMeta = getProjectCategoryMeta(project.category);
+                return (
+                  <Grid item xs={12} sm={6} md={4} key={project.id}>
+                    <Card
+                      sx={{
+                        background: 'rgba(255, 255, 255, 0.9)',
+                        border: '1px solid rgba(214, 222, 240, 0.95)',
+                        borderRadius: '14px',
+                        boxShadow: '0 8px 24px rgba(90, 112, 184, 0.08)',
+                        minHeight: 150,
+                        transition: 'transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease',
+                        '&:hover': {
+                          transform: 'translateY(-1px)',
+                          boxShadow: '0 12px 28px rgba(90, 112, 184, 0.12)',
+                          borderColor: 'rgba(173, 188, 228, 0.95)',
+                        },
+                      }}
+                    >
+                      <CardContent sx={{ p: 1.5, pb: '12px !important', minHeight: 110, display: 'flex', flexDirection: 'column', justifyContent: 'flex-start' }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+                          <Tooltip title={project.name} placement="top" arrow>
+                            <Typography variant="subtitle1" component="div" sx={{ fontWeight: 600, fontSize: 17, pr: 1, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {project.name}
+                            </Typography>
+                          </Tooltip>
+                          <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 0, gap: 0.3 }}>
+                            <IconButton
+                              size="small"
+                              onClick={() => {
+                                if (expanded) {
+                                  setExpandedProjectIds(expandedProjectIds.filter(id => id !== project.id));
+                                } else {
+                                  setExpandedProjectIds([...expandedProjectIds, project.id]);
+                                }
+                              }}
+                              aria-label={expanded ? t('projects.collapse') : t('projects.expand')}
+                              sx={{
+                                height: 28,
+                                width: 28,
+                                color: '#5673DC',
+                                backgroundColor: 'rgba(86,115,220,0.08)',
+                                mr: 0.25,
+                                '&:hover': {
+                                  backgroundColor: 'rgba(86,115,220,0.14)',
+                                },
+                              }}
+                            >
+                              {expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                            </IconButton>
+                            <Typography sx={{ fontWeight: 500, fontSize: 13, color: project.active ? '#5673DC' : '#bdbdbd', lineHeight: 1, display: 'flex', alignItems: 'center', mr: 0.5 }}>
+                              {project.active ? t('projects.activeStatus') : t('projects.closedStatus')}
+                            </Typography>
+                            <Switch
+                              size="small"
+                              checked={!!project.active}
+                              onChange={async (e) => {
+                                if (!canEdit) return;
+                                try {
+                                  await axios.patch(`/api/projects/${project.id}/active`, { active: e.target.checked ? 1 : 0 });
+                                  fetchProjects();
+                                } catch (err) {
+                                  setError(t('projects.errors.updateStatus'));
+                                }
+                              }}
+                              disabled={!canEdit}
+                              sx={{
+                                '& .MuiSwitch-switchBase.Mui-checked': {
+                                  color: '#fff',
+                                },
+                                '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                                  backgroundColor: '#5673DC',
+                                  opacity: 1,
+                                },
+                                '& .MuiSwitch-thumb': {
+                                  backgroundColor: '#fff',
+                                  boxShadow: '1',
+                                },
+                                '& .MuiSwitch-track': {
+                                  backgroundColor: '#E2E4E9',
+                                  opacity: 1,
+                                },
+                              }}
+                            />
+                          </Box>
+                        </Box>
+                        {project.code !== undefined && (
+                          <Typography variant="caption" sx={{ color: '#5673DC', fontWeight: 500, fontSize: 13, mb: 0.25, display: 'block', textAlign: 'left', mt: 0.5 }}>
+                            {t('projects.code')}: {project.code ? project.code : t('projects.noCode')}
+                          </Typography>
                         )}
-                      </Box>
-                    </>
-                  )}
-                </CardContent>
-              </Card>
+                        <Box sx={{ mb: 0.75, mt: 0.5 }}>
+                          <Chip
+                            size="small"
+                            label={categoryMeta.label}
+                            sx={{
+                              height: 22,
+                              fontSize: 12,
+                              fontWeight: 500,
+                              borderRadius: '6px',
+                              ...getCategoryChipStyles(project.category),
+                            }}
+                          />
+                        </Box>
+                        <Typography color="text.secondary" variant="body2" sx={{ mb: 0.25, fontSize: 13, lineHeight: 1.3 }}>
+                          {t('projects.client')}: {getClientName(project.client_id)}{(() => {
+                            const client = clients.find((c) => c.id === project.client_id);
+                            return client && client.type ? ` (${client.type.charAt(0).toUpperCase() + client.type.slice(1)})` : '';
+                          })()}
+                        </Typography>
+                        {!expanded && project.description && (
+                          <Typography color="text.secondary" variant="body2" sx={{ fontSize: 13, lineHeight: 1.3, mb: 0.25, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {project.description}
+                          </Typography>
+                        )}
+                        {expanded && (
+                          <>
+                            <Typography color="text.secondary" variant="body2" sx={{ fontSize: 13, lineHeight: 1.3, mb: 0.5 }}>
+                              {project.description}
+                            </Typography>
+                            <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', mt: 0.5, mb: 1 }}>
+                              <ProjectAnalyticsButton onClick={() => handleAnalyticsOpen(project)} />
+                              <Box sx={{ flex: 1 }} />
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                onClick={() => handleEditOpen(project)}
+                                sx={{
+                                  minWidth: 70,
+                                  height: 32,
+                                  borderRadius: 2,
+                                  border: '1.5px solid #E2E4E9',
+                                  color: '#222',
+                                  background: '#f7f8fa',
+                                  fontWeight: 500,
+                                  fontSize: 12,
+                                  boxShadow: 'none',
+                                  textTransform: 'none',
+                                  px: 1.2,
+                                  ml: 1,
+                                  '&:hover': {
+                                    background: 'rgba(86,115,220,0.10)',
+                                    border: '1.5px solid #5673DC',
+                                    color: '#5673DC',
+                                  },
+                                }}
+                              >
+                                {t('users.editUser')}
+                              </Button>
+                              {currentUser?.role === 'admin' && (
+                                <Button
+                                  size="small"
+                                  color="error"
+                                  startIcon={<DeleteIcon />}
+                                  onClick={() => handleDeleteProject(project)}
+                                  sx={{
+                                    minWidth: 70,
+                                    height: 32,
+                                    borderRadius: 2,
+                                    border: '1.5px solid #E2E4E9',
+                                    color: '#d32f2f',
+                                    background: '#f7f8fa',
+                                    fontWeight: 500,
+                                    fontSize: 12,
+                                    boxShadow: 'none',
+                                    textTransform: 'none',
+                                    px: 1.2,
+                                    ml: 1,
+                                    '&:hover': {
+                                      background: 'rgba(211,47,47,0.10)',
+                                      border: '1.5px solid #d32f2f',
+                                      color: '#d32f2f',
+                                    },
+                                  }}
+                                >
+                                  {t('projects.deleteProject')}
+                                </Button>
+                              )}
+                            </Box>
+                          </>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                );
+              })}
             </Grid>
-          );
-        })}
-      </Grid>
+          </Box>
+        ))}
+      </Box>
 
       <Dialog open={open} onClose={handleClose}>
         <DialogTitle>{t('projects.addProject')}</DialogTitle>
@@ -478,6 +728,22 @@ function Projects() {
               {error}
             </Alert>
           )}
+          <TextField
+            select
+            fullWidth
+            margin="dense"
+            label={categoryFieldLabel}
+            value={newProject.category}
+            onChange={(e) => setNewProject({ ...newProject, category: e.target.value })}
+            error={!!error && !newProject.category}
+            helperText={!newProject.category ? categoryRequiredText : categoryHelpText}
+          >
+            {PROJECT_CATEGORY_OPTIONS.map((category) => (
+              <MenuItem key={category.value} value={category.value}>
+                {category.label}
+              </MenuItem>
+            ))}
+          </TextField>
           <TextField
             select
             fullWidth
@@ -581,6 +847,22 @@ function Projects() {
               {error}
             </Alert>
           )}
+          <TextField
+            select
+            fullWidth
+            margin="dense"
+            label={categoryFieldLabel}
+            value={editProject?.category || ''}
+            onChange={(e) => setEditProject({ ...editProject, category: e.target.value })}
+            error={!!error && !editProject?.category}
+            helperText={!editProject?.category ? categoryRequiredText : categoryHelpText}
+          >
+            {PROJECT_CATEGORY_OPTIONS.map((category) => (
+              <MenuItem key={category.value} value={category.value}>
+                {category.label}
+              </MenuItem>
+            ))}
+          </TextField>
           <TextField
             select
             fullWidth
