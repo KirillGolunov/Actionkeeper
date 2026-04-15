@@ -976,8 +976,8 @@ function DashboardsNew() {
               </Typography>
             </Box>
           </Box>
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1fr auto 1fr' }, alignItems: 'center', gap: 1 }}>
-            <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', justifyContent: 'flex-start' }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr auto 1fr' }, alignItems: 'center', gap: 1 }}>
+            <Box sx={{ display: 'flex', gap: 0.75, flexWrap: { xs: 'wrap', lg: 'nowrap' }, justifyContent: 'flex-start' }}>
               <Chip
                 label={filterTagStyles.all.label}
                 clickable
@@ -1064,7 +1064,7 @@ function DashboardsNew() {
                 </IconButton>
               </Box>
             </Box>
-            <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', justifyContent: { xs: 'flex-start', xl: 'flex-end' } }}>
+            <Box sx={{ display: 'flex', gap: 0.75, flexWrap: { xs: 'wrap', lg: 'nowrap' }, justifyContent: { xs: 'flex-start', lg: 'flex-end' } }}>
               {timeRanges.map(option => (
                 <Button
                   key={option.value}
