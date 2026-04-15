@@ -12,6 +12,9 @@ import {
 } from '@mui/material';
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from '../i18n/I18nProvider';
+import dashboardCategoriesPreview from '../assets/announcement-projects-real.png';
+import projectCategoriesPreview from '../assets/announcement-timeentries-real.png';
+import timeEntriesDropdownPreview from '../assets/announcement-dashboard-real.png';
 
 function getDismissedKey(email, announcementId) {
   if (announcementId === 'autologin') {
@@ -254,6 +257,112 @@ function renderProjectAnalyticsAnnouncement(locale) {
   );
 }
 
+function renderProjectCategoriesAnnouncement(locale) {
+  const isRu = locale === 'ru';
+  const previewCards = [
+    {
+      src: projectCategoriesPreview,
+      title: isRu ? '\u041a\u0430\u0442\u0435\u0433\u043e\u0440\u0438\u0438 \u043d\u0430 Projects' : 'Categories on Projects',
+      text: isRu
+        ? '\u041f\u0440\u043e\u0435\u043a\u0442\u044b \u0441\u0433\u0440\u0443\u043f\u043f\u0438\u0440\u043e\u0432\u0430\u043d\u044b \u043f\u043e \u0442\u0438\u043f\u0430\u043c \u0440\u0430\u0431\u043e\u0442\u044b, \u0430 \u0431\u0435\u0437 \u043a\u0430\u0442\u0435\u0433\u043e\u0440\u0438\u0438 \u0438\u0445 \u043b\u0435\u0433\u043a\u043e \u043d\u0430\u0439\u0442\u0438 \u0444\u0438\u043b\u044c\u0442\u0440\u043e\u043c.'
+        : 'Projects are grouped by work type, and uncategorized items are easy to find with a filter.',
+    },
+    {
+      src: timeEntriesDropdownPreview,
+      title: isRu ? '\u0412\u044b\u0431\u043e\u0440 \u043f\u0440\u043e\u0435\u043a\u0442\u0430 \u0432 \u0442\u0430\u0431\u0435\u043b\u0435' : 'Project picker in Time Entries',
+      text: isRu
+        ? '\u0412 dropdown \u0442\u0435\u043f\u0435\u0440\u044c \u0435\u0441\u0442\u044c \u043f\u043e\u0438\u0441\u043a \u0438 \u0441\u0435\u043a\u0446\u0438\u0438 \u043f\u043e \u043a\u0430\u0442\u0435\u0433\u043e\u0440\u0438\u044f\u043c, \u0447\u0442\u043e\u0431\u044b \u0431\u044b\u0441\u0442\u0440\u0435\u0435 \u043d\u0430\u0445\u043e\u0434\u0438\u0442\u044c \u043d\u0443\u0436\u043d\u044b\u0439 \u043f\u0440\u043e\u0435\u043a\u0442.'
+        : 'The dropdown now has search and category sections, so projects are much faster to find.',
+    },
+    {
+      src: dashboardCategoriesPreview,
+      title: isRu ? '\u041d\u043e\u0432\u044b\u0435 \u0432\u0438\u0434\u0436\u0435\u0442\u044b \u043d\u0430 Dashboard' : 'Updated Dashboard widgets',
+      text: isRu
+        ? '\u041d\u0430 \u0434\u0430\u0448\u0431\u043e\u0440\u0434\u0435 \u043f\u043e\u044f\u0432\u0438\u043b\u0438\u0441\u044c \u0447\u0430\u0441\u044b \u043f\u043e \u043a\u0430\u0442\u0435\u0433\u043e\u0440\u0438\u044f\u043c \u0438 \u0431\u043e\u043b\u0435\u0435 \u043f\u043e\u043d\u044f\u0442\u043d\u0430\u044f \u0430\u043d\u0430\u043b\u0438\u0442\u0438\u043a\u0430 \u043f\u043e \u043a\u043b\u0438\u0435\u043d\u0442\u0430\u043c.'
+        : 'The dashboard now includes category hours and clearer client analytics.',
+    },
+  ];
+
+  return (
+    <>
+      <Typography sx={{ mb: 2 }}>
+        {isRu
+          ? '\u0412 TimeTracker \u043f\u043e\u044f\u0432\u0438\u043b\u0438\u0441\u044c \u043a\u0430\u0442\u0435\u0433\u043e\u0440\u0438\u0438 \u043f\u0440\u043e\u0435\u043a\u0442\u043e\u0432. \u0422\u0435\u043f\u0435\u0440\u044c \u0432\u043d\u0443\u0442\u0440\u0435\u043d\u043d\u044f\u044f \u0440\u0430\u0431\u043e\u0442\u0430, \u043e\u043f\u0435\u0440\u0430\u0446\u0438\u043e\u043d\u043a\u0430, \u043e\u0431\u0443\u0447\u0435\u043d\u0438\u0435 \u0438 \u043e\u0442\u0441\u0443\u0442\u0441\u0442\u0432\u0438\u044f \u0442\u0435\u043f\u0435\u0440\u044c \u043b\u0443\u0447\u0448\u0435 \u0440\u0430\u0437\u0434\u0435\u043b\u0435\u043d\u044b \u0432 \u043f\u0440\u043e\u0435\u043a\u0442\u0430\u0445, \u0442\u0430\u0431\u0435\u043b\u0435 \u0438 \u0434\u0430\u0448\u0431\u043e\u0440\u0434\u0435.'
+          : 'TimeTracker now supports project categories. Internal work, operations, development activities, and time off are now clearly separated across Projects, Time Entries, and the Dashboard.'}
+      </Typography>
+      <Box sx={{ p: 2, borderRadius: 2, backgroundColor: '#F5F7FF', border: '1px solid #D8E0FF', mb: 2 }}>
+        <Typography sx={{ fontWeight: 700, mb: 1 }}>
+          {isRu ? '\u0427\u0442\u043e \u043f\u043e\u044f\u0432\u0438\u043b\u043e\u0441\u044c' : 'What is new'}
+        </Typography>
+        <Typography sx={{ fontSize: 14, mb: 0.75 }}>
+          {isRu
+            ? '\u041d\u0430 \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0435 Projects \u043f\u0440\u043e\u0435\u043a\u0442\u044b \u0442\u0435\u043f\u0435\u0440\u044c \u0441\u0433\u0440\u0443\u043f\u043f\u0438\u0440\u043e\u0432\u0430\u043d\u044b \u043f\u043e \u043a\u0430\u0442\u0435\u0433\u043e\u0440\u0438\u044f\u043c, \u0430 \u043d\u043e\u0432\u044b\u0435 \u0438 \u0438\u0437\u043c\u0435\u043d\u0451\u043d\u043d\u044b\u0435 \u043f\u0440\u043e\u0435\u043a\u0442\u044b \u0442\u0440\u0435\u0431\u0443\u044e\u0442 \u0432\u044b\u0431\u043e\u0440\u0430 \u043a\u0430\u0442\u0435\u0433\u043e\u0440\u0438\u0438.'
+            : 'On the Projects page, projects are grouped by category, and new or updated projects now require a category.'}
+        </Typography>
+        <Typography sx={{ fontSize: 14, mb: 0.75 }}>
+          {isRu
+            ? '\u0412 \u0423\u0447\u0451\u0442\u0435 \u0432\u0440\u0435\u043c\u0435\u043d\u0438 \u043f\u043e\u044f\u0432\u0438\u043b\u0441\u044f \u0431\u043e\u043b\u0435\u0435 \u0443\u0434\u043e\u0431\u043d\u044b\u0439 \u0432\u044b\u0431\u043e\u0440 \u043f\u0440\u043e\u0435\u043a\u0442\u0430: \u043f\u043e\u0438\u0441\u043a, \u0441\u0435\u043a\u0446\u0438\u0438 \u043f\u043e \u043a\u0430\u0442\u0435\u0433\u043e\u0440\u0438\u044f\u043c \u0438 \u0431\u043e\u043b\u0435\u0435 \u043f\u043e\u043d\u044f\u0442\u043d\u0430\u044f \u043d\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044f.'
+            : 'In Time Entries, project selection is now easier with search, category sections, and clearer navigation.'}
+        </Typography>
+        <Typography sx={{ fontSize: 14 }}>
+          {isRu
+            ? '\u041d\u0430 Dashboard \u043f\u043e\u044f\u0432\u0438\u043b\u0438\u0441\u044c \u0447\u0430\u0441\u044b \u043f\u043e \u043a\u0430\u0442\u0435\u0433\u043e\u0440\u0438\u044f\u043c \u0438 \u043e\u0431\u043d\u043e\u0432\u043b\u0451\u043d\u043d\u0430\u044f \u0430\u043d\u0430\u043b\u0438\u0442\u0438\u043a\u0430 \u043f\u043e \u043a\u043b\u0438\u0435\u043d\u0442\u0430\u043c \u0438 \u043f\u0440\u043e\u0435\u043a\u0442\u0430\u043c.'
+            : 'The Dashboard now includes hours by category and updated client and project analytics.'}
+        </Typography>
+      </Box>
+      <Box sx={{ p: 2, borderRadius: 2, backgroundColor: '#FAFAFA', border: '1px solid #E6E6E6' }}>
+        <Typography sx={{ fontWeight: 700, mb: 1 }}>
+          {isRu ? '\u041a\u0430\u043a \u044d\u0442\u0438\u043c \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u044c\u0441\u044f' : 'How to use it'}
+        </Typography>
+        <Typography sx={{ fontSize: 14, mb: 0.75 }}>
+          {isRu
+            ? '\u0415\u0441\u043b\u0438 \u0432 \u043a\u0430\u0442\u0430\u043b\u043e\u0433\u0435 \u043e\u0441\u0442\u0430\u043b\u0438\u0441\u044c \u0441\u0442\u0430\u0440\u044b\u0435 \u043f\u0440\u043e\u0435\u043a\u0442\u044b \u0431\u0435\u0437 \u043a\u0430\u0442\u0435\u0433\u043e\u0440\u0438\u0438, \u0438\u0445 \u043c\u043e\u0436\u043d\u043e \u043d\u0430\u0439\u0442\u0438 \u043f\u043e \u0444\u0438\u043b\u044c\u0442\u0440\u0443 "\u0422\u0440\u0435\u0431\u0443\u044e\u0442 \u043a\u043b\u0430\u0441\u0441\u0438\u0444\u0438\u043a\u0430\u0446\u0438\u0438".'
+            : 'If some older projects are still missing a category, you can find them with the "Needs classification" filter.'}
+        </Typography>
+        <Typography sx={{ fontSize: 14 }}>
+          {isRu
+            ? '\u0414\u043b\u044f \u043d\u043e\u0432\u044b\u0445 \u043f\u0440\u043e\u0435\u043a\u0442\u043e\u0432 \u0432\u0441\u0435\u0433\u0434\u0430 \u0432\u044b\u0431\u0438\u0440\u0430\u0439\u0442\u0435 \u043a\u0430\u0442\u0435\u0433\u043e\u0440\u0438\u044e, \u0447\u0442\u043e\u0431\u044b \u0432\u044b\u0431\u043e\u0440 \u043f\u0440\u043e\u0435\u043a\u0442\u043e\u0432 \u0438 \u043e\u0442\u0447\u0451\u0442\u044b \u0440\u0430\u0431\u043e\u0442\u0430\u043b\u0438 \u043a\u043e\u0440\u0440\u0435\u043a\u0442\u043d\u043e.'
+            : 'For new projects, choose a category right away so project selection and reporting stay accurate.'}
+        </Typography>
+      </Box>
+      <Box sx={{ mt: 2.5, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+        {previewCards.map((card) => (
+          <Box
+            key={card.title}
+            sx={{
+              borderRadius: 3,
+              overflow: 'hidden',
+              border: '1px solid #DCE3F2',
+              backgroundColor: '#FFFFFF',
+              boxShadow: '0 10px 24px rgba(34, 40, 54, 0.06)',
+            }}
+          >
+            <Box
+              component="img"
+              src={card.src}
+              alt={card.title}
+              sx={{
+                display: 'block',
+                width: '100%',
+                height: 'auto',
+                backgroundColor: '#F8FAFF',
+              }}
+            />
+            <Box sx={{ px: 2, py: 1.5, borderTop: '1px solid #EDF1F7' }}>
+              <Typography sx={{ fontWeight: 700, fontSize: 14, color: '#1D2433', mb: 0.4 }}>
+                {card.title}
+              </Typography>
+              <Typography sx={{ fontSize: 13, color: '#667389', lineHeight: 1.45 }}>
+                {card.text}
+              </Typography>
+            </Box>
+          </Box>
+        ))}
+      </Box>
+    </>
+  );
+}
+
 export default function AutoLoginInfoDialog() {
   const { user, isAuthenticated, sessionStatus } = useAuth();
   const { t, locale } = useTranslation();
@@ -270,6 +379,13 @@ export default function AutoLoginInfoDialog() {
       confirmLabel: t('autologin.gotIt'),
       dontShowLabel: t('autologin.doNotShowAgain'),
       renderContent: () => renderAutoLoginAnnouncement(t, progress),
+    },
+    {
+      id: 'project-categories-update',
+      title: locale === 'ru' ? '\u041d\u043e\u0432\u044b\u0435 \u043a\u0430\u0442\u0435\u0433\u043e\u0440\u0438\u0438 \u043f\u0440\u043e\u0435\u043a\u0442\u043e\u0432' : 'New project categories',
+      confirmLabel: locale === 'ru' ? '\u041f\u043e\u043d\u044f\u0442\u043d\u043e' : 'Got it',
+      dontShowLabel: locale === 'ru' ? '\u0411\u043e\u043b\u044c\u0448\u0435 \u043d\u0435 \u043f\u043e\u043a\u0430\u0437\u044b\u0432\u0430\u0442\u044c' : 'Do not show this again',
+      renderContent: () => renderProjectCategoriesAnnouncement(locale),
     },
     {
       id: 'project-analytics-update',
@@ -335,7 +451,7 @@ export default function AutoLoginInfoDialog() {
   };
 
   return (
-    <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
+    <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
       <DialogTitle sx={{ pb: 1 }}>{activeAnnouncement?.title}</DialogTitle>
       <DialogContent>
         {activeAnnouncement?.renderContent()}

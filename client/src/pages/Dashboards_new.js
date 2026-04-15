@@ -20,7 +20,7 @@ import {
   Button,
 
 } from '@mui/material';
-import { PieChart, Pie, Cell, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from 'recharts';
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import AddIcon from '@mui/icons-material/Add';
 import RemoveIcon from '@mui/icons-material/Remove';
@@ -33,8 +33,28 @@ import { useTranslation } from '../i18n/I18nProvider';
 import Chip from '@mui/material/Chip';
 import ProjectAnalyticsDialog from '../components/ProjectAnalyticsDialog';
 import ProjectAnalyticsButton from '../components/ProjectAnalyticsButton';
+import { getProjectCategoryMeta } from '../utils/projectCategories';
 
-const COLORS = ['#8785d4','#5673DC', '#00C49F', '#FFBB28', '#FF8042'];
+const PROJECT_CATEGORY_ORDER = [
+  'external_delivery',
+  'internal_project',
+  'operations',
+  'people_development',
+  'time_off',
+  'unclassified',
+];
+
+const getDashboardCategoryBarColor = (categoryValue) => {
+  const palette = {
+    external_delivery: '#7FB48F',
+    internal_project: '#93A2E8',
+    operations: '#E5B16D',
+    people_development: '#C59BDF',
+    time_off: '#E0A0A0',
+    unclassified: '#AAB3BE',
+  };
+  return palette[categoryValue] || palette.unclassified;
+};
 
 function getPeriodLabel(period, date, t) {
   switch (period) {
@@ -70,16 +90,12 @@ function DashboardsNew() {
 
   const [timeRange, setTimeRange] = useState('month');
   const [projectData, setProjectData] = useState([]);
-  const [userData, setUserData] = useState([]);
-  const [clientTypeData, setClientTypeData] = useState([]);
 
   const [error, setError] = useState(null);
   const [expandedProjects, setExpandedProjects] = useState([]);
   const [showProjectPercent, setShowProjectPercent] = useState(false);
   const [viewByUser, setViewByUser] = useState(false);
   const [menuAnchorEl, setMenuAnchorEl] = useState(null);
-  const [activeWidget, setActiveWidget] = useState(null);
-  const [rotateClientLabels, setRotateClientLabels] = useState(false);
   const [periodDate, setPeriodDate] = useState(new Date());
   const [myProjects, setMyProjects] = useState(false);
   const [clientType, setClientType] = useState(null);
@@ -140,16 +156,12 @@ function DashboardsNew() {
       setError(null);
       const { startDate, endDate } = getDateRange();
       const dateParams = startDate ? `?startDate=${startDate}&endDate=${endDate}` : '';
-      const [projectRes, userRes, clientTypeRes, projectDetailRes, userDetailRes] = await Promise.all([
+      const [projectRes, projectDetailRes, userDetailRes] = await Promise.all([
         axios.get(`/api/analytics/time-by-project-total${dateParams}`),
-        axios.get(`/api/analytics/time-by-user-total${dateParams}`),
-        axios.get(`/api/analytics/time-by-client-type-total${dateParams}`),
         axios.get(`/api/analytics/time-by-project${dateParams}`),
         axios.get(`/api/analytics/time-by-user${dateParams}`),
       ]);
       setProjectData(projectRes.data);
-      setUserData(userRes.data);
-      setClientTypeData(clientTypeRes.data);
       setProjectDetailData(projectDetailRes.data);
       setUserDetailData(userDetailRes.data);
     } catch (err) {
@@ -172,70 +184,141 @@ function DashboardsNew() {
     setAnalyticsOpen(false);
     setSelectedProject(null);
   };
-  const localizeClientType = (value) => {
-    if (value === 'internal') return t('dashboard.filters.internal');
-    if (value === 'external') return t('dashboard.filters.external');
-    return value;
-  };
 
   // Helper: get user's project IDs and client types
 
 
-  // --- PIE WIDGET: Internal vs External Hours ---
-  let pieData = [];
-  // Aggregate by client_type
-  const pieMap = {};
-  clientTypeData.filter(row => {
-    let ok = true;
-    if (myProjects && currentUser) ok = ok && row.user_id === currentUser.id;
-    if (clientType) ok = ok && (row.client_type || row.type) === clientType;
-    return ok;
-  }).forEach(row => {
-    const type = row.client_type || row.type || 'unknown';
-    pieMap[type] = (pieMap[type] || 0) + row.total_hours;
-  });
-  pieData = Object.entries(pieMap).map(([client_type, total_hours]) => ({ client_type, total_hours }));
-  const totalClientTypeHours = pieData.reduce((sum, entry) => sum + entry.total_hours, 0);
+  // --- CATEGORY WIDGET: Hours by Project Category ---
+  let categoryWidgetData = [];
+  if (myProjects && currentUser) {
+    const categoryMap = {};
+    projectDetailData
+      .filter(row =>
+        row.user_id === currentUser.id &&
+        (!clientType || (row.client_type || row.type) === clientType)
+      )
+      .forEach((row) => {
+        const category = row.project_category || 'unclassified';
+        categoryMap[category] = (categoryMap[category] || 0) + row.total_hours;
+      });
+    categoryWidgetData = PROJECT_CATEGORY_ORDER
+      .map((category) => ({
+        category,
+        label: getProjectCategoryMeta(category).label,
+        total_hours: formatHours(categoryMap[category] || 0),
+      }))
+      .filter((entry) => entry.total_hours > 0);
+  } else {
+    const categoryMap = {};
+    projectData
+      .filter((row) => !clientType || (row.client_type || row.type) === clientType)
+      .forEach((row) => {
+        const category = row.project_category || 'unclassified';
+        categoryMap[category] = (categoryMap[category] || 0) + row.total_hours;
+      });
+    categoryWidgetData = PROJECT_CATEGORY_ORDER
+      .map((category) => ({
+        category,
+        label: getProjectCategoryMeta(category).label,
+        total_hours: formatHours(categoryMap[category] || 0),
+      }))
+      .filter((entry) => entry.total_hours > 0);
+  }
+  const totalCategoryHours = categoryWidgetData.reduce((sum, entry) => sum + entry.total_hours, 0);
   const pieWidget = (
     <Card>
       <CardContent sx={{ height: 390 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1.5 }}>
           <Typography variant="h6" gutterBottom>
-            {t('dashboard.widgets.clientTypeHours')}
+            {locale === 'ru' ? 'Часы по категориям' : 'Hours by category'}
           </Typography>
-          <IconButton onClick={(e) => { setMenuAnchorEl(e.currentTarget); setActiveWidget('clientType'); }}>
+          <IconButton onClick={(e) => { setMenuAnchorEl(e.currentTarget); }}>
             <MoreVertIcon />
           </IconButton>
         </Box>
-        <Box sx={{ mb: 1, textAlign: 'center' }}>
+        <Box sx={{ mb: 1.5 }}>
           <Typography variant="subtitle2" color="text.secondary">
-            {t('dashboard.widgets.total', { hours: formatHours(totalClientTypeHours) })}
+            {t('dashboard.widgets.total', { hours: formatHours(totalCategoryHours) })}
           </Typography>
         </Box>
-        <Box sx={{ height: 300 }}>
-          {pieData.length > 0 ? (
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={pieData}
-                  dataKey="total_hours"
-                  nameKey="client_type"
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={100}
-                  label={({ client_type, total_hours }) => `${localizeClientType(client_type)}: ${formatHours(total_hours)}${t('dashboard.hoursSuffix', { value: '' }).trim()}`}
-                >
-                  {pieData.map((entry, index) => (
-                    <Cell key={entry.client_type} fill={COLORS[index % COLORS.length]} />
+        <Box sx={{ height: 300, pt: 0.25 }}>
+          {categoryWidgetData.length > 0 ? (
+              <Box sx={{ display: 'flex', alignItems: 'flex-start', height: '100%', gap: 2, pt: 0.25 }}>
+                <Box sx={{ flex: '0 0 56%', height: '100%' }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={categoryWidgetData}
+                        dataKey="total_hours"
+                        nameKey="label"
+                        cx="50%"
+                        cy="44%"
+                        innerRadius={68}
+                        outerRadius={112}
+                        paddingAngle={2}
+                        stroke="#FFFFFF"
+                        strokeWidth={4}
+                      >
+                        {categoryWidgetData.map((entry) => (
+                          <Cell key={entry.category} fill={getDashboardCategoryBarColor(entry.category)} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        formatter={(value, _name, item) => [
+                          t('dashboard.hoursSuffix', { value: formatHours(value) }),
+                          item?.payload?.label || (locale === 'ru' ? 'Категория' : 'Category'),
+                        ]}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </Box>
+                <Box sx={{ flex: '1 1 auto', display: 'flex', flexDirection: 'column', gap: 1.1, pr: 1 }}>
+                  {categoryWidgetData.map((entry) => (
+                    <Box
+                      key={entry.category}
+                      sx={{ display: 'grid', gridTemplateColumns: '12px minmax(0, 1fr) auto', alignItems: 'center', columnGap: 1 }}
+                    >
+                      <Box
+                        sx={{
+                          width: 10,
+                          height: 10,
+                          borderRadius: 999,
+                          bgcolor: getDashboardCategoryBarColor(entry.category),
+                        }}
+                      />
+                      <Typography
+                        sx={{
+                          fontSize: 12,
+                          color: '#56637B',
+                          lineHeight: 1.25,
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                        title={entry.label}
+                      >
+                        {entry.label}
+                      </Typography>
+                      <Typography
+                        sx={{
+                          fontSize: 12,
+                          fontWeight: 600,
+                          color: '#2A3447',
+                          ml: 1,
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {`${formatHours(entry.total_hours)}ч`}
+                      </Typography>
+                    </Box>
                   ))}
-                </Pie>
-                <Tooltip formatter={(value, name) => [t('dashboard.hoursSuffix', { value: formatHours(value) }), localizeClientType(name)]} />
-                <Legend formatter={(value) => localizeClientType(value)} />
-              </PieChart>
-            </ResponsiveContainer>
+                </Box>
+              </Box>
           ) : (
             <Box display="flex" justifyContent="center" alignItems="center" height="100%">
-              <Typography color="text.secondary">{t('dashboard.widgets.noClientTypeData')}</Typography>
+              <Typography color="text.secondary">
+                {locale === 'ru' ? 'Нет данных по категориям' : 'No category data'}
+              </Typography>
             </Box>
           )}
         </Box>
@@ -243,61 +326,166 @@ function DashboardsNew() {
     </Card>
   );
 
-  // --- BAR WIDGET: Hours by Client ---
-  let barData = [];
-  if (myProjects && currentUser) {
-    // Aggregate from projectDetailData for current user and clientType
-    const mapBar = {};
-    projectDetailData
-      .filter(row => 
-        row.user_id === currentUser.id &&
-        (!clientType || (row.client_type || row.type) === clientType)
-      )
-      .forEach(row => {
-        const client = (row.client_name && row.client_name.trim()) || t('dashboard.table.unassigned');
-        mapBar[client] = (mapBar[client] || 0) + row.total_hours;
-      });
-    barData = Object.entries(mapBar).map(([name, hours]) => ({ name, hours: formatHours(hours) }));
-  } else {
-    // Use projectData for all users
-    const barFilterAll = row => {
-      let ok = true;
-      if (clientType) ok = ok && (row.client_type || row.type) === clientType;
-      return ok;
+  // --- CLIENT WIDGET: Hours by Client grouped by external/internal ---
+  let clientWidgetGroups = [];
+  {
+    const sourceRows = myProjects && currentUser
+      ? projectDetailData.filter(row =>
+          row.user_id === currentUser.id &&
+          (!clientType || (row.client_type || row.type) === clientType)
+        )
+      : projectData.filter(row => !clientType || (row.client_type || row.type) === clientType);
+
+    const groupsMap = {
+      external: {
+        key: 'external',
+        label: locale === 'ru' ? 'Внешние клиенты' : 'External clients',
+        totalHours: 0,
+        items: {},
+      },
+      internal: {
+        key: 'internal',
+        label: locale === 'ru' ? 'Внутренние клиенты' : 'Internal clients',
+        totalHours: 0,
+        items: {},
+      },
     };
-    const mapBarAll = {};
-    projectData.filter(barFilterAll).forEach(row => {
-      const client = (row.client_name && row.client_name.trim()) || t('dashboard.table.unassigned');
-      mapBarAll[client] = (mapBarAll[client] || 0) + row.total_hours;
+
+    sourceRows.forEach((row) => {
+      const type = (row.client_type || row.type) === 'internal' ? 'internal' : 'external';
+      const clientName = (row.client_name && row.client_name.trim()) || t('dashboard.table.unassigned');
+      const hours = formatHours(row.total_hours || 0);
+      groupsMap[type].totalHours += hours;
+      groupsMap[type].items[clientName] = (groupsMap[type].items[clientName] || 0) + hours;
     });
-    barData = Object.entries(mapBarAll).map(([name, hours]) => ({ name, hours: formatHours(hours) }));
+
+    clientWidgetGroups = ['external', 'internal']
+      .map((key) => {
+        const group = groupsMap[key];
+        const items = Object.entries(group.items)
+          .map(([name, hours]) => ({ name, hours: formatHours(hours) }))
+          .sort((a, b) => b.hours - a.hours || a.name.localeCompare(b.name, locale === 'ru' ? 'ru' : 'en', { sensitivity: 'base' }));
+
+        return {
+          ...group,
+          totalHours: formatHours(group.totalHours),
+          items,
+        };
+      })
+      .filter((group) => group.totalHours > 0 && group.items.length > 0);
   }
+
+  const totalClientHours = clientWidgetGroups.reduce((sum, group) => sum + group.totalHours, 0);
+  const maxClientHours = clientWidgetGroups.reduce((max, group) => {
+    const groupMax = group.items.reduce((innerMax, item) => Math.max(innerMax, item.hours), 0);
+    return Math.max(max, groupMax);
+  }, 0);
   const barWidget = (
     <Card>
-      <CardContent sx={{ height: 390 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <CardContent
+        sx={{
+          height: 390,
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1.5 }}>
           <Typography variant="h6" gutterBottom>
             {t('dashboard.widgets.hoursByClient')}
           </Typography>
-          <IconButton onClick={(e) => { setMenuAnchorEl(e.currentTarget); setActiveWidget('hoursByClient'); }}>
+          <IconButton onClick={(e) => { setMenuAnchorEl(e.currentTarget); }}>
             <MoreVertIcon />
           </IconButton>
         </Box>
-        <Box sx={{ height: 300 }}>
-          {barData.length > 0 ? (
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={barData}
-                margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" angle={rotateClientLabels ? -30 : 0} textAnchor={rotateClientLabels ? 'end' : 'middle'} interval={rotateClientLabels ? 0 : 'preserveEnd'} />
-                <YAxis />
-                <Tooltip formatter={value => t('dashboard.hoursSuffix', { value })} />
-                <Legend />
-                <Bar dataKey="hours" fill="#8884d8" name={t('dashboard.periods.week') ? t('dashboard.table.totalHours') : 'Hours'} />
-              </BarChart>
-            </ResponsiveContainer>
+        <Box sx={{ mb: 1.5 }}>
+          <Typography variant="subtitle2" color="text.secondary">
+            {locale === 'ru' ? `Всего: ${formatHours(totalClientHours)} ч` : `Total: ${formatHours(totalClientHours)} h`}
+          </Typography>
+        </Box>
+        <Box
+          sx={{
+            flex: 1,
+            minHeight: 0,
+            overflowY: 'auto',
+            overflowX: 'hidden',
+            pr: 0.75,
+            pb: 1.5,
+          }}
+        >
+          {clientWidgetGroups.length > 0 ? (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, pb: 1 }}>
+              {clientWidgetGroups.map((group) => (
+                <Box key={group.key}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', mb: 1.1 }}>
+                    <Typography sx={{ fontSize: 13, fontWeight: 600, color: '#44506A' }}>
+                      {group.label}
+                    </Typography>
+                    <Typography sx={{ fontSize: 12, fontWeight: 600, color: '#667389' }}>
+                      {`${formatHours(group.totalHours)} ч`}
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.1 }}>
+                    {group.items.map((item) => {
+                      const percent = maxClientHours > 0 ? (item.hours / maxClientHours) * 100 : 0;
+                      return (
+                        <Box
+                          key={`${group.key}-${item.name}`}
+                          sx={{
+                            display: 'grid',
+                            gridTemplateColumns: '132px minmax(0, 1fr) 44px',
+                            alignItems: 'center',
+                            columnGap: 1.25,
+                          }}
+                        >
+                          <Typography
+                            sx={{
+                              fontSize: 12,
+                              color: '#56637B',
+                              lineHeight: 1.2,
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                            }}
+                            title={item.name}
+                          >
+                            {item.name}
+                          </Typography>
+                          <Box
+                            sx={{
+                              height: 10,
+                              borderRadius: 999,
+                              bgcolor: '#D5DCF6',
+                              overflow: 'hidden',
+                            }}
+                          >
+                            <Box
+                              sx={{
+                                width: `${percent}%`,
+                                minWidth: item.hours > 0 ? 10 : 0,
+                                height: '100%',
+                                borderRadius: 999,
+                                bgcolor: '#5673DC',
+                              }}
+                            />
+                          </Box>
+                          <Typography
+                            sx={{
+                              fontSize: 12,
+                              fontWeight: 600,
+                              color: '#2A3447',
+                              textAlign: 'right',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {`${formatHours(item.hours)}ч`}
+                          </Typography>
+                        </Box>
+                      );
+                    })}
+                  </Box>
+                </Box>
+              ))}
+            </Box>
           ) : (
             <Box display="flex" justifyContent="center" alignItems="center" height="100%">
               <Typography color="text.secondary">{t('dashboard.widgets.noClientData')}</Typography>
@@ -340,6 +528,7 @@ function DashboardsNew() {
           project_id: row.project_id,
           project_name: row.project_name,
           project_code: row.project_code,
+          project_category: row.project_category,
           client_name: row.client_name,
           total_hours: 0,
         };
@@ -348,6 +537,13 @@ function DashboardsNew() {
       return acc;
     }, {});
     tableProjectData = Object.values(tableProjectData);
+    tableProjectData.sort((a, b) => {
+      const categoryIndexA = PROJECT_CATEGORY_ORDER.indexOf(a.project_category || 'unclassified');
+      const categoryIndexB = PROJECT_CATEGORY_ORDER.indexOf(b.project_category || 'unclassified');
+      if (categoryIndexA !== categoryIndexB) return categoryIndexA - categoryIndexB;
+      if (b.total_hours !== a.total_hours) return b.total_hours - a.total_hours;
+      return (a.project_name || '').localeCompare(b.project_name || '', locale === 'ru' ? 'ru' : 'en', { sensitivity: 'base' });
+    });
   }
   const totalSystemHours = viewByUser
     ? tableUserData.reduce((sum, u) => sum + u.total_hours, 0)
@@ -384,10 +580,17 @@ function DashboardsNew() {
             id: d.project_id,
             name: d.project_name,
             code: d.project_code,
+            category: d.project_category,
             clientName: d.client_name,
           },
           hours: d.total_hours,
-        }));
+        }))
+        .sort((a, b) => {
+          if (b.hours !== a.hours) return b.hours - a.hours;
+          const projectA = a.project.code ? `${a.project.code} - ${a.project.name}` : a.project.name;
+          const projectB = b.project.code ? `${b.project.code} - ${b.project.name}` : b.project.name;
+          return projectA.localeCompare(projectB, locale === 'ru' ? 'ru' : 'en', { sensitivity: 'base' });
+        });
       const userTotalHours = userObj.total_hours;
       const percent = totalSystemHours > 0 ? (userTotalHours / totalSystemHours) * 100 : 0;
       userRows.push(
@@ -424,19 +627,47 @@ function DashboardsNew() {
           const projectPercent = (p.hours / userTotalHours) * 100;
           userRows.push(
             <TableRow key={user + '-' + p.project.id} sx={{ bgcolor: '#f5f5f5' }}>
-              <TableCell sx={{ pl: 6, width: 550, minWidth: 550, maxWidth: 550, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{getProjectDisplay({ project_name: p.project.name, project_code: p.project.code })}</TableCell>
+              <TableCell sx={{ pl: 6, width: 550, minWidth: 550, maxWidth: 550, py: 0.85 }}>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography
+                    sx={{
+                      lineHeight: 1.3,
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}
+                    title={getProjectDisplay({ project_name: p.project.name, project_code: p.project.code })}
+                  >
+                    {getProjectDisplay({ project_name: p.project.name, project_code: p.project.code })}
+                  </Typography>
+                  <Typography
+                    sx={{
+                      mt: 0.1,
+                      fontSize: 11,
+                      color: '#8A94A8',
+                      lineHeight: 1.25,
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}
+                    title={getProjectCategoryMeta(p.project.category).label}
+                  >
+                    {getProjectCategoryMeta(p.project.category).label}
+                  </Typography>
+                </Box>
+              </TableCell>
               <TableCell>
                 {showProjectPercent
                   ? `${Math.round(projectPercent)}%`
                   : `${formatHours(p.hours)}h`}
               </TableCell>
               <TableCell>
-                <Box sx={{ width: '100%', height: 5, bgcolor: '#D5DCF6', borderRadius: 2, position: 'relative' }}>
+                <Box sx={{ width: '100%', height: 5, bgcolor: '#E3DEFF', borderRadius: 2, position: 'relative' }}>
                   <Box
                     sx={{
                       width: `${projectPercent}%`,
                       height: '100%',
-                      bgcolor: '#8e78ff',
+                      bgcolor: '#8E78FF',
                       borderRadius: 2,
                       transition: 'width 0.3s',
                     }}
@@ -465,15 +696,45 @@ function DashboardsNew() {
       const isExpanded = expandedProjects.includes(project.project_name);
       const usersForProjectFiltered = filteredProjectDetail
         .filter(d => d.project_name === project.project_name && d.total_hours > 0)
-        .map(d => ({ user: (d.user_name || '').trim(), hours: d.total_hours }));
+        .map(d => ({ user: (d.user_name || '').trim(), hours: d.total_hours }))
+        .sort((a, b) => b.hours - a.hours || a.user.localeCompare(b.user, locale === 'ru' ? 'ru' : 'en', { sensitivity: 'base' }));
       const percent = totalSystemHours > 0 ? (project.total_hours / totalSystemHours) * 100 : 0;
       projectRows.push(
         <TableRow key={project.project_name}>
-          <TableCell sx={{ fontWeight: 500, width: 550, minWidth: 550, maxWidth: 550, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            <IconButton size="small" onClick={() => handleExpandClick(project.project_name)}>
-              {isExpanded ? <RemoveIcon /> : <AddIcon />}
-            </IconButton>
-            {getProjectDisplay(project)}
+          <TableCell sx={{ width: 550, minWidth: 550, maxWidth: 550, py: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'flex-start', minWidth: 0 }}>
+              <IconButton size="small" onClick={() => handleExpandClick(project.project_name)} sx={{ mt: 0.1 }}>
+                {isExpanded ? <RemoveIcon /> : <AddIcon />}
+              </IconButton>
+              <Box sx={{ minWidth: 0, pt: 0.1 }}>
+                <Typography
+                  sx={{
+                    fontWeight: 500,
+                    lineHeight: 1.3,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                  title={getProjectDisplay(project)}
+                >
+                  {getProjectDisplay(project)}
+                </Typography>
+                <Typography
+                  sx={{
+                    mt: 0.1,
+                    fontSize: 11,
+                    color: '#8A94A8',
+                    lineHeight: 1.25,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                  title={getProjectCategoryMeta(project.project_category).label}
+                >
+                  {getProjectCategoryMeta(project.project_category).label}
+                </Typography>
+              </Box>
+            </Box>
           </TableCell>
           <TableCell>
             {showProjectPercent
@@ -486,7 +747,7 @@ function DashboardsNew() {
                 sx={{
                   width: `${percent}%`,
                   height: '100%',
-                  bgcolor: '#8e78ff',
+                  bgcolor: '#5673DC',
                   borderRadius: 2,
                   transition: 'width 0.3s',
                 }}
@@ -519,12 +780,12 @@ function DashboardsNew() {
                   : `${formatHours(u.hours)}h`}
               </TableCell>
               <TableCell>
-                <Box sx={{ width: '100%', height: 5, bgcolor: '#D5DCF6', borderRadius: 2, position: 'relative' }}>
+                <Box sx={{ width: '100%', height: 5, bgcolor: '#E3DEFF', borderRadius: 2, position: 'relative' }}>
                   <Box
                     sx={{
                       width: `${userPercent}%`,
                       height: '100%',
-                      bgcolor: '#5673DC',
+                      bgcolor: '#8E78FF',
                       borderRadius: 2,
                       transition: 'width 0.3s',
                     }}
@@ -734,7 +995,7 @@ function DashboardsNew() {
               <Typography variant="h6" gutterBottom>
                 {t('dashboard.widgets.hoursByProject')}
               </Typography>
-              <IconButton onClick={(e) => { setMenuAnchorEl(e.currentTarget); setActiveWidget('projectHours'); }}>
+              <IconButton onClick={(e) => { setMenuAnchorEl(e.currentTarget); }}>
                 <MoreVertIcon />
               </IconButton>
             </Box>
@@ -821,13 +1082,8 @@ function DashboardsNew() {
       <Menu
         anchorEl={menuAnchorEl}
         open={Boolean(menuAnchorEl)}
-        onClose={() => { setMenuAnchorEl(null); setActiveWidget(null); }}
+        onClose={() => { setMenuAnchorEl(null); }}
       >
-        {activeWidget === 'hoursByClient' && (
-          <MenuItem onClick={() => { setRotateClientLabels(v => !v); setMenuAnchorEl(null); }}>
-            {rotateClientLabels ? t('dashboard.options.disableXAxisRotation') : t('dashboard.options.enableXAxisRotation')}
-          </MenuItem>
-        )}
         <MenuItem disabled>{t('dashboard.options.widgetSettingsSoon')}</MenuItem>
       </Menu>
       <ProjectAnalyticsDialog
@@ -840,3 +1096,5 @@ function DashboardsNew() {
 }
 
 export default DashboardsNew; 
+
+

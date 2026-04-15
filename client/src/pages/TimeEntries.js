@@ -1,12 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Button,
   Typography,
   TextField,
+  InputAdornment,
   Dialog,
   DialogTitle,
   MenuItem,
+  ListSubheader,
   Table,
   TableBody,
   TableCell,
@@ -21,7 +23,7 @@ import {
 import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import axios from 'axios';
-import { Add, Delete, Remove, Edit as EditIcon, Save as SaveIcon } from '@mui/icons-material';
+import { Add, Delete, Remove, Edit as EditIcon, Save as SaveIcon, Search as SearchIcon } from '@mui/icons-material';
 import CloseIcon from '@mui/icons-material/Close';
 import SingleProjectWeekEditor from '../components/SingleProjectWeekEditor';
 import DayHourBar from '../components/DayHourBar';
@@ -32,6 +34,11 @@ import WeekCarousel from '../components/WeekCarousel';
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from '../i18n/I18nProvider';
 import { getApiErrorMessage } from '../utils/apiErrorMessage';
+import {
+  PROJECT_CATEGORY_ORDER,
+  PROJECT_CATEGORY_TRANSITION,
+  getProjectCategoryMeta,
+} from '../utils/projectCategories';
 
 const dayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const requiredHoursPerDay = {
@@ -117,6 +124,44 @@ const getProjectDisplay = (project) => {
   return project.code ? `${project.code} - ${project.name}` : project.name;
 };
 
+const getProjectWithCategoryDisplay = (project) => {
+  if (!project) return '';
+  const category = getProjectCategoryMeta(project.category);
+  return `${category.label} / ${getProjectDisplay(project)}`;
+};
+
+const getProjectSecondaryText = (project) => {
+  if (!project) return '';
+  const fallback = getProjectCategoryMeta(project.category).label;
+  const description = (project.description || '').trim();
+  if (!description) return fallback;
+  return description.length > 60 ? `${description.slice(0, 57)}...` : description;
+};
+
+const getProjectStateText = (project, t) => {
+  if (!project) return '';
+  return project.active === 0 ? `${t('projects.closedStatus')} • ${getProjectCategoryMeta(project.category).label}` : getProjectSecondaryText(project);
+};
+
+const normalizeSearchText = (value) => (value || '').toString().trim().toLowerCase();
+
+const matchesProjectSearch = (project, searchValue) => {
+  const query = normalizeSearchText(searchValue);
+  if (!query) return true;
+  const categoryLabel = getProjectCategoryMeta(project.category).label;
+  const haystack = [
+    project.name,
+    project.code,
+    getProjectDisplay(project),
+    categoryLabel,
+    project.description,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return haystack.includes(query);
+};
+
 function TimeEntries() {
   const { t } = useTranslation();
   const daysOfWeek = dayKeys.map((key) => ({ key, label: t(`timeEntries.weekdays.${key}`) }));
@@ -133,6 +178,7 @@ function TimeEntries() {
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [entryToDelete, setEntryToDelete] = useState(null);
   const [weeklyProjects, setWeeklyProjects] = useState([]);
+  const [projectSearchByEntry, setProjectSearchByEntry] = useState({});
   const [allWeeks, setAllWeeks] = useState([]); // [{start, end, loggedHours, isCurrent, isSelected, isComplete}]
   const [weeksToShow, setWeeksToShow] = useState(4);
   const [carouselRef, setCarouselRef] = useState(null);
@@ -142,14 +188,6 @@ function TimeEntries() {
     userId: selectedUser,
     weekStart,
   });
-  // Initial data load intentionally runs once on mount.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    fetchTimeEntries();
-    fetchProjects();
-    fetchUsers();
-  }, []);
-
   useEffect(() => {
     if (currentUser && currentUser.role !== 'admin') {
       setSelectedUser(currentUser.id);
@@ -235,7 +273,7 @@ function TimeEntries() {
     setAllWeeks(filteredWeeks);
   }, [selectedUser, weekStart, timeEntries, weeksToShow]);
 
-  const fetchTimeEntries = async () => {
+  const fetchTimeEntries = useCallback(async () => {
     try {
       const response = await axios.get('/api/time-entries');
       console.log('Fetched time entries:', response.data);
@@ -244,29 +282,41 @@ function TimeEntries() {
       console.error('Error fetching time entries:', error);
       setError(t('timeEntries.errors.fetchEntries')); 
     }
-  };
+  }, [t]);
 
-  const fetchProjects = async () => {
+  const fetchProjects = useCallback(async () => {
     try {
       const response = await axios.get('/api/projects');
       console.log('Fetched projects:', response.data);
-      setProjects(response.data);
+      const sortedProjects = [...response.data].sort((a, b) => {
+        const categoryIndexA = PROJECT_CATEGORY_ORDER.indexOf(a.category || PROJECT_CATEGORY_TRANSITION.value);
+        const categoryIndexB = PROJECT_CATEGORY_ORDER.indexOf(b.category || PROJECT_CATEGORY_TRANSITION.value);
+        if (categoryIndexA !== categoryIndexB) return categoryIndexA - categoryIndexB;
+        return getProjectDisplay(a).localeCompare(getProjectDisplay(b), undefined, { sensitivity: 'base' });
+      });
+      setProjects(sortedProjects);
     } catch (error) {
       console.error('Error fetching projects:', error);
-      setError(t('timeEntries.errors.fetchProjects')); 
+      setError(t('timeEntries.errors.fetchProjects'));
     }
-  };
+  }, [t]);
 
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     try {
       const response = await axios.get('/api/users');
       console.log('Fetched users:', response.data);
       setUsers(response.data);
     } catch (error) {
       console.error('Error fetching users:', error);
-      setError(t('timeEntries.errors.fetchUsers')); 
+      setError(t('timeEntries.errors.fetchUsers'));
     }
-  };
+  }, [t]);
+
+  useEffect(() => {
+    fetchTimeEntries();
+    fetchProjects();
+    fetchUsers();
+  }, [fetchTimeEntries, fetchProjects, fetchUsers]);
 
   const dayTotals = daysOfWeek.map(day =>
     weeklyProjects.reduce((sum, entry) => sum + (parseFloat(entry.hours[day.key]?.value) || 0), 0)
@@ -694,6 +744,29 @@ function TimeEntries() {
     });
   };
 
+  const getSelectableProjectsForRow = (entry, idx) => (
+    projects
+      .filter((project) => project.active !== 0 || entry.project_id === project.id)
+      .filter((project) => (
+        !weeklyProjects.some((row, rowIndex) => rowIndex !== idx && row.project_id === project.id)
+        || entry.project_id === project.id
+      ))
+      .filter((project) => matchesProjectSearch(project, projectSearchByEntry[entry.id]))
+  );
+
+  const getSelectableProjectGroups = (entry, idx) => {
+    const selectableProjects = getSelectableProjectsForRow(entry, idx);
+    return PROJECT_CATEGORY_ORDER
+      .map((categoryValue) => ({
+        categoryValue,
+        meta: getProjectCategoryMeta(categoryValue),
+        projects: selectableProjects.filter(
+          (project) => (project.category || PROJECT_CATEGORY_TRANSITION.value) === categoryValue
+        ),
+      }))
+      .filter((group) => group.projects.length > 0);
+  };
+
   return (
     <Box>
       <Box
@@ -886,6 +959,10 @@ function TimeEntries() {
                               localStorage.setItem(orderKey, JSON.stringify(order));
                               return updated;
                             });
+                            setProjectSearchByEntry((current) => ({
+                              ...current,
+                              [entry.id]: '',
+                            }));
                           }}
                           sx={{
                             width: 530,
@@ -893,23 +970,199 @@ function TimeEntries() {
                             textOverflow: 'ellipsis',
                             whiteSpace: 'nowrap',
                             fontSize: 11,
-                            '& .MuiOutlinedInput-root': { fontSize: 11 },
+                            '& .MuiOutlinedInput-root': {
+                              fontSize: 11,
+                              borderRadius: '12px',
+                              backgroundColor: '#FFFFFF',
+                            },
+                            '& .MuiSelect-select': {
+                              display: 'flex',
+                              alignItems: 'center',
+                              fontSize: 13,
+                              color: '#273041',
+                            },
                           }}
                           SelectProps={{
+                            onOpen: () => {},
+                            onClose: () => {
+                              setProjectSearchByEntry((current) => ({
+                                ...current,
+                                [entry.id]: '',
+                              }));
+                            },
+                            renderValue: (selected) => {
+                              if (!selected) {
+                                return t('timeEntries.selectProject');
+                              }
+                              const selectedProject = projects.find((project) => project.id === selected);
+                              return selectedProject ? getProjectDisplay(selectedProject) : t('timeEntries.selectProject');
+                            },
                             MenuProps: {
+                              autoFocus: false,
+                              disableAutoFocusItem: true,
+                              MenuListProps: {
+                                autoFocusItem: false,
+                              },
                               PaperProps: {
                                 sx: {
                                   fontSize: 11,
+                                  width: 530,
+                                  maxHeight: 420,
+                                  mt: 1,
+                                  borderRadius: '16px',
+                                  border: '1px solid #DCE4F1',
+                                  boxShadow: '0 14px 32px rgba(77, 97, 163, 0.14)',
+                                  overflowX: 'hidden',
+                                  overflowY: 'auto',
+                                  '& .MuiMenu-list': {
+                                    py: 0.5,
+                                  },
+                                  '& .MuiListSubheader-root': {
+                                    backgroundColor: '#F1F5FB',
+                                    color: '#566580',
+                                    fontSize: 10,
+                                    fontWeight: 700,
+                                    letterSpacing: '0.05em',
+                                    textTransform: 'uppercase',
+                                    lineHeight: '26px',
+                                    paddingTop: '3px',
+                                    paddingBottom: '3px',
+                                    paddingLeft: '16px',
+                                    paddingRight: '16px',
+                                    borderTop: '1px solid #D5DEEE',
+                                    borderBottom: '1px solid #E2EAF6',
+                                  },
+                                  '&::-webkit-scrollbar': {
+                                    width: 8,
+                                  },
+                                  '&::-webkit-scrollbar-track': {
+                                    backgroundColor: '#F5F7FB',
+                                  },
+                                  '&::-webkit-scrollbar-thumb': {
+                                    backgroundColor: '#C8D1E4',
+                                    borderRadius: 999,
+                                  },
                                 },
                               },
                             },
                           }}
                         >
                           <MenuItem value="" disabled>{t('timeEntries.selectProject')}</MenuItem>
+                          <ListSubheader disableSticky sx={{ backgroundColor: '#FFFFFF', py: 1, px: 1.5 }}>
+                            <TextField
+                              size="small"
+                              fullWidth
+                              autoFocus
+                              placeholder="Поиск по коду, названию или категории"
+                              value={projectSearchByEntry[entry.id] || ''}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                setProjectSearchByEntry((current) => ({
+                                  ...current,
+                                  [entry.id]: value,
+                                }));
+                              }}
+                              onKeyDown={(e) => e.stopPropagation()}
+                              onClick={(e) => e.stopPropagation()}
+                              InputProps={{
+                                startAdornment: (
+                                  <InputAdornment position="start">
+                                    <SearchIcon sx={{ fontSize: 18, color: '#8A96AD' }} />
+                                  </InputAdornment>
+                                ),
+                              }}
+                              sx={{
+                                '& .MuiOutlinedInput-root': {
+                                  borderRadius: '10px',
+                                  backgroundColor: '#F8FAFE',
+                                },
+                                '& .MuiOutlinedInput-input': {
+                                  fontSize: 13,
+                                  py: 1,
+                                },
+                              }}
+                            />
+                          </ListSubheader>
+                          {getSelectableProjectGroups(entry, idx).flatMap((group) => ([
+                            <ListSubheader
+                              key={`header-${group.categoryValue}`}
+                              disableSticky
+                              sx={{
+                                mt: group.categoryValue === PROJECT_CATEGORY_ORDER[0] ? 0 : 0.5,
+                                borderTop: group.categoryValue === PROJECT_CATEGORY_ORDER[0] ? 'none' : '2px solid #D7E0EF',
+                                boxShadow: group.categoryValue === PROJECT_CATEGORY_ORDER[0] ? 'none' : 'inset 0 1px 0 rgba(255,255,255,0.7)',
+                              }}
+                            >
+                              {group.meta.label}
+                              </ListSubheader>,
+                            ...group.projects.map((project) => (
+                              <MenuItem
+                                key={project.id}
+                                value={project.id}
+                                sx={{
+                                  alignItems: 'flex-start',
+                                  py: 0.75,
+                                  px: 1.5,
+                                  mx: 0.75,
+                                  my: 0.125,
+                                  minHeight: 48,
+                                  borderRadius: 2.5,
+                                  transition: 'background-color 0.15s ease',
+                                  '&:hover': {
+                                    backgroundColor: '#F5F8FF',
+                                  },
+                                  '&.Mui-selected': {
+                                    backgroundColor: '#EEF3FF',
+                                  },
+                                  '&.Mui-selected:hover': {
+                                    backgroundColor: '#E7EEFF',
+                                  },
+                                }}
+                              >
+                                <Box sx={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                                  <Typography
+                                    sx={{
+                                      fontSize: 13,
+                                      color: '#273041',
+                                      fontWeight: 500,
+                                      lineHeight: 1.35,
+                                      whiteSpace: 'nowrap',
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis',
+                                      maxWidth: 460,
+                                    }}
+                                    title={getProjectDisplay(project)}
+                                  >
+                                    {getProjectDisplay(project)}
+                                  </Typography>
+                                  <Typography
+                                    sx={{
+                                      fontSize: 10.5,
+                                      color: '#8A96AD',
+                                      lineHeight: 1.35,
+                                      mt: 0.15,
+                                      whiteSpace: 'nowrap',
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis',
+                                      maxWidth: 460,
+                                    }}
+                                    title={getProjectStateText(project, t) || group.meta.label}
+                                  >
+                                    {getProjectStateText(project, t) || group.meta.label}
+                                  </Typography>
+                                </Box>
+                              </MenuItem>
+                            )),
+                          ]))}
+                          {getSelectableProjectGroups(entry, idx).length === 0 && (
+                            <MenuItem disabled sx={{ fontSize: 13, color: '#8A96AD', py: 1.25 }}>
+                              Ничего не найдено
+                            </MenuItem>
+                          )}
+                          {/*
                           {projects
                             .filter(project => project.active !== 0)
                             .filter(project =>
-                              // Only show projects not already selected in other rows, or the current row's project
                               !weeklyProjects.some((row, i) => i !== idx && row.project_id === project.id)
                               || entry.project_id === project.id
                             )
@@ -925,26 +1178,60 @@ function TimeEntries() {
                                     verticalAlign: 'middle',
                                     fontSize: 13,
                                   }}
-                                  title={getProjectDisplay(project)}
+                                  title={getProjectWithCategoryDisplay(project)}
                                 >
-                                  {getProjectDisplay(project)}
+                                  {getProjectWithCategoryDisplay(project)}
                                 </span>
                               </MenuItem>
                             ))}
+                          */}
                         </TextField>
                       ) : (
-                        <Tooltip title={getProjectDisplay(projects.find(p => p.id === entry.project_id)) || entry.project_name} placement="top" arrow>
-                          <span style={{
-                            display: 'inline-block',
-                            maxWidth: 530,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                            verticalAlign: 'middle',
-                          }}>
-                            {getProjectDisplay(projects.find(p => p.id === entry.project_id)) || entry.project_name}
-                          </span>
-                        </Tooltip>
+                        (() => {
+                          const selectedProject = projects.find((project) => project.id === entry.project_id);
+                          const categoryMeta = getProjectCategoryMeta(selectedProject?.category);
+                          return (
+                            <Tooltip
+                              title={getProjectWithCategoryDisplay(selectedProject) || entry.project_name}
+                              placement="top"
+                              arrow
+                            >
+                              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', minWidth: 0 }}>
+                                <Typography
+                                  sx={{
+                                    maxWidth: 530,
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                    verticalAlign: 'middle',
+                                    fontSize: 13,
+                                    fontWeight: 500,
+                                    color: '#273041',
+                                    lineHeight: 1.35,
+                                  }}
+                                >
+                                  {getProjectDisplay(selectedProject) || entry.project_name}
+                                </Typography>
+                                <Typography
+                                  sx={{
+                                    maxWidth: 530,
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                    fontSize: 11,
+                                    color: '#7F8BA2',
+                                    lineHeight: 1.35,
+                                    mt: 0.25,
+                                  }}
+                                >
+                                  {selectedProject?.active === 0
+                                    ? `${categoryMeta.label} • ${t('projects.closedStatus')}`
+                                    : categoryMeta.label}
+                                </Typography>
+                              </Box>
+                            </Tooltip>
+                          );
+                        })()
                       )}
                     </Box>
                   </Box>

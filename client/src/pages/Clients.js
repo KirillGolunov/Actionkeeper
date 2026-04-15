@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Button,
@@ -59,14 +59,7 @@ function Clients() {
   };
 
   const [filters, setFilters] = useState({ internal: false, external: false });
-  // Initial load intentionally runs once on mount.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    fetchClients();
-    fetchProjects();
-  }, []);
-
-  const fetchClients = async () => {
+  const fetchClients = useCallback(async () => {
     try {
       const response = await axios.get('/api/clients');
       console.log('Fetched clients:', response.data);
@@ -75,16 +68,21 @@ function Clients() {
       console.error('Error fetching clients:', error);
       setError(t('clients.errors.fetch'));
     }
-  };
+  }, [t]);
 
-  const fetchProjects = async () => {
+  const fetchProjects = useCallback(async () => {
     try {
       const response = await axios.get('/api/projects');
       setProjects(response.data);
     } catch (error) {
       setError(t('clients.errors.fetchProjects'));
     }
-  };
+  }, [t]);
+
+  useEffect(() => {
+    fetchClients();
+    fetchProjects();
+  }, [fetchClients, fetchProjects]);
 
   const handleDeleteClient = (client) => {
     setClientToDelete(client);
