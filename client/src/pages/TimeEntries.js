@@ -99,6 +99,13 @@ const initialEntry = (user_id = '') => ({
   editing: true, // new rows start in edit mode
 });
 
+const cloneWeeklyEntry = (entry) => ({
+  ...entry,
+  hours: Object.fromEntries(
+    Object.entries(entry.hours || {}).map(([dayKey, dayValue]) => [dayKey, { ...dayValue }])
+  ),
+});
+
 // Add getWeekRange function (copied from useTimeEntries.js)
 function getWeekRange(date) {
   // Returns [monday, sunday] as ISO strings
@@ -116,6 +123,13 @@ function getWeekRange(date) {
 // Helper to get a unique key for project order in localStorage
 function getOrderStorageKey(userId, weekStart) {
   return `weeklyProjectOrder_${userId}_${new Date(weekStart).toISOString().slice(0,10)}`;
+}
+
+function setSavedProjectOrder(userId, weekStart, rows) {
+  if (!userId) return;
+  const orderKey = getOrderStorageKey(userId, weekStart);
+  const order = rows.map((row) => row.project_id).filter(Boolean);
+  localStorage.setItem(orderKey, JSON.stringify(order));
 }
 
 // Helper to format project display
@@ -346,6 +360,7 @@ function TimeEntries() {
           grouped[entry.project_id] = {
             id: entry.project_id,
             project_id: entry.project_id,
+            original_project_id: entry.project_id,
             project_name: entry.project_name,
             user_id: selectedUser,
             hours: { mon: { id: null, value: '' }, tue: { id: null, value: '' }, wed: { id: null, value: '' }, thu: { id: null, value: '' }, fri: { id: null, value: '' }, sat: { id: null, value: '' }, sun: { id: null, value: '' } },
@@ -419,17 +434,33 @@ function TimeEntries() {
     // Prepare batch payload and collect zero-hour deletes
     const batchEntries = [];
     const deleteRequests = [];
+    const updateRequests = [];
     weeklyProjects.forEach(entry => {
+      const originalProjectId = entry.original_project_id || entry.project_id;
+      const projectChanged = Boolean(entry.submitted && originalProjectId !== entry.project_id);
       daysOfWeek.forEach((day, i) => {
         const val = entry.hours[day.key]?.value;
         const num = val === '' || val === undefined ? 0 : parseFloat(val);
+        const existingEntryId = entry.hours[day.key]?.id;
         const date = new Date(weekStart);
         date.setDate(date.getDate() + i);
         // Use local YYYY-MM-DD
         const isoDate = date.getFullYear() + '-' +
           String(date.getMonth() + 1).padStart(2, '0') + '-' +
           String(date.getDate()).padStart(2, '0');
-        if (num > 0) {
+        if (projectChanged && existingEntryId) {
+          if (num > 0) {
+            updateRequests.push(
+              axios.patch(`/api/time-entries/${existingEntryId}`, {
+                project_id: entry.project_id,
+                date: isoDate,
+                hours: num,
+              })
+            );
+          } else {
+            deleteRequests.push(axios.delete(`/api/time-entries/${existingEntryId}`));
+          }
+        } else if (num > 0) {
           batchEntries.push({
             user_id: selectedUser,
             project_id: entry.project_id,
@@ -446,6 +477,9 @@ function TimeEntries() {
       });
     });
     try {
+      if (updateRequests.length > 0) {
+        await Promise.all(updateRequests);
+      }
       if (batchEntries.length > 0) {
         await axios.post('/api/time-entries/batch', { entries: batchEntries });
       }
@@ -454,13 +488,17 @@ function TimeEntries() {
       }
       // Update table with backend data and lock rows
       // Save order to localStorage (in case new projects were added)
-      const orderKey = getOrderStorageKey(selectedUser, weekStart);
-      const order = weeklyProjects.map(e => e.project_id).filter(Boolean);
-      localStorage.setItem(orderKey, JSON.stringify(order));
+      setSavedProjectOrder(selectedUser, weekStart, weeklyProjects);
       await fetchTimeEntries();
       await refreshWeeklyProjects();
       refreshSessionStatus().catch(() => {});
-      setWeeklyProjects(prev => prev.map(row => ({ ...row, submitted: true, editing: false })));
+      setWeeklyProjects(prev => prev.map(row => ({
+        ...row,
+        original_project_id: row.project_id,
+        editSnapshot: undefined,
+        submitted: true,
+        editing: false
+      })));
     } catch (err) {
       setError(getApiErrorMessage(err, t, 'timeEntries.errors.submit')); 
     }
@@ -713,7 +751,12 @@ function TimeEntries() {
   const handleEditRow = idx => {
     setWeeklyProjects(prev => {
       const updated = [...prev];
-      updated[idx] = { ...updated[idx], editing: true };
+      updated[idx] = {
+        ...updated[idx],
+        original_project_id: updated[idx].original_project_id || updated[idx].project_id,
+        editSnapshot: cloneWeeklyEntry(updated[idx]),
+        editing: true
+      };
       return updated;
     });
   };
@@ -738,10 +781,18 @@ function TimeEntries() {
       if (!updated[idx].submitted) {
         updated.splice(idx, 1);
       } else {
-        updated[idx] = { ...updated[idx], editing: false };
+        const snapshot = updated[idx].editSnapshot;
+        updated[idx] = snapshot
+          ? { ...snapshot, editing: false, editSnapshot: undefined }
+          : { ...updated[idx], editing: false, editSnapshot: undefined };
       }
+      setSavedProjectOrder(selectedUser, weekStart, updated);
       return updated;
     });
+    setProjectSearchByEntry((current) => ({
+      ...current,
+      [weeklyProjects[idx]?.id]: '',
+    }));
   };
 
   const getSelectableProjectsForRow = (entry, idx) => (
@@ -953,10 +1004,7 @@ function TimeEntries() {
                             setWeeklyProjects(prev => {
                               const updated = [...prev];
                               updated[idx] = { ...updated[idx], project_id: value };
-                              // Save new order to localStorage
-                              const orderKey = getOrderStorageKey(selectedUser, weekStart);
-                              const order = updated.map(e => e.project_id).filter(Boolean);
-                              localStorage.setItem(orderKey, JSON.stringify(order));
+                              setSavedProjectOrder(selectedUser, weekStart, updated);
                               return updated;
                             });
                             setProjectSearchByEntry((current) => ({
