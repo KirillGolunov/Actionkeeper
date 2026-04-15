@@ -41,6 +41,7 @@ sqlite3_rsync.exe
 sqlite3.exe
 
 # Runtime data and uploads
+time_tracker.db
 data/
 client/public/avatars/
 client/build/avatars/

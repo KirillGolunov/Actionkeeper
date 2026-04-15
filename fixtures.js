@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const sqlite3 = require('sqlite3').verbose();
 
-const targetDbPath = process.env.DB_PATH || './time_tracker.db';
+const targetDbPath = process.env.DB_PATH || './data/time_tracker.db';
 const defaultSourcePath = 'C:/Users/golun/Desktop/data/time_tracker.db';
 const sourceDbPath = process.env.SOURCE_DB_PATH || defaultSourcePath;
 

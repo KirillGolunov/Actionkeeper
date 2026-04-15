@@ -17,7 +17,7 @@ A time tracking application to help users monitor and manage their activities ef
 ## Environment Variables
 
 - `PORT`: (optional) The port your server will listen on. Defaults to 3001 if not set.
-- `DB_PATH`: (optional) Path to the SQLite database file. Defaults to `time_tracker.db` if not set.
+- `DB_PATH`: (optional) Path to the SQLite database file. Defaults to `./data/time_tracker.db` if not set.
 - `APP_BASE_URL`: (optional) The base URL for links in emails. Defaults to `http://localhost:3000`.
 - `APP_DOMAIN`: Public domain used by Caddy for the production site. Defaults to `actionlog.ru` in the bundled Caddy config if not set.
 - `ACME_EMAIL`: Email used by the reverse proxy (Caddy) to request TLS certificates from Let's Encrypt.
@@ -33,7 +33,7 @@ A time tracking application to help users monitor and manage their activities ef
 
 ```env
 PORT=3001
-DB_PATH=./time_tracker.db
+DB_PATH=./data/time_tracker.db
 APP_BASE_URL=https://actionlog.ru
 APP_DOMAIN=actionlog.ru
 SMTP_HOST=smtp.example.com

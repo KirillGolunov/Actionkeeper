@@ -209,7 +209,8 @@ app.use(async (req, res, next) => {
 });
 
 // Database connection
-const dbPath = process.env.DB_PATH || 'time_tracker.db';
+const dbPath = process.env.DB_PATH || './data/time_tracker.db';
+fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 const db = new sqlite3.Database(dbPath, (err) => {
   if (err) {
     console.error('Error connecting to database:', err);
