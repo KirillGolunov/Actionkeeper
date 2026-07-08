@@ -71,6 +71,7 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           password: ${{ secrets.SSH_PASSWORD }}
+          command_timeout: 30m
           script: |
             set -euo pipefail
 
@@ -108,4 +109,4 @@ jobs:
 
             retry 5 20 docker compose pull
             docker compose up -d --remove-orphans
-            docker image prune -f
+            timeout 120 docker image prune -f || echo "docker image prune skipped or timed out"
