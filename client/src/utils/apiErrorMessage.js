@@ -9,6 +9,8 @@ export function getApiErrorMessage(error, t, fallbackKey) {
     'setup.smtp_required_in_production': 'setup.testFailed',
     'smtp.incomplete': 'smtp.testFailed',
     'smtp.not_configured': 'smtp.testFailed',
+    'smtp.save_failed': 'smtp.saveFailed',
+    'smtp.forbidden': 'common.notAuthorized',
     'invitations.invalid_or_expired': 'auth.invitation.invalidOrExpired',
     'invitations.name_surname_required': 'auth.invitation.failed',
     'invitations.email_required': 'users.errors.sendInvitation',

@@ -96,6 +96,8 @@ const apiErrors = {
   timeEntriesWeekRequired: { errorCode: 'time_entries.week_required', error: 'user_id, project_id, and week_start are required' },
   timeEntriesNoEntries: { errorCode: 'time_entries.no_entries', error: 'No entries provided.' },
   smtpIncomplete: { errorCode: 'smtp.incomplete', error: 'SMTP settings are incomplete.' },
+  smtpForbidden: { errorCode: 'smtp.forbidden', error: 'Only administrators can manage SMTP settings.' },
+  smtpSaveFailed: { errorCode: 'smtp.save_failed', error: 'Failed to save SMTP settings.' },
   uploadNoFile: { errorCode: 'upload.no_file', error: 'No file uploaded' },
 };
 
@@ -220,59 +222,120 @@ const db = new sqlite3.Database(dbPath, (err) => {
 });
 
 // SMTP settings
-const SMTP_SETTINGS_FILE = './smtp_settings.json';
+const SMTP_SETTINGS_FILE = path.join(__dirname, 'data', 'smtp_settings.json');
 
-// Helper to load SMTP settings
+function normalizeSmtpSettings(raw = {}) {
+  const parsedPort = Number.parseInt(raw.port, 10);
+  return {
+    host: typeof raw.host === 'string' ? raw.host.trim() : '',
+    port: Number.isNaN(parsedPort) ? NaN : parsedPort,
+    auth: {
+      user: typeof raw.auth?.user === 'string' ? raw.auth.user.trim() : '',
+      pass: typeof raw.auth?.pass === 'string' ? raw.auth.pass : '',
+    },
+    from: typeof raw.from === 'string' ? raw.from.trim() : '',
+    secure: raw.secure === true || raw.secure === 'true' || raw.secure === '1',
+  };
+}
+
+function isCompleteSmtpSettings(settings) {
+  return Boolean(
+    settings &&
+    settings.host &&
+    settings.port >= 1 &&
+    settings.port <= 65535 &&
+    settings.auth &&
+    settings.auth.user &&
+    settings.auth.pass &&
+    settings.from
+  );
+}
+
+function loadSmtpSettingsFromEnv() {
+  const required = ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'SMTP_FROM'];
+  if (!required.every((key) => process.env[key])) {
+    return {};
+  }
+
+  return normalizeSmtpSettings({
+    host: process.env.SMTP_HOST,
+    port: process.env.SMTP_PORT,
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+    from: process.env.SMTP_FROM,
+    secure: process.env.SMTP_SECURE,
+  });
+}
+
+// Helper to load SMTP settings. Runtime settings have priority over .env.
 function loadSmtpSettings() {
-  const required = [
-    'SMTP_HOST',
-    'SMTP_PORT',
-    'SMTP_USER',
-    'SMTP_PASS',
-    'SMTP_FROM'
-  ];
-  const allSet = required.every((key) => process.env[key]);
-  const isProduction = process.env.NODE_ENV === 'production';
-
-  if (allSet) {
-    return {
-      host: process.env.SMTP_HOST,
-      port: parseInt(process.env.SMTP_PORT, 10) || 587,
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
-      from: process.env.SMTP_FROM,
-      secure: process.env.SMTP_SECURE === 'true' || process.env.SMTP_SECURE === '1',
-    };
-  }
-
-  if (isProduction) {
-    console.error('[SMTP] FATAL: All SMTP environment variables must be set in production.');
-    process.exit(1);
-  }
-
-  // In development, fallback to file
   if (fs.existsSync(SMTP_SETTINGS_FILE)) {
     try {
       const data = fs.readFileSync(SMTP_SETTINGS_FILE, 'utf8');
-      return JSON.parse(data);
+      const settings = normalizeSmtpSettings(JSON.parse(data));
+      if (isCompleteSmtpSettings(settings)) {
+        return settings;
+      }
+      console.warn('[SMTP] Runtime SMTP settings are incomplete; falling back to environment settings.');
     } catch (e) {
-      console.error('[SMTP] Failed to read or parse smtp_settings.json:', e);
-      return {};
+      console.error('[SMTP] Failed to read or parse runtime SMTP settings:', e);
     }
   }
-  return {};
+
+  return loadSmtpSettingsFromEnv();
+}
+
+function toPublicSmtpSettings(settings) {
+  const user = settings.auth?.user || '';
+  return {
+    host: settings.host || '',
+    port: settings.port || 587,
+    user,
+    pass: '',
+    auth: {
+      user,
+      pass: '',
+    },
+    from: settings.from || '',
+    secure: !!settings.secure,
+    hasPassword: !!settings.auth?.pass,
+  };
+}
+
+function buildSmtpSettingsFromBody(body = {}, existing = {}) {
+  const rawPass = typeof body.pass === 'string' ? body.pass : (typeof body.auth?.pass === 'string' ? body.auth.pass : '');
+  return normalizeSmtpSettings({
+    host: body.host,
+    port: body.port,
+    auth: {
+      user: body.user || body.auth?.user,
+      pass: rawPass || existing.auth?.pass || '',
+    },
+    from: body.from,
+    secure: body.secure,
+  });
+}
+
+function validateSmtpSettings(settings) {
+  return isCompleteSmtpSettings(settings);
 }
 
 // Helper to save SMTP settings
 function saveSmtpSettings(settings) {
-  try {
-    fs.writeFileSync(SMTP_SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf8');
-    console.log('[SMTP] Settings saved:', settings);
-  } catch (e) {
-    console.error('[SMTP] Failed to write smtp_settings.json:', e);
-  }
+  fs.mkdirSync(path.dirname(SMTP_SETTINGS_FILE), { recursive: true });
+  const tempFile = `${SMTP_SETTINGS_FILE}.${process.pid}.tmp`;
+  fs.writeFileSync(tempFile, JSON.stringify(settings, null, 2), 'utf8');
+  fs.renameSync(tempFile, SMTP_SETTINGS_FILE);
+  console.log('[SMTP] Runtime settings saved:', {
+    host: settings.host,
+    port: settings.port,
+    user: settings.auth?.user,
+    from: settings.from,
+    secure: settings.secure,
+    hasPassword: !!settings.auth?.pass,
+  });
 }
 
 // Helper to check if at least one admin user exists
@@ -689,6 +752,45 @@ function authenticateJWT(req, res, next) {
       return sendApiError(res, 500, 'authSessionValidationFailed');
     }
   });
+}
+
+function optionalAuthenticateJWT(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return next();
+  }
+
+  const token = authHeader.split(' ')[1];
+  jwt.verify(token, process.env.MAGIC_LINK_SECRET || 'changeme-magic-link-secret', async (err, user) => {
+    if (err || !user.sid) {
+      return sendApiError(res, 401, 'authTokenInvalid');
+    }
+
+    try {
+      const session = await getDb('SELECT * FROM auth_sessions WHERE token_id = ? AND revoked = 0', [user.sid]);
+      if (!session) {
+        return sendApiError(res, 401, 'authSessionNotFound');
+      }
+      if (new Date(session.expires_at) < new Date()) {
+        await runDb('UPDATE auth_sessions SET revoked = 1 WHERE id = ?', [session.id]);
+        return sendApiError(res, 401, 'authSessionExpired');
+      }
+
+      req.user = user;
+      req.session = session;
+      next();
+    } catch (sessionError) {
+      console.error('[JWT] Failed to validate optional session', sessionError);
+      return sendApiError(res, 500, 'authSessionValidationFailed');
+    }
+  });
+}
+
+function requireAdmin(req, res, next) {
+  if (!req.user || req.user.role !== 'admin') {
+    return sendApiError(res, 403, 'smtpForbidden');
+  }
+  next();
 }
 
 // Users routes
@@ -1589,44 +1691,38 @@ app.delete('/api/time-entries/by-project/:project_id', (req, res) => {
 });
 
 // Get current SMTP settings
-app.get('/api/smtp-settings', (req, res) => {
-  res.json(loadSmtpSettings());
+app.get('/api/smtp-settings', authenticateJWT, requireAdmin, (req, res) => {
+  res.json(toPublicSmtpSettings(loadSmtpSettings()));
 });
 
 // Update SMTP settings
-app.post('/api/smtp-settings', (req, res) => {
-  const smtp = req.body;
-  // Always save in correct structure
-  const settings = {
-    host: smtp.host,
-    port: smtp.port,
-    auth: {
-      user: smtp.user || (smtp.auth && smtp.auth.user) || '',
-      pass: smtp.pass || (smtp.auth && smtp.auth.pass) || ''
-    },
-    from: smtp.from,
-    secure: !!smtp.secure
-  };
-  saveSmtpSettings(settings);
-  res.json({ success: true });
+app.post('/api/smtp-settings', authenticateJWT, requireAdmin, (req, res) => {
+  const settings = buildSmtpSettingsFromBody(req.body, loadSmtpSettings());
+  if (!validateSmtpSettings(settings)) {
+    return sendApiError(res, 400, 'smtpIncomplete');
+  }
+
+  try {
+    saveSmtpSettings(settings);
+    res.json({ success: true });
+  } catch (e) {
+    console.error('[SMTP] Failed to write runtime SMTP settings:', e);
+    sendApiError(res, 500, 'smtpSaveFailed');
+  }
 });
 
 // Send a test email
-app.post('/api/smtp-test', async (req, res) => {
+app.post('/api/smtp-test', optionalAuthenticateJWT, async (req, res) => {
   // Accept all SMTP fields from the request body for testing
   const body = req.body || {};
-  const settings = {
-    host: body.host || '',
-    port: body.port || '',
-    auth: {
-      user: body.user || '',
-      pass: body.pass || '',
-    },
-    from: body.from || '',
-    secure: !!body.secure,
-  };
+  if (req.user && req.user.role !== 'admin') {
+    return sendApiError(res, 403, 'smtpForbidden');
+  }
+
+  const existing = req.user?.role === 'admin' ? loadSmtpSettings() : {};
+  const settings = buildSmtpSettingsFromBody(body, existing);
   const to = body.to || settings.from;
-  if (!settings.host || !settings.port || !settings.auth.user || !settings.auth.pass || !settings.from) {
+  if (!validateSmtpSettings(settings)) {
     return sendApiError(res, 400, 'smtpIncomplete');
   }
   try {
@@ -2098,9 +2194,14 @@ app.post('/api/setup', async (req, res) => {
   }
   const sanitizedSmtp = smtp || {};
   const hasSmtp = sanitizedSmtp.host && sanitizedSmtp.port && sanitizedSmtp.user && sanitizedSmtp.pass && sanitizedSmtp.from;
+  const existingSmtpConfigured = isCompleteSmtpSettings(loadSmtpSettings());
+  const setupSmtpSettings = hasSmtp ? buildSmtpSettingsFromBody(sanitizedSmtp) : null;
 
-  if (isProduction && !hasSmtp) {
+  if (isProduction && !hasSmtp && !existingSmtpConfigured) {
     return sendApiError(res, 400, 'setupSmtpRequired');
+  }
+  if (setupSmtpSettings && !validateSmtpSettings(setupSmtpSettings)) {
+    return sendApiError(res, 400, 'smtpIncomplete');
   }
 
   // Create admin user
@@ -2132,18 +2233,13 @@ app.post('/api/setup', async (req, res) => {
         }
         return res.status(500).json({ error: err.message });
       }
-      if (!isProduction && hasSmtp) {
-        const settings = {
-          host: sanitizedSmtp.host,
-          port: sanitizedSmtp.port,
-          auth: {
-            user: sanitizedSmtp.user,
-            pass: sanitizedSmtp.pass
-          },
-          from: sanitizedSmtp.from,
-          secure: !!sanitizedSmtp.secure
-        };
-        saveSmtpSettings(settings);
+      if (hasSmtp) {
+        try {
+          saveSmtpSettings(setupSmtpSettings);
+        } catch (saveErr) {
+          console.error('[Setup] Failed to save SMTP settings:', saveErr);
+          return sendApiError(res, 500, 'smtpSaveFailed');
+        }
       } else if (!isProduction && !hasSmtp) {
         console.log('[Setup] SMTP settings not provided; skipping save for development.');
       }

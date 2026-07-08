@@ -21,7 +21,7 @@ A time tracking application to help users monitor and manage their activities ef
 - `APP_BASE_URL`: (optional) The base URL for links in emails. Defaults to `http://localhost:3000`.
 - `APP_DOMAIN`: Public domain used by Caddy for the production site. Defaults to `actionlog.ru` in the bundled Caddy config if not set.
 - `ACME_EMAIL`: Email used by the reverse proxy (Caddy) to request TLS certificates from Let's Encrypt.
-- SMTP settings (**must be set via environment variables for production/multi-client installs**):
+- SMTP settings (can be provided via environment variables for initial/bootstrap configuration):
   - `SMTP_HOST`: SMTP server hostname
   - `SMTP_PORT`: SMTP server port (e.g. 587)
   - `SMTP_USER`: SMTP username
@@ -49,9 +49,9 @@ Copy `.env.example` to `.env` for local development or a fresh server install, t
 
 ## SMTP Settings
 
-- **For production and multi-client installs, you must provide SMTP settings via environment variables.**
-- The `smtp_settings.json` file is only used as a fallback for local development if environment variables are not set.
-- Do not commit real credentials to version control. You can use the provided `smtp_settings.example.json` as a template for local development only.
+- SMTP can be bootstrapped from `.env` via `SMTP_*` variables.
+- Admin changes from the in-app SMTP settings page are saved to `data/smtp_settings.json`, which has priority over `.env` and survives Docker restarts through the `./data` volume.
+- Do not commit real credentials to version control. `data/` and `.env` are deployment-local and ignored by git.
 
 ## Setup Instructions
 
@@ -64,13 +64,8 @@ Copy `.env.example` to `.env` for local development or a fresh server install, t
    cp .env.example .env
    # Edit .env with your local or server-specific values
    ```
-3. (Optional) Copy the example SMTP settings and fill in your real values:
-   ```sh
-   cp smtp_settings.example.json smtp_settings.json
-   # Edit smtp_settings.json with your SMTP credentials (if not using env vars)
-   ```
-4. Set environment variables as needed (see above).
-5. Start the server:
+3. Set environment variables as needed (see above).
+4. Start the server:
    ```sh
    npm start
    ```
@@ -160,7 +155,7 @@ This keeps the currently deployed instance behavior unchanged while allowing new
 
 ## Deployment Safety
 
-- `.env` and `smtp_settings.json` are deployment-local files and should not be committed to git.
-- The production deploy workflow now backs up those files on the server before `git reset --hard origin/main` and restores them immediately after the reset.
-- For a new server, run `./install.sh` to generate `.env`, and create `smtp_settings.json` only if you need the local JSON fallback instead of environment variables.
+- `.env` and `data/smtp_settings.json` are deployment-local files and should not be committed to git.
+- The production deploy workflow preserves `.env`; runtime SMTP settings remain in the persistent `data/` directory.
+- For a new server, run `./install.sh` to generate `.env`; later SMTP changes can be made from the admin settings page.
 
