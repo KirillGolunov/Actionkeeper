@@ -28,6 +28,11 @@ import { useTranslation } from '../i18n/I18nProvider';
 import { getApiErrorMessage } from '../utils/apiErrorMessage';
 import ProjectAnalyticsDialog from '../components/ProjectAnalyticsDialog';
 import ProjectAnalyticsButton from '../components/ProjectAnalyticsButton';
+import PageLayout, {
+  PageToolbar,
+  pageActionButtonSx,
+  pageFilterChipSx,
+} from '../components/PageLayout';
 import {
   PROJECT_CATEGORY_OPTIONS,
   PROJECT_CATEGORY_ORDER,
@@ -346,75 +351,27 @@ function Projects() {
   };
 
   return (
-    <Box
-      sx={{
-        background: 'linear-gradient(180deg, #F6F8FE 0%, #F9FBFF 100%)',
-        minHeight: '100%',
-        mx: -3,
-        mt: -3,
-        px: 3,
-        pt: 3,
-        pb: 4,
-      }}
-    >
-      <Box sx={{ mb: 2.5 }}>
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: { xs: 'flex-start', md: 'center' },
-            justifyContent: 'space-between',
-            gap: 2,
-            flexDirection: { xs: 'column', md: 'row' },
-            mb: 1.5,
-          }}
-        >
-          <Box>
-            <Typography variant="h4" sx={{ mb: 0.25 }}>
-              {t('projects.title')}
-            </Typography>
-            <Typography sx={{ color: '#7C89A3', fontSize: 14 }}>
-              {`${projects.length} ${isRussian ? 'проекта в каталоге' : 'projects in catalog'}`}
-            </Typography>
-          </Box>
-          {canEdit && (
-            <Button
-              variant="contained"
-              color="primary"
-              startIcon={<AddIcon />}
-              onClick={handleOpen}
-              sx={{
-                alignSelf: { xs: 'stretch', md: 'auto' },
-                minHeight: 40,
-                borderRadius: '12px',
-                px: 2,
-                backgroundColor: '#5B75E7',
-                color: '#FFFFFF',
-                fontSize: 15,
-                fontWeight: 500,
-                textTransform: 'none',
-                boxShadow: '0 8px 18px rgba(91,117,231,0.16)',
-                '&:hover': {
-                  backgroundColor: '#4A69D9',
-                  boxShadow: '0 10px 22px rgba(74,105,217,0.2)',
-                },
-              }}
-            >
-              {t('projects.addProject')}
-            </Button>
-          )}
-        </Box>
-
-        <Box
-          sx={{
-            background: 'rgba(255, 255, 255, 0.82)',
-            border: '1px solid rgba(210, 220, 242, 0.85)',
-            borderRadius: '16px',
-            px: { xs: 1.5, md: 2 },
-            py: 1.5,
-            boxShadow: '0 10px 30px rgba(91, 117, 231, 0.06)',
-            backdropFilter: 'blur(10px)',
-          }}
-        >
+    <PageLayout
+      title={t('projects.title')}
+      subtitle={projects.length + (isRussian ? ' \u043f\u0440\u043e\u0435\u043a\u0442\u0430 \u0432 \u043a\u0430\u0442\u0430\u043b\u043e\u0433\u0435' : ' projects in catalog')}
+      actions={
+        canEdit ? (
+          <Button
+            variant="contained"
+            color="primary"
+            startIcon={<AddIcon />}
+            onClick={handleOpen}
+            sx={{
+              ...pageActionButtonSx,
+              width: { xs: '100%', md: 'auto' },
+            }}
+          >
+            {t('projects.addProject')}
+          </Button>
+        ) : null
+      }
+      toolbar={
+        <PageToolbar>
           <Box
             sx={{
               display: 'flex',
@@ -437,12 +394,7 @@ function Projects() {
                       clickable
                       onClick={() => setFilters((currentFilters) => ({ ...currentFilters, [status.key]: !currentFilters[status.key] }))}
                       sx={{
-                        height: 32,
-                        borderRadius: '10px',
-                        px: 0.75,
-                        fontSize: 13,
-                        fontWeight: 500,
-                        boxShadow: 'none',
+                        ...pageFilterChipSx,
                         ...(filters[status.key] ? statusTagStyles[status.key].selected : statusTagStyles[status.key].default),
                       }}
                     />
@@ -462,12 +414,7 @@ function Projects() {
                       clickable
                       onClick={() => setFilters((currentFilters) => ({ ...currentFilters, [category.key]: !currentFilters[category.key] }))}
                       sx={{
-                        height: 32,
-                        borderRadius: '10px',
-                        px: 0.75,
-                        fontSize: 13,
-                        fontWeight: 500,
-                        boxShadow: 'none',
+                        ...pageFilterChipSx,
                         ...(filters[category.key]
                           ? getCategoryChipStyles(category.key)
                           : { background: '#F5F7FA', color: '#7D8AA5', border: 'none' }),
@@ -499,8 +446,9 @@ function Projects() {
               </Button>
             )}
           </Box>
-        </Box>
-      </Box>
+        </PageToolbar>
+      }
+    >
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
@@ -1002,7 +950,7 @@ function Projects() {
           </Button>
         </DialogActions>
       </Dialog>
-    </Box>
+    </PageLayout>
   );
 }
 

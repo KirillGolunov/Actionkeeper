@@ -33,6 +33,10 @@ import { useTranslation } from '../i18n/I18nProvider';
 import Chip from '@mui/material/Chip';
 import ProjectAnalyticsDialog from '../components/ProjectAnalyticsDialog';
 import ProjectAnalyticsButton from '../components/ProjectAnalyticsButton';
+import PageLayout, {
+  PageToolbar,
+  pageFilterChipSx,
+} from '../components/PageLayout';
 import { getProjectCategoryMeta } from '../utils/projectCategories';
 
 const PROJECT_CATEGORY_ORDER = [
@@ -935,60 +939,41 @@ function DashboardsNew() {
     },
   };
 
+  const dashboardFilterChipSx = {
+    ...pageFilterChipSx,
+    height: 40,
+    borderRadius: '12px',
+  };
+
+  const dashboardSummaryMeta = (
+    <>
+      <Typography component="span" sx={{ fontSize: 'inherit', color: 'inherit' }}>
+        {locale === 'ru' ? `\u0412\u0441\u0435\u0433\u043e \u0447\u0430\u0441\u043e\u0432 - ${summaryHours}` : `Total hours - ${summaryHours}`}
+      </Typography>
+      <Typography component="span" sx={{ fontSize: 'inherit', color: 'inherit' }}>
+        {locale === 'ru' ? `\u041f\u0440\u043e\u0435\u043a\u0442\u043e\u0432 - ${summaryProjects}` : `Projects - ${summaryProjects}`}
+      </Typography>
+      <Typography component="span" sx={{ fontSize: 'inherit', color: 'inherit' }}>
+        {locale === 'ru' ? `\u041a\u043b\u0438\u0435\u043d\u0442\u043e\u0432 - ${summaryClients}` : `Clients - ${summaryClients}`}
+      </Typography>
+    </>
+  );
+
   // Layout: two widgets side by side, one wide below
   return (
-    <Box
-      sx={{
-        background: 'linear-gradient(180deg, #F6F8FE 0%, #F9FBFF 100%)',
-        minHeight: '100%',
-        mx: -3,
-        mt: -3,
-        px: 3,
-        pt: 3,
-        pb: 4,
-      }}
-    >
-      <Box
-        sx={{
-          mb: 2,
-          p: { xs: 1.5, md: 1.75 },
-          borderRadius: '28px',
-          border: '1px solid rgba(210, 220, 242, 0.85)',
-          background: 'rgba(255, 255, 255, 0.82)',
-          boxShadow: '0 10px 30px rgba(91, 117, 231, 0.06)',
-          backdropFilter: 'blur(10px)',
-        }}
-      >
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.9 }}>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.35 }}>
-            <Typography variant="h4" sx={{ mb: 0.25 }}>
-              {t('dashboard.title')}
-            </Typography>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, color: '#7C89A3', fontSize: 14, lineHeight: 1.4 }}>
-              <Typography component="span" sx={{ fontSize: 'inherit', color: 'inherit' }}>
-                {locale === 'ru' ? `\u0412\u0441\u0435\u0433\u043e \u0447\u0430\u0441\u043e\u0432 - ${summaryHours}` : `Total hours - ${summaryHours}`}
-              </Typography>
-              <Typography component="span" sx={{ fontSize: 'inherit', color: 'inherit' }}>
-                {locale === 'ru' ? `\u041f\u0440\u043e\u0435\u043a\u0442\u043e\u0432 - ${summaryProjects}` : `Projects - ${summaryProjects}`}
-              </Typography>
-              <Typography component="span" sx={{ fontSize: 'inherit', color: 'inherit' }}>
-                {locale === 'ru' ? `\u041a\u043b\u0438\u0435\u043d\u0442\u043e\u0432 - ${summaryClients}` : `Clients - ${summaryClients}`}
-              </Typography>
-            </Box>
-          </Box>
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr auto 1fr' }, alignItems: 'center', gap: 1 }}>
-            <Box sx={{ display: 'flex', gap: 0.75, flexWrap: { xs: 'wrap', lg: 'nowrap' }, justifyContent: 'flex-start' }}>
+    <PageLayout
+      title={t('dashboard.title')}
+      meta={dashboardSummaryMeta}
+      toolbar={
+        <PageToolbar
+          start={
+            <>
               <Chip
                 label={filterTagStyles.all.label}
                 clickable
                 onClick={() => { setMyProjects(false); setClientType(null); }}
                 sx={{
-                  fontSize: '13px',
-                    height: '40px',
-                    borderRadius: '12px',
-                    px: 0.75,
-                    fontWeight: 500,
-                    boxShadow: 'none',
+                  ...dashboardFilterChipSx,
                   ...(myProjects === false && !clientType ? filterTagStyles.all.selected : filterTagStyles.all.default),
                 }}
               />
@@ -997,12 +982,7 @@ function DashboardsNew() {
                 clickable
                 onClick={() => setMyProjects(v => !v)}
                 sx={{
-                  fontSize: '13px',
-                    height: '40px',
-                    borderRadius: '12px',
-                    px: 0.75,
-                    fontWeight: 500,
-                    boxShadow: 'none',
+                  ...dashboardFilterChipSx,
                   ...(myProjects ? filterTagStyles.my.selected : filterTagStyles.my.default),
                 }}
               />
@@ -1011,12 +991,7 @@ function DashboardsNew() {
                 clickable
                 onClick={() => setClientType(clientType === 'internal' ? null : 'internal')}
                 sx={{
-                  fontSize: '13px',
-                    height: '40px',
-                    borderRadius: '12px',
-                    px: 0.75,
-                    fontWeight: 500,
-                    boxShadow: 'none',
+                  ...dashboardFilterChipSx,
                   ...(clientType === 'internal' ? filterTagStyles.internal.selected : filterTagStyles.internal.default),
                 }}
               />
@@ -1025,46 +1000,43 @@ function DashboardsNew() {
                 clickable
                 onClick={() => setClientType(clientType === 'external' ? null : 'external')}
                 sx={{
-                  fontSize: '13px',
-                    height: '40px',
-                    borderRadius: '12px',
-                    px: 0.75,
-                    fontWeight: 500,
-                    boxShadow: 'none',
+                  ...dashboardFilterChipSx,
                   ...(clientType === 'external' ? filterTagStyles.external.selected : filterTagStyles.external.default),
                 }}
               />
+            </>
+          }
+          center={
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 40, borderRadius: '12px', px: 1, py: 0, background: '#F8FAFF', border: '1px solid #E1E8F9', flexShrink: 0 }}>
+              <IconButton onClick={() => {
+                if (timeRange === 'week') setPeriodDate(d => new Date(d.setDate(d.getDate() - 7)));
+                if (timeRange === 'month') setPeriodDate(d => addMonths(d, -1));
+                if (timeRange === 'quarter') setPeriodDate(d => addQuarters(d, -1));
+                if (timeRange === 'year') setPeriodDate(d => addYears(d, -1));
+              }}
+                disabled={timeRange === 'all'}
+                sx={{ color: timeRange === 'all' ? '#C5C9D3' : '#5673DC', width: 32, height: 32 }}
+              >
+                <LeftArrow color={timeRange === 'all' ? '#C5C9D3' : '#5673DC'} size={32} />
+              </IconButton>
+              <Typography variant="subtitle1" sx={{ minWidth: { xs: 140, md: 180 }, textAlign: 'center', display: 'inline-block', fontWeight: 600, color: '#2A3447' }}>
+                {getPeriodLabel(timeRange, periodDate, t)}
+              </Typography>
+              <IconButton onClick={() => {
+                if (timeRange === 'week') setPeriodDate(d => new Date(d.setDate(d.getDate() + 7)));
+                if (timeRange === 'month') setPeriodDate(d => addMonths(d, 1));
+                if (timeRange === 'quarter') setPeriodDate(d => addQuarters(d, 1));
+                if (timeRange === 'year') setPeriodDate(d => addYears(d, 1));
+              }}
+                disabled={timeRange === 'all' || isNextPeriodInFuture()}
+                sx={{ color: timeRange === 'all' || isNextPeriodInFuture() ? '#C5C9D3' : '#5673DC', width: 32, height: 32 }}
+              >
+                <RightArrow color={timeRange === 'all' || isNextPeriodInFuture() ? '#C5C9D3' : '#5673DC'} size={32} />
+              </IconButton>
             </Box>
-            <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 40, borderRadius: '12px', px: 1, py: 0, background: '#F8FAFF', border: '1px solid #E1E8F9', flexShrink: 0 }}>
-                <IconButton onClick={() => {
-                  if (timeRange === 'week') setPeriodDate(d => new Date(d.setDate(d.getDate() - 7)));
-                  if (timeRange === 'month') setPeriodDate(d => addMonths(d, -1));
-                  if (timeRange === 'quarter') setPeriodDate(d => addQuarters(d, -1));
-                  if (timeRange === 'year') setPeriodDate(d => addYears(d, -1));
-                }}
-                  disabled={timeRange === 'all'}
-                  sx={{ color: timeRange === 'all' ? '#C5C9D3' : '#5673DC', width: 32, height: 32 }}
-                >
-                  <LeftArrow color={timeRange === 'all' ? '#C5C9D3' : '#5673DC'} size={32} />
-                </IconButton>
-                <Typography variant="subtitle1" sx={{ minWidth: { xs: 140, md: 180 }, textAlign: 'center', display: 'inline-block', fontWeight: 600, color: '#2A3447' }}>
-                  {getPeriodLabel(timeRange, periodDate, t)}
-                </Typography>
-                <IconButton onClick={() => {
-                  if (timeRange === 'week') setPeriodDate(d => new Date(d.setDate(d.getDate() + 7)));
-                  if (timeRange === 'month') setPeriodDate(d => addMonths(d, 1));
-                  if (timeRange === 'quarter') setPeriodDate(d => addQuarters(d, 1));
-                  if (timeRange === 'year') setPeriodDate(d => addYears(d, 1));
-                }}
-                  disabled={timeRange === 'all' || isNextPeriodInFuture()}
-                  sx={{ color: timeRange === 'all' || isNextPeriodInFuture() ? '#C5C9D3' : '#5673DC', width: 32, height: 32 }}
-                >
-                  <RightArrow color={timeRange === 'all' || isNextPeriodInFuture() ? '#C5C9D3' : '#5673DC'} size={32} />
-                </IconButton>
-              </Box>
-            </Box>
-            <Box sx={{ display: 'flex', gap: 0.75, flexWrap: { xs: 'wrap', lg: 'nowrap' }, justifyContent: { xs: 'flex-start', lg: 'flex-end' } }}>
+          }
+          end={
+            <>
               {timeRanges.map(option => (
                 <Button
                   key={option.value}
@@ -1092,10 +1064,11 @@ function DashboardsNew() {
                   {option.label}
                 </Button>
               ))}
-            </Box>
-          </Box>
-        </Box>
-      </Box>
+            </>
+          }
+        />
+      }
+    >
       {error && (
         <Alert severity="error" sx={{ mb: 2, borderRadius: '16px' }}>{error}</Alert>
       )}
@@ -1206,7 +1179,7 @@ function DashboardsNew() {
         project={selectedProject}
         onClose={handleAnalyticsClose}
       />
-    </Box>
+    </PageLayout>
   );
 }
 

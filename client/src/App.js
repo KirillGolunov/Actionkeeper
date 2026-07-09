@@ -31,6 +31,18 @@ const theme = createTheme({
       main: '#dc004e',
     },
   },
+  components: {
+    MuiCssBaseline: {
+      styleOverrides: {
+        html: {
+          scrollbarGutter: 'stable',
+        },
+        body: {
+          overflowY: 'scroll',
+        },
+      },
+    },
+  },
 });
 
 function AdminRoute({ children }) {

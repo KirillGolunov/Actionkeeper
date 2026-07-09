@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Button,
-  Typography,
   TextField,
   MenuItem,
   Table,
@@ -24,9 +23,13 @@ import ConfirmationDialog from '../components/ConfirmationDialog';
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from '../i18n/I18nProvider';
 import { getApiErrorMessage } from '../utils/apiErrorMessage';
+import PageLayout, {
+  PageToolbar,
+  pageFilterChipSx,
+} from '../components/PageLayout';
 
 function Clients() {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const [clients, setClients] = useState([]);
   const [error, setError] = useState(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -177,32 +180,31 @@ function Clients() {
   const sortedClients = [...filteredClients].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
   return (
-    <Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Typography variant="h4">{t('clients.title')}</Typography>
-          <Box sx={{ display: 'flex', gap: 1, ml: 2 }}>
-            {['internal', 'external'].map((key) => (
-              <Chip
-                key={key}
-                label={tagStyles[key].label}
-                clickable
-                onClick={() => setFilters(f => ({ ...f, [key]: !f[key] }))}
-                sx={{
-                  fontSize: '12px',
-                  height: '20px',
-                  minWidth: '64px',
-                  borderRadius: '6px',
-                  px: 1.5,
-                  fontWeight: 400,
-                  boxShadow: 'none',
-                  ...((filters[key]) ? tagStyles[key].selected : tagStyles[key].default),
-                }}
-              />
-            ))}
-          </Box>
-        </Box>
-      </Box>
+    <PageLayout
+      title={t('clients.title')}
+      subtitle={`${clients.length} ${locale === 'ru' ? '\u043a\u043b\u0438\u0435\u043d\u0442\u043e\u0432 \u0432 \u043a\u0430\u0442\u0430\u043b\u043e\u0433\u0435' : 'clients in catalog'}`}
+      toolbar={
+        <PageToolbar
+          start={
+            <>
+              {['internal', 'external'].map((key) => (
+                <Chip
+                  key={key}
+                  label={tagStyles[key].label}
+                  clickable
+                  onClick={() => setFilters(f => ({ ...f, [key]: !f[key] }))}
+                  sx={{
+                    ...pageFilterChipSx,
+                    minWidth: 96,
+                    ...((filters[key]) ? tagStyles[key].selected : tagStyles[key].default),
+                  }}
+                />
+              ))}
+            </>
+          }
+        />
+      }
+    >
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {error}
@@ -551,7 +553,7 @@ function Clients() {
         confirmLabel={deleteLoading ? <><CircularProgress size={18} color="inherit" sx={{ mr: 1 }} />{t('clients.delete')}</> : t('clients.delete')}
         cancelLabel={t('common.actions.cancel')}
       />
-    </Box>
+    </PageLayout>
   );
 }
 

@@ -9,7 +9,7 @@ function formatWeekRange(start, end) {
   return `${pad(s.getDate())}.${pad(s.getMonth() + 1)} - ${pad(e.getDate())}.${pad(e.getMonth() + 1)}`;
 }
 
-const WeekCarousel = ({ weeks, selectedWeek, onSelectWeek, requiredHours }) => {
+const WeekCarousel = ({ weeks, selectedWeek, onSelectWeek, requiredHours, compact = false }) => {
   const scrollRef = useRef();
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -42,11 +42,11 @@ const WeekCarousel = ({ weeks, selectedWeek, onSelectWeek, requiredHours }) => {
   const isSelectedCurrentWeek = selectedWeekObj && selectedWeekObj.isCurrent;
 
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', mt: 2, mb: 2, width: '100vw', maxWidth: '100%' }}>
-      <IconButton onClick={() => handleScroll(-1)} sx={{ height: 56, width: 56 }} disabled={!canScrollLeft}>
+    <Box sx={{ display: 'flex', alignItems: 'center', mt: compact ? 0 : 2, mb: compact ? 0 : 2, width: '100vw', maxWidth: '100%' }}>
+      <IconButton onClick={() => handleScroll(-1)} sx={{ height: compact ? 44 : 56, width: compact ? 44 : 56 }} disabled={!canScrollLeft}>
         <LeftArrow color={canScrollLeft ? '#5673DC' : '#C5C9D3'} />
       </IconButton>
-      <Box ref={scrollRef} sx={{ display: 'flex', overflowX: 'auto', overflowY: 'hidden', gap: 2, flex: 1, px: 1, height: 64, minHeight: 64, alignItems: 'center', width: '100%', minWidth: 0, scrollbarWidth: 'none', '&::-webkit-scrollbar': { display: 'none' } }}>
+      <Box ref={scrollRef} sx={{ display: 'flex', overflowX: 'auto', overflowY: 'hidden', gap: compact ? 1.5 : 2, flex: 1, px: 1, height: compact ? 52 : 64, minHeight: compact ? 52 : 64, alignItems: 'center', width: '100%', minWidth: 0, scrollbarWidth: 'none', '&::-webkit-scrollbar': { display: 'none' } }}>
         {weeks.map((week, idx) => {
           const isCurrent = week.isCurrent;
           const isSelected = week.isSelected;
@@ -94,7 +94,7 @@ const WeekCarousel = ({ weeks, selectedWeek, onSelectWeek, requiredHours }) => {
                   background: isComplete ? '#6b7fd1' : '#f0f3fa',
                   border: `1px solid #C5C9D3`,
                 },
-                height: 44,
+                height: compact ? 40 : 44,
               }}
             >
               <Typography sx={{ fontWeight: 500, color, fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.1 }}>
@@ -107,11 +107,11 @@ const WeekCarousel = ({ weeks, selectedWeek, onSelectWeek, requiredHours }) => {
           );
         })}
       </Box>
-      <IconButton onClick={() => handleScroll(1)} sx={{ height: 56, width: 56 }} disabled={!canScrollRight || isSelectedCurrentWeek}>
+      <IconButton onClick={() => handleScroll(1)} sx={{ height: compact ? 44 : 56, width: compact ? 44 : 56 }} disabled={!canScrollRight || isSelectedCurrentWeek}>
         <RightArrow color={(!canScrollRight || isSelectedCurrentWeek) ? '#C5C9D3' : '#5673DC'} />
       </IconButton>
     </Box>
   );
 };
 
-export default WeekCarousel; 
+export default WeekCarousel;
