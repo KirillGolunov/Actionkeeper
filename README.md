@@ -53,35 +53,50 @@ Copy `.env.example` to `.env` for local development or a fresh server install, t
 - Admin changes from the in-app SMTP settings page are saved to `data/smtp_settings.json`, which has priority over `.env` and survives Docker restarts through the `./data` volume.
 - Do not commit real credentials to version control. `data/` and `.env` are deployment-local and ignored by git.
 
-## Setup Instructions
+## Local Development Setup
 
-1. Clone the repository and install dependencies:
+1. Clone the repository and install backend dependencies:
    ```sh
    npm install
    ```
-2. Create a local `.env` file from the example:
+2. Install frontend dependencies:
+   ```sh
+   cd client
+   npm install
+   cd ..
+   ```
+3. Create a local `.env` file from the example:
    ```sh
    cp .env.example .env
    # Edit .env with your local or server-specific values
    ```
-3. Set environment variables as needed (see above).
-4. Start the server:
-   ```sh
-   npm start
+4. Set environment variables as needed (see above). For local development, keep:
+   ```env
+   PORT=3001
+   DB_PATH=./data/time_tracker.db
+   APP_BASE_URL=http://localhost:3000
+   APP_DOMAIN=localhost
+   NODE_ENV=development
    ```
 
-## Running the Application
+## Running the Application Locally
 
-1. Start the backend server:
+Start the backend server from the repository root:
    ```bash
    npm start
    ```
-2. In a new terminal, start the frontend development server:
+
+It listens on `http://localhost:3001`.
+
+In a new terminal, start the frontend development server:
    ```bash
    cd client
    npm start
    ```
-3. Open your browser and navigate to `http://localhost:3000`
+
+Open `http://localhost:3000` in your browser. The React development server proxies API requests to `http://localhost:3001` via `client/package.json`.
+
+Note: `npm run dev` starts the backend through `nodemon`. If `nodemon` fails on Windows with `spawn EPERM`, use `npm start` for the backend during local development.
 
 ## Project Structure
 
