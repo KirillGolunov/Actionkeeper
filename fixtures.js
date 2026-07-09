@@ -106,6 +106,18 @@ async function ensureSchema(db) {
       FOREIGN KEY (project_id) REFERENCES projects (id),
       FOREIGN KEY (user_id) REFERENCES users (id)
     )`,
+    `CREATE TABLE IF NOT EXISTS user_rate_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      rate_rub_per_hour INTEGER NOT NULL CHECK(rate_rub_per_hour >= 0),
+      effective_from TEXT NOT NULL,
+      effective_to TEXT,
+      created_by INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users (id),
+      FOREIGN KEY (created_by) REFERENCES users (id)
+    )`,
   ];
 
   for (const sql of tables) {
@@ -146,16 +158,19 @@ async function ensureSchema(db) {
       }
     }
   }
+
+  await run(db, 'CREATE INDEX IF NOT EXISTS idx_user_rate_history_period ON user_rate_history(user_id, effective_from, effective_to)');
 }
 
 async function clearTargetData(db) {
   console.log('Clearing target tables...');
   await run(db, 'PRAGMA foreign_keys = OFF');
+  await run(db, 'DELETE FROM user_rate_history');
   await run(db, 'DELETE FROM time_entries');
   await run(db, 'DELETE FROM projects');
   await run(db, 'DELETE FROM clients');
   await run(db, 'DELETE FROM users');
-  await run(db, "DELETE FROM sqlite_sequence WHERE name IN ('time_entries', 'projects', 'clients', 'users')");
+  await run(db, "DELETE FROM sqlite_sequence WHERE name IN ('user_rate_history', 'time_entries', 'projects', 'clients', 'users')");
   await run(db, 'PRAGMA foreign_keys = ON');
 }
 

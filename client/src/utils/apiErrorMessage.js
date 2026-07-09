@@ -35,6 +35,11 @@ export function getApiErrorMessage(error, t, fallbackKey) {
     'time_entries.no_fields_to_update': 'timeEntries.errors.update',
     'time_entries.week_required': 'timeEntries.errors.deleteProjectEntries',
     'time_entries.no_entries': 'timeEntries.errors.submit',
+    'financial.forbidden': 'common.notAuthorized',
+    'rates.user_not_found': 'users.errors.fetch',
+    'rates.not_found': 'users.rates.errors.fetch',
+    'rates.overlap': 'users.rates.errors.overlap',
+    'rates.validation_failed': 'users.rates.errors.save',
     'upload.no_file': 'profile.errors.upload',
   };
 
