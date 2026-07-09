@@ -95,6 +95,11 @@ const apiErrors = {
   timeEntriesNotFound: { errorCode: 'time_entries.not_found', error: 'Time entry not found' },
   timeEntriesWeekRequired: { errorCode: 'time_entries.week_required', error: 'user_id, project_id, and week_start are required' },
   timeEntriesNoEntries: { errorCode: 'time_entries.no_entries', error: 'No entries provided.' },
+  financialForbidden: { errorCode: 'financial.forbidden', error: 'Only administrators can manage financial data.' },
+  ratesValidationFailed: { errorCode: 'rates.validation_failed', error: '{{message}}' },
+  ratesOverlap: { errorCode: 'rates.overlap', error: 'Rate periods cannot overlap for the same user.' },
+  ratesUserNotFound: { errorCode: 'rates.user_not_found', error: 'User not found.' },
+  ratesNotFound: { errorCode: 'rates.not_found', error: 'Rate not found.' },
   smtpIncomplete: { errorCode: 'smtp.incomplete', error: 'SMTP settings are incomplete.' },
   smtpForbidden: { errorCode: 'smtp.forbidden', error: 'Only administrators can manage SMTP settings.' },
   smtpSaveFailed: { errorCode: 'smtp.save_failed', error: 'Failed to save SMTP settings.' },
@@ -455,6 +460,31 @@ async function createTables() {
     });
   });
 
+  // Create user rate history table. Rates are intentionally separate from users
+  // so confidential financial data never leaks through regular user APIs.
+  await new Promise((resolve, reject) => {
+    db.run(`CREATE TABLE IF NOT EXISTS user_rate_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      rate_rub_per_hour INTEGER NOT NULL CHECK(rate_rub_per_hour >= 0),
+      effective_from TEXT NOT NULL,
+      effective_to TEXT,
+      created_by INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users (id),
+      FOREIGN KEY (created_by) REFERENCES users (id)
+    )`, (err) => {
+      if (err) {
+        console.error('Error creating user_rate_history table:', err);
+        reject(err);
+      } else {
+        console.log('User rate history table created or already exists');
+        resolve();
+      }
+    });
+  });
+
   // Migration: add date and hours columns if not exist
   await new Promise((resolve, reject) => {
     db.run(`ALTER TABLE time_entries ADD COLUMN date TEXT`, err => {
@@ -570,6 +600,12 @@ async function createTables() {
       if (err) reject(err); else resolve();
     });
   });
+
+  await new Promise((resolve, reject) => {
+    db.run(`CREATE INDEX IF NOT EXISTS idx_user_rate_history_period ON user_rate_history(user_id, effective_from, effective_to)`, err => {
+      if (err) reject(err); else resolve();
+    });
+  });
 }
 
 // Create invitations table if not exists
@@ -650,6 +686,136 @@ function getDb(sql, params = []) {
       if (err) reject(err); else resolve(row);
     });
   });
+}
+
+function allDb(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.all(sql, params, (err, rows) => {
+      if (err) reject(err); else resolve(rows);
+    });
+  });
+}
+
+function normalizeDateOnlyValue(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return null;
+  }
+
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return parsed.toISOString().slice(0, 10) === value ? value : null;
+}
+
+function previousDateOnly(value) {
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  parsed.setUTCDate(parsed.getUTCDate() - 1);
+  return parsed.toISOString().slice(0, 10);
+}
+
+function mapRateRow(row) {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    rateRubPerHour: row.rate_rub_per_hour,
+    effectiveFrom: row.effective_from,
+    effectiveTo: row.effective_to,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    createdByName: row.created_by_name || null,
+  };
+}
+
+function parseRatePayload(body, partial = false) {
+  const parsed = {};
+
+  if (body.rateRubPerHour !== undefined) {
+    const rate = Number(body.rateRubPerHour);
+    if (!Number.isInteger(rate) || rate < 0) {
+      return { error: 'Rate must be a non-negative integer amount in rubles.' };
+    }
+    parsed.rateRubPerHour = rate;
+  } else if (!partial) {
+    return { error: 'Rate is required.' };
+  }
+
+  if (body.effectiveFrom !== undefined) {
+    const effectiveFrom = normalizeDateOnlyValue(body.effectiveFrom);
+    if (!effectiveFrom) {
+      return { error: 'Effective from must be a valid YYYY-MM-DD date.' };
+    }
+    parsed.effectiveFrom = effectiveFrom;
+  } else if (!partial) {
+    return { error: 'Effective from is required.' };
+  }
+
+  if (body.effectiveTo !== undefined) {
+    if (body.effectiveTo === null || body.effectiveTo === '') {
+      parsed.effectiveTo = null;
+    } else {
+      const effectiveTo = normalizeDateOnlyValue(body.effectiveTo);
+      if (!effectiveTo) {
+        return { error: 'Effective to must be empty or a valid YYYY-MM-DD date.' };
+      }
+      parsed.effectiveTo = effectiveTo;
+    }
+  }
+
+  return { value: parsed };
+}
+
+async function ensureUserExists(userId) {
+  return getDb('SELECT id FROM users WHERE id = ?', [userId]);
+}
+
+async function findOverlappingRates(userId, effectiveFrom, effectiveTo = null, excludeRateId = null) {
+  const params = [userId, effectiveTo || '9999-12-31', effectiveFrom];
+  let query = `
+    SELECT id
+    FROM user_rate_history
+    WHERE user_id = ?
+      AND effective_from <= ?
+      AND COALESCE(effective_to, '9999-12-31') >= ?
+  `;
+
+  if (excludeRateId) {
+    query += ' AND id != ?';
+    params.push(excludeRateId);
+  }
+
+  return allDb(query, params);
+}
+
+async function getRateForEntryDate(userId, entryDate) {
+  const dateOnly = normalizeDateOnlyValue(String(entryDate).slice(0, 10));
+  if (!dateOnly) {
+    return null;
+  }
+
+  return getDb(
+    `SELECT *
+     FROM user_rate_history
+     WHERE user_id = ?
+       AND effective_from <= ?
+       AND (effective_to IS NULL OR effective_to >= ?)
+     ORDER BY effective_from DESC
+     LIMIT 1`,
+    [userId, dateOnly, dateOnly]
+  );
+}
+
+function calculateEntryCost(hours, rate) {
+  if (!rate) {
+    return { costRub: null, missingRate: true };
+  }
+
+  return {
+    costRub: (Number(hours) || 0) * rate.rate_rub_per_hour,
+    missingRate: false,
+  };
 }
 
 function getAutoLoginMessage(progress) {
@@ -792,6 +958,192 @@ function requireAdmin(req, res, next) {
   }
   next();
 }
+
+function requireFinancialAdmin(req, res, next) {
+  if (!req.user || req.user.role !== 'admin') {
+    return sendApiError(res, 403, 'financialForbidden');
+  }
+  next();
+}
+
+// Admin-only hourly rate routes
+app.get('/api/admin/users/:userId/rates', authenticateJWT, requireFinancialAdmin, async (req, res) => {
+  const userId = Number(req.params.userId);
+  if (!Number.isInteger(userId)) {
+    return sendApiError(res, 400, 'ratesValidationFailed', { message: 'User id is invalid.' });
+  }
+
+  try {
+    const user = await ensureUserExists(userId);
+    if (!user) {
+      return sendApiError(res, 404, 'ratesUserNotFound');
+    }
+
+    const rates = await allDb(
+      `SELECT
+         r.*,
+         TRIM(COALESCE(u.surname, '') || ' ' || COALESCE(u.name, '')) as created_by_name
+       FROM user_rate_history r
+       LEFT JOIN users u ON u.id = r.created_by
+       WHERE r.user_id = ?
+       ORDER BY r.effective_from DESC, r.id DESC`,
+      [userId]
+    );
+
+    res.json(rates.map(mapRateRow));
+  } catch (err) {
+    console.error('Error fetching rates:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/users/:userId/rates', authenticateJWT, requireFinancialAdmin, async (req, res) => {
+  const userId = Number(req.params.userId);
+  if (!Number.isInteger(userId)) {
+    return sendApiError(res, 400, 'ratesValidationFailed', { message: 'User id is invalid.' });
+  }
+
+  const parsed = parseRatePayload(req.body);
+  if (parsed.error) {
+    return sendApiError(res, 400, 'ratesValidationFailed', { message: parsed.error });
+  }
+
+  const { rateRubPerHour, effectiveFrom } = parsed.value;
+
+  try {
+    const user = await ensureUserExists(userId);
+    if (!user) {
+      return sendApiError(res, 404, 'ratesUserNotFound');
+    }
+
+    await runDb('BEGIN TRANSACTION');
+
+    try {
+      const openPriorRate = await getDb(
+        `SELECT id, effective_from
+         FROM user_rate_history
+         WHERE user_id = ?
+           AND effective_to IS NULL
+           AND effective_from < ?
+         ORDER BY effective_from DESC
+         LIMIT 1`,
+        [userId, effectiveFrom]
+      );
+
+      const overlaps = await findOverlappingRates(
+        userId,
+        effectiveFrom,
+        null,
+        openPriorRate ? openPriorRate.id : null
+      );
+      if (overlaps.length > 0) {
+        await runDb('ROLLBACK');
+        return sendApiError(res, 409, 'ratesOverlap');
+      }
+
+      if (openPriorRate) {
+        await runDb(
+          `UPDATE user_rate_history
+           SET effective_to = ?, updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?`,
+          [previousDateOnly(effectiveFrom), openPriorRate.id]
+        );
+      }
+
+      const result = await runDb(
+        `INSERT INTO user_rate_history (user_id, rate_rub_per_hour, effective_from, effective_to, created_by)
+         VALUES (?, ?, ?, NULL, ?)`,
+        [userId, rateRubPerHour, effectiveFrom, req.user.id]
+      );
+
+      await runDb('COMMIT');
+
+      const row = await getDb(
+        `SELECT
+           r.*,
+           TRIM(COALESCE(u.surname, '') || ' ' || COALESCE(u.name, '')) as created_by_name
+         FROM user_rate_history r
+         LEFT JOIN users u ON u.id = r.created_by
+         WHERE r.id = ?`,
+        [result.lastID]
+      );
+
+      res.status(201).json(mapRateRow(row));
+    } catch (transactionErr) {
+      await runDb('ROLLBACK').catch((rollbackErr) => console.error('Rate rollback failed:', rollbackErr));
+      throw transactionErr;
+    }
+  } catch (err) {
+    console.error('Error creating rate:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.patch('/api/admin/users/:userId/rates/:rateId', authenticateJWT, requireFinancialAdmin, async (req, res) => {
+  const userId = Number(req.params.userId);
+  const rateId = Number(req.params.rateId);
+  if (!Number.isInteger(userId) || !Number.isInteger(rateId)) {
+    return sendApiError(res, 400, 'ratesValidationFailed', { message: 'User id or rate id is invalid.' });
+  }
+
+  const parsed = parseRatePayload(req.body, true);
+  if (parsed.error) {
+    return sendApiError(res, 400, 'ratesValidationFailed', { message: parsed.error });
+  }
+
+  const changes = parsed.value;
+  if (Object.keys(changes).length === 0) {
+    return sendApiError(res, 400, 'ratesValidationFailed', { message: 'No fields to update.' });
+  }
+
+  try {
+    const existing = await getDb(
+      'SELECT * FROM user_rate_history WHERE id = ? AND user_id = ?',
+      [rateId, userId]
+    );
+    if (!existing) {
+      return sendApiError(res, 404, 'ratesNotFound');
+    }
+
+    const effectiveFrom = changes.effectiveFrom !== undefined ? changes.effectiveFrom : existing.effective_from;
+    const effectiveTo = changes.effectiveTo !== undefined ? changes.effectiveTo : existing.effective_to;
+    const rateRubPerHour = changes.rateRubPerHour !== undefined ? changes.rateRubPerHour : existing.rate_rub_per_hour;
+
+    if (effectiveTo && effectiveTo < effectiveFrom) {
+      return sendApiError(res, 400, 'ratesValidationFailed', { message: 'Effective to must be after effective from.' });
+    }
+
+    const overlaps = await findOverlappingRates(userId, effectiveFrom, effectiveTo, rateId);
+    if (overlaps.length > 0) {
+      return sendApiError(res, 409, 'ratesOverlap');
+    }
+
+    await runDb(
+      `UPDATE user_rate_history
+       SET rate_rub_per_hour = ?,
+           effective_from = ?,
+           effective_to = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND user_id = ?`,
+      [rateRubPerHour, effectiveFrom, effectiveTo, rateId, userId]
+    );
+
+    const updated = await getDb(
+      `SELECT
+         r.*,
+         TRIM(COALESCE(u.surname, '') || ' ' || COALESCE(u.name, '')) as created_by_name
+       FROM user_rate_history r
+       LEFT JOIN users u ON u.id = r.created_by
+       WHERE r.id = ?`,
+      [rateId]
+    );
+
+    res.json(mapRateRow(updated));
+  } catch (err) {
+    console.error('Error updating rate:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Users routes
 app.get('/api/users', authenticateJWT, (req, res) => {

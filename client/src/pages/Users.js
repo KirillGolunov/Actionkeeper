@@ -22,13 +22,17 @@ import {
   FormControlLabel,
   FormControl,
   FormLabel,
+  CircularProgress,
 } from '@mui/material';
 import axios from 'axios';
 import DeleteIcon from '@mui/icons-material/Delete';
+import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
+import EditIcon from '@mui/icons-material/Edit';
 import Chip from '@mui/material/Chip';
 import Tooltip from '@mui/material/Tooltip';
 import CloseIcon from '@mui/icons-material/Close';
 import AutorenewIcon from '@mui/icons-material/Autorenew';
+import CheckIcon from '@mui/icons-material/Check';
 import Snackbar from '@mui/material/Snackbar';
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from '../i18n/I18nProvider';
@@ -67,6 +71,16 @@ function Users() {
   const [resendEmail, setResendEmail] = useState(null);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMsg, setSnackbarMsg] = useState('');
+  const [ratesOpen, setRatesOpen] = useState(false);
+  const [ratesUser, setRatesUser] = useState(null);
+  const [rates, setRates] = useState([]);
+  const [ratesLoading, setRatesLoading] = useState(false);
+  const [rateSaving, setRateSaving] = useState(false);
+  const [rateError, setRateError] = useState(null);
+  const [rateDraft, setRateDraft] = useState({ rateRubPerHour: '', effectiveFrom: '' });
+  const [editRateOpen, setEditRateOpen] = useState(false);
+  const [editingRateId, setEditingRateId] = useState(null);
+  const [editRateDraft, setEditRateDraft] = useState({ rateRubPerHour: '', effectiveFrom: '', effectiveTo: '' });
   const { user: currentUser } = useAuth();
 
   const tagStyles = {
@@ -319,6 +333,230 @@ function Users() {
     }
   };
 
+  const formatUserName = (user) => `${user?.surname || ''} ${user?.name || ''}`.trim() || user?.email || '';
+
+  const formatRate = (value) => {
+    const amount = Number(value) || 0;
+    return new Intl.NumberFormat(locale === 'ru' ? 'ru-RU' : 'en-US').format(amount);
+  };
+
+  const rateText = useCallback((key, params = {}) => {
+    const ruRates = {
+      action: 'Ставки',
+      title: 'Ставки: {{name}}',
+      rate: 'Ставка, руб/ч',
+      effectiveFrom: 'Действует с',
+      effectiveTo: 'Действует до',
+      createdBy: 'Кто добавил',
+      createdAt: 'Когда',
+      current: 'текущая',
+      add: 'Добавить',
+      edit: 'Редактировать',
+      saving: 'Сохранение...',
+      save: 'Сохранить',
+      cancel: 'Отмена',
+      empty: 'Ставки еще не заданы',
+      saved: 'Ставка сохранена',
+      updated: 'Ставка обновлена',
+      'validation.rate': 'Укажите целую неотрицательную ставку',
+      'validation.effectiveFrom': 'Укажите дату начала',
+      'errors.fetch': 'Не удалось загрузить ставки.',
+      'errors.save': 'Не удалось сохранить ставку.',
+      'errors.overlap': 'Периоды ставок не должны пересекаться.',
+    };
+
+    const template = locale === 'ru' ? ruRates[key] : null;
+    const value = template || t(`users.rates.${key}`);
+    return Object.entries(params).reduce(
+      (message, [paramKey, paramValue]) => message.replace(new RegExp(`{{${paramKey}}}`, 'g'), String(paramValue)),
+      value
+    );
+  }, [locale, t]);
+
+  const fetchRates = useCallback(async (userId) => {
+    setRatesLoading(true);
+    setRateError(null);
+    try {
+      const response = await axios.get(`/api/admin/users/${userId}/rates`, { timeout: 8000 });
+      setRates(response.data);
+    } catch (error) {
+      setRateError(rateText('errors.fetch'));
+    } finally {
+      setRatesLoading(false);
+    }
+  }, [rateText]);
+
+  const handleRatesClick = (user) => {
+    setRatesUser(user);
+    setRatesOpen(true);
+    setRateDraft({ rateRubPerHour: '', effectiveFrom: new Date().toISOString().slice(0, 10) });
+    fetchRates(user.id);
+  };
+
+  const handleRatesClose = () => {
+    setRatesOpen(false);
+    setRatesUser(null);
+    setRates([]);
+    setRateError(null);
+    setRateDraft({ rateRubPerHour: '', effectiveFrom: '' });
+    setEditRateOpen(false);
+    setEditingRateId(null);
+    setEditRateDraft({ rateRubPerHour: '', effectiveFrom: '', effectiveTo: '' });
+  };
+
+  const handleCreateRate = async () => {
+    const rate = Number(rateDraft.rateRubPerHour);
+    if (!Number.isInteger(rate) || rate < 0) {
+      setRateError(rateText('validation.rate'));
+      return;
+    }
+    if (!rateDraft.effectiveFrom) {
+      setRateError(rateText('validation.effectiveFrom'));
+      return;
+    }
+
+    setRateSaving(true);
+    setRateError(null);
+    try {
+      await axios.post(`/api/admin/users/${ratesUser.id}/rates`, {
+        rateRubPerHour: rate,
+        effectiveFrom: rateDraft.effectiveFrom,
+      });
+      setRateDraft({ rateRubPerHour: '', effectiveFrom: new Date().toISOString().slice(0, 10) });
+      fetchRates(ratesUser.id);
+      setSnackbarMsg(rateText('saved'));
+      setSnackbarOpen(true);
+    } catch (error) {
+      const errorCode = error?.response?.data?.errorCode;
+      setRateError(errorCode === 'rates.overlap' ? rateText('errors.overlap') : rateText('errors.save'));
+    } finally {
+      setRateSaving(false);
+    }
+  };
+
+  const handleEditRateClick = (rate) => {
+    setEditRateOpen(true);
+    setEditingRateId(rate.id);
+    setRateError(null);
+    setEditRateDraft({
+      rateRubPerHour: String(rate.rateRubPerHour ?? ''),
+      effectiveFrom: rate.effectiveFrom || '',
+      effectiveTo: rate.effectiveTo || '',
+    });
+  };
+
+  const handleEditRateCancel = () => {
+    setEditRateOpen(false);
+    setEditingRateId(null);
+    setEditRateDraft({ rateRubPerHour: '', effectiveFrom: '', effectiveTo: '' });
+    setRateError(null);
+  };
+
+  const handleUpdateRate = async (rateId) => {
+    const rate = Number(editRateDraft.rateRubPerHour);
+    if (!Number.isInteger(rate) || rate < 0) {
+      setRateError(rateText('validation.rate'));
+      return;
+    }
+    if (!editRateDraft.effectiveFrom) {
+      setRateError(rateText('validation.effectiveFrom'));
+      return;
+    }
+
+    setRateSaving(true);
+    setRateError(null);
+    try {
+      await axios.patch(`/api/admin/users/${ratesUser.id}/rates/${rateId}`, {
+        rateRubPerHour: rate,
+        effectiveFrom: editRateDraft.effectiveFrom,
+        effectiveTo: editRateDraft.effectiveTo || null,
+      });
+      setEditRateOpen(false);
+      setEditingRateId(null);
+      setEditRateDraft({ rateRubPerHour: '', effectiveFrom: '', effectiveTo: '' });
+      fetchRates(ratesUser.id);
+      setSnackbarMsg(rateText('updated'));
+      setSnackbarOpen(true);
+    } catch (error) {
+      const errorCode = error?.response?.data?.errorCode;
+      setRateError(errorCode === 'rates.overlap' ? rateText('errors.overlap') : rateText('errors.save'));
+    } finally {
+      setRateSaving(false);
+    }
+  };
+
+  const userTableCellSx = {
+    px: 1.25,
+    py: 1,
+    minWidth: 0,
+    overflow: 'hidden',
+  };
+
+  const userTableHeadCellSx = {
+    ...userTableCellSx,
+    fontWeight: 'bold',
+  };
+
+  const userTableInputSx = {
+    minWidth: 0,
+    width: '100%',
+    background: '#f7f8fa',
+    borderRadius: 2,
+    '& .MuiOutlinedInput-root': {
+      fontSize: 14,
+      borderRadius: 2,
+      background: '#f7f8fa',
+      minWidth: 0,
+    },
+    '& .MuiSelect-select, & input': {
+      minWidth: 0,
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
+    },
+  };
+
+  const userSelectProps = {
+    MenuProps: {
+      PaperProps: {
+        sx: { maxWidth: 220 },
+      },
+    },
+  };
+
+  const userActionCellWidth = 248;
+  const userActionBoxSx = {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    gap: 0.75,
+    flexWrap: 'nowrap',
+    whiteSpace: 'nowrap',
+    minWidth: 0,
+  };
+
+  const compactUserIconButtonSx = {
+    minWidth: 36,
+    width: 36,
+    height: 32,
+    borderRadius: 2,
+    p: 0,
+    flexShrink: 0,
+    boxShadow: 'none',
+  };
+
+  const ellipsisTextSx = {
+    display: 'block',
+    minWidth: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  };
+
+  const stableDialogProps = {
+    disableScrollLock: true,
+  };
+
   return (
     <PageLayout
       title={t('users.title')}
@@ -352,77 +590,80 @@ function Users() {
         </Alert>
       )}
 
-      <TableContainer component={Paper} sx={{ mb: 3, border: '1px solid #E2E4E9', borderRadius: '12px', boxShadow: '1' }}>
-        <Table size="small">
+      <TableContainer component={Paper} sx={{ mb: 3, border: '1px solid #E2E4E9', borderRadius: '12px', boxShadow: '1', overflowX: 'hidden', width: '100%' }}>
+        <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
           <TableHead>
             <TableRow sx={{ height: 40, minHeight: 40 }}>
-              <TableCell sx={{ fontWeight: 'bold', p: 0, pt: 1, px: 2, py: 1, width: 300, maxWidth: 300, minWidth: 220 }}>{t('users.surname')}</TableCell>
-              <TableCell sx={{ fontWeight: 'bold', p: 0, pt: 1, px: 2, py: 1, width: 260, maxWidth: 260, minWidth: 180 }}>{t('users.name')}</TableCell>
-              <TableCell sx={{ fontWeight: 'bold', p: 0, pt: 1, px: 2, py: 1 }}>{t('users.email')}</TableCell>
-              <TableCell sx={{ fontWeight: 'bold', p: 0, pt: 1, px: 2, py: 1 }}>{t('users.role')}</TableCell>
-              <TableCell sx={{ fontWeight: 'bold', p: 0, pt: 1, px: 2, py: 1, width: 120, maxWidth: 120 }}>{t('users.status')}</TableCell>
+              <TableCell sx={{ ...userTableHeadCellSx, width: '16%' }}>{t('users.surname')}</TableCell>
+              <TableCell sx={{ ...userTableHeadCellSx, width: '14%' }}>{t('users.name')}</TableCell>
+              <TableCell sx={{ ...userTableHeadCellSx, width: '25%' }}>{t('users.email')}</TableCell>
+              <TableCell sx={{ ...userTableHeadCellSx, width: 132 }}>{t('users.role')}</TableCell>
+              <TableCell sx={{ ...userTableHeadCellSx, width: 128 }}>{t('users.status')}</TableCell>
               {currentUser?.role === 'admin' && (
-                <TableCell align="right" sx={{ fontWeight: 'bold', p: 0, pt: 1, px: 2, py: 1, width: 320, minWidth: 320 }}>{t('users.actions')}</TableCell>
+                <TableCell align="right" sx={{ ...userTableHeadCellSx, width: userActionCellWidth }}>{t('users.actions')}</TableCell>
               )}
             </TableRow>
           </TableHead>
           <TableBody>
             {currentUser?.role === 'admin' && (
               <TableRow>
-                <TableCell sx={{ px: 2, py: 1, width: 300, maxWidth: 300, minWidth: 220 }}>
+                <TableCell sx={{ ...userTableCellSx, width: '16%' }}>
                   <TextField
                     size="small"
                     fullWidth
                     placeholder={t('users.surname')}
                     value={addDraft.surname}
                     onChange={e => setAddDraft(d => ({ ...d, surname: e.target.value }))}
-                    sx={{ background: '#f7f8fa', borderRadius: 2, '& .MuiOutlinedInput-root': { fontSize: 14, borderRadius: 2, background: '#f7f8fa' } }}
+                    sx={userTableInputSx}
                   />
                 </TableCell>
-                <TableCell sx={{ px: 2, py: 1, width: 260, maxWidth: 260, minWidth: 180 }}>
+                <TableCell sx={{ ...userTableCellSx, width: '14%' }}>
                   <TextField
                     size="small"
                     fullWidth
                     placeholder={t('users.name')}
                     value={addDraft.name}
                     onChange={e => setAddDraft(d => ({ ...d, name: e.target.value }))}
-                    sx={{ background: '#f7f8fa', borderRadius: 2, '& .MuiOutlinedInput-root': { fontSize: 14, borderRadius: 2, background: '#f7f8fa' } }}
+                    sx={userTableInputSx}
                   />
                 </TableCell>
-                <TableCell sx={{ px: 2, py: 1 }}>
+                <TableCell sx={{ ...userTableCellSx, width: '25%' }}>
                   <TextField
                     size="small"
                     fullWidth
                     placeholder={t('users.email')}
                     value={addDraft.email}
                     onChange={e => setAddDraft(d => ({ ...d, email: e.target.value }))}
-                    sx={{ background: '#f7f8fa', borderRadius: 2, '& .MuiOutlinedInput-root': { fontSize: 14, borderRadius: 2, background: '#f7f8fa' } }}
+                    sx={userTableInputSx}
                   />
                 </TableCell>
-                <TableCell sx={{ px: 2, py: 1 }}>
+                <TableCell sx={{ ...userTableCellSx, width: 132 }}>
                   <TextField
                     select
                     size="small"
                     fullWidth
                     value={addDraft.role}
                     onChange={e => setAddDraft(d => ({ ...d, role: e.target.value }))}
-                    sx={{ background: '#f7f8fa', borderRadius: 2, '& .MuiOutlinedInput-root': { fontSize: 14, borderRadius: 2, background: '#f7f8fa' } }}
+                    SelectProps={userSelectProps}
+                    sx={userTableInputSx}
                   >
                     <MenuItem value="user">{t('users.user')}</MenuItem>
                     <MenuItem value="admin">{t('users.admin')}</MenuItem>
                   </TextField>
                 </TableCell>
-                <TableCell sx={{ px: 2, py: 1, width: 120, maxWidth: 120 }}></TableCell>
-                <TableCell align="right" sx={{ px: 2, py: 1, width: 320, minWidth: 320 }}>
+                <TableCell sx={{ ...userTableCellSx, width: 128 }}></TableCell>
+                <TableCell align="right" sx={{ ...userTableCellSx, width: userActionCellWidth }}>
                   <Button size="small" variant="contained" onClick={handleAddUser}
                     sx={{
-                      minWidth: 70,
+                      minWidth: 76,
+                      width: 76,
                       height: 32,
                       borderRadius: 2,
                       fontWeight: 500,
                       fontSize: 12,
                       textTransform: 'none',
                       px: 1.2,
+                      flexShrink: 0,
                       backgroundColor: '#8196E4',
                       color: '#FFFFFF',
                       boxShadow: 3,
@@ -438,50 +679,52 @@ function Users() {
               const isEditing = editingUserId === user.id;
               return (
                 <TableRow key={user.id} sx={user.deleted ? { color: '#bdbdbd', '& td': { color: '#bdbdbd' } } : {}}>
-                  <TableCell sx={{ px: 2, py: 1, width: 300, maxWidth: 300, minWidth: 220 }}>
+                  <TableCell sx={{ ...userTableCellSx, width: '16%' }}>
                     {isEditing ? (
                       <TextField
                         size="small"
                         fullWidth
                         value={editUserDraft.surname}
                         onChange={e => setEditUserDraft(d => ({ ...d, surname: e.target.value }))}
-                        sx={{ background: '#f7f8fa', borderRadius: 2, '& .MuiOutlinedInput-root': { fontSize: 14, borderRadius: 2, background: '#f7f8fa' } }}
+                        sx={userTableInputSx}
                       />
                     ) : (
                       <Tooltip title={user.surname} placement="top" arrow>
-                        <span style={{ display: 'inline-block', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>{user.surname}</span>
+                        <Box component="span" sx={ellipsisTextSx}>{user.surname}</Box>
                       </Tooltip>
                     )}
                   </TableCell>
-                  <TableCell sx={{ px: 2, py: 1, width: 260, maxWidth: 260, minWidth: 180 }}>
+                  <TableCell sx={{ ...userTableCellSx, width: '14%' }}>
                     {isEditing ? (
                       <TextField
                         size="small"
                         fullWidth
                         value={editUserDraft.name}
                         onChange={e => setEditUserDraft(d => ({ ...d, name: e.target.value }))}
-                        sx={{ background: '#f7f8fa', borderRadius: 2, '& .MuiOutlinedInput-root': { fontSize: 14, borderRadius: 2, background: '#f7f8fa' } }}
+                        sx={userTableInputSx}
                       />
                     ) : (
                       <Tooltip title={user.name} placement="top" arrow>
-                        <span style={{ display: 'inline-block', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>{user.name}</span>
+                        <Box component="span" sx={ellipsisTextSx}>{user.name}</Box>
                       </Tooltip>
                     )}
                   </TableCell>
-                  <TableCell sx={{ px: 2, py: 1 }}>
+                  <TableCell sx={{ ...userTableCellSx, width: '25%' }}>
                     {isEditing ? (
                       <TextField
                         size="small"
                         fullWidth
                         value={editUserDraft.email}
                         onChange={e => setEditUserDraft(d => ({ ...d, email: e.target.value }))}
-                        sx={{ background: '#f7f8fa', borderRadius: 2, '& .MuiOutlinedInput-root': { fontSize: 14, borderRadius: 2, background: '#f7f8fa' } }}
+                        sx={userTableInputSx}
                       />
                     ) : (
-                      user.email
+                      <Tooltip title={user.email} placement="top" arrow>
+                        <Box component="span" sx={ellipsisTextSx}>{user.email}</Box>
+                      </Tooltip>
                     )}
                   </TableCell>
-                  <TableCell sx={{ px: 2, py: 1 }}>
+                  <TableCell sx={{ ...userTableCellSx, width: 132 }}>
                     {isEditing ? (
                       <TextField
                         select
@@ -489,7 +732,8 @@ function Users() {
                         fullWidth
                         value={editUserDraft.role}
                         onChange={e => setEditUserDraft(d => ({ ...d, role: e.target.value }))}
-                        sx={{ background: '#f7f8fa', borderRadius: 2, '& .MuiOutlinedInput-root': { fontSize: 14, borderRadius: 2, background: '#f7f8fa' } }}
+                        SelectProps={userSelectProps}
+                        sx={userTableInputSx}
                       >
                         <MenuItem value="user">{t('users.user')}</MenuItem>
                         <MenuItem value="admin">{t('users.admin')}</MenuItem>
@@ -535,7 +779,7 @@ function Users() {
                       />
                     )}
                   </TableCell>
-                  <TableCell sx={{ px: 2, py: 1, width: 120, maxWidth: 120 }}>
+                  <TableCell sx={{ ...userTableCellSx, width: 128 }}>
                     {isEditing ? (
                       <TextField
                         select
@@ -543,7 +787,8 @@ function Users() {
                         fullWidth
                         value={editUserDraft.deleted ? 'deleted' : 'active'}
                         onChange={e => setEditUserDraft(d => ({ ...d, deleted: e.target.value === 'deleted' ? 1 : 0 }))}
-                        sx={{ background: '#f7f8fa', borderRadius: 2, '& .MuiOutlinedInput-root': { fontSize: 14, borderRadius: 2, background: '#f7f8fa' } }}
+                        SelectProps={userSelectProps}
+                        sx={userTableInputSx}
                       >
                         <MenuItem value="active">{t('users.active')}</MenuItem>
                         <MenuItem value="deleted">{t('users.deleted')}</MenuItem>
@@ -559,63 +804,49 @@ function Users() {
                     )}
                   </TableCell>
                   {currentUser?.role === 'admin' && (
-                    <TableCell align="right" sx={{ px: 2, py: 1, width: 320, minWidth: 320 }}>
+                    <TableCell align="right" sx={{ ...userTableCellSx, width: userActionCellWidth }}>
                       {isEditing ? (
-                        <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 1, flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
-                          <Button size="small" variant="contained" onClick={handleEditSaveInline}
-                            sx={{
-                              minWidth: 70,
-                              height: 32,
-                              borderRadius: 2,
-                              border: '1.5px solid #5673DC',
-                              color: '#fff',
-                              background: '#5673DC',
-                              fontWeight: 500,
-                              fontSize: 12,
-                              textTransform: 'none',
-                              px: 1.2,
-                              py: 0,
-                              boxShadow: 'none',
-                              margin: 0,
-                              '&:hover': { background: '#4A69D9', border: '1.5px solid #4A69D9' },
-                            }}
-                          >
-                            {t('common.actions.save')}
-                          </Button>
-                          <Button size="small" variant="contained" onClick={handleEditCancel}
-                            startIcon={<CloseIcon />}
-                            sx={{
-                              minWidth: 70,
-                              height: 32,
-                              borderRadius: 2,
-                              border: '1.5px solid #d32f2f',
-                              color: '#d32f2f',
-                              background: '#FFEAEA',
-                              fontWeight: 500,
-                              fontSize: 12,
-                              textTransform: 'none',
-                              px: 1.2,
-                              py: 0,
-                              boxShadow: 'none',
-                              margin: 0,
-                              '&:hover': { background: '#ffd6d6', border: '1.5px solid #b71c1c', color: '#b71c1c' },
-                            }}
-                          >
-                            {t('common.actions.cancel')}
-                          </Button>
+                        <Box sx={userActionBoxSx}>
+                          <Tooltip title={t('common.actions.save')}>
+                            <Button size="small" variant="contained" onClick={handleEditSaveInline}
+                              sx={{
+                                ...compactUserIconButtonSx,
+                                border: '1.5px solid #5673DC',
+                                color: '#fff',
+                                background: '#5673DC',
+                                '&:hover': { background: '#4A69D9', border: '1.5px solid #4A69D9' },
+                              }}
+                            >
+                              <CheckIcon fontSize="small" />
+                            </Button>
+                          </Tooltip>
+                          <Tooltip title={t('common.actions.cancel')}>
+                            <Button size="small" variant="contained" onClick={handleEditCancel}
+                              sx={{
+                                ...compactUserIconButtonSx,
+                                border: '1.5px solid #d32f2f',
+                                color: '#d32f2f',
+                                background: '#FFEAEA',
+                                '&:hover': { background: '#ffd6d6', border: '1.5px solid #b71c1c', color: '#b71c1c' },
+                              }}
+                            >
+                              <CloseIcon fontSize="small" />
+                            </Button>
+                          </Tooltip>
                         </Box>
                       ) : (
-                        <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 1, flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
+                        <Box sx={userActionBoxSx}>
                           {user.invited === 1 && !user.deleted && (
                             <Tooltip title={t('users.resendInvitation')}>
-                              <Button size="small" onClick={() => handleResendClick(user.email)} sx={{ minWidth: 36, width: 36, height: 32, color: '#fff', background: '#5673DC', borderRadius: 2, flexShrink: 0, '&:hover': { background: '#4A69D9' } }}>
+                              <Button size="small" onClick={() => handleResendClick(user.email)} sx={{ ...compactUserIconButtonSx, color: '#fff', background: '#5673DC', '&:hover': { background: '#4A69D9' } }}>
                                 <AutorenewIcon fontSize="small" />
                               </Button>
                             </Tooltip>
                           )}
-                          <Button size="small" variant="outlined" onClick={() => handleEditClick(user)}
+                          <Button size="small" variant="outlined" startIcon={<AttachMoneyIcon />} onClick={() => handleRatesClick(user)}
                             sx={{
-                              minWidth: 70,
+                              minWidth: 92,
+                              width: 92,
                               height: 32,
                               borderRadius: 2,
                               border: '1.5px solid #E2E4E9',
@@ -626,29 +857,39 @@ function Users() {
                               boxShadow: 'none',
                               textTransform: 'none',
                               px: 1.2,
+                              flexShrink: 0,
+                              '& .MuiButton-startIcon': { mr: 0.5 },
                               '&:hover': { background: 'rgba(86,115,220,0.10)', border: '1.5px solid #5673DC', color: '#5673DC' },
                             }}
                           >
-                            {t('users.editUser')}
+                            {rateText('action')}
                           </Button>
-                          <Button size="small" color="error" startIcon={<DeleteIcon />} onClick={() => handleDeleteUser(user)}
-                            sx={{
-                              minWidth: 70,
-                              height: 32,
-                              borderRadius: 2,
-                              border: '1.5px solid #E2E4E9',
-                              color: '#d32f2f',
-                              background: '#f7f8fa',
-                              fontWeight: 500,
-                              fontSize: 12,
-                              boxShadow: 'none',
-                              textTransform: 'none',
-                              px: 1.2,
-                              '&:hover': { background: 'rgba(211,47,47,0.10)', border: '1.5px solid #d32f2f', color: '#d32f2f' },
-                            }}
-                          >
-                            {t('clients.delete')}
-                          </Button>
+                          <Tooltip title={t('users.editUser')}>
+                            <Button size="small" variant="outlined" onClick={() => handleEditClick(user)}
+                              sx={{
+                                ...compactUserIconButtonSx,
+                                border: '1.5px solid #E2E4E9',
+                                color: '#222',
+                                background: '#f7f8fa',
+                                '&:hover': { background: 'rgba(86,115,220,0.10)', border: '1.5px solid #5673DC', color: '#5673DC' },
+                              }}
+                            >
+                              <EditIcon fontSize="small" />
+                            </Button>
+                          </Tooltip>
+                          <Tooltip title={t('clients.delete')}>
+                            <Button size="small" color="error" onClick={() => handleDeleteUser(user)}
+                              sx={{
+                                ...compactUserIconButtonSx,
+                                border: '1.5px solid #E2E4E9',
+                                color: '#d32f2f',
+                                background: '#f7f8fa',
+                                '&:hover': { background: 'rgba(211,47,47,0.10)', border: '1.5px solid #d32f2f', color: '#d32f2f' },
+                              }}
+                            >
+                              <DeleteIcon fontSize="small" />
+                            </Button>
+                          </Tooltip>
                         </Box>
                       )}
                     </TableCell>
@@ -660,7 +901,7 @@ function Users() {
         </Table>
       </TableContainer>
 
-      <Dialog open={open} onClose={handleClose}>
+      <Dialog open={open} onClose={handleClose} {...stableDialogProps}>
         <DialogTitle>{t('users.addUser')}</DialogTitle>
         <DialogContent>
           <TextField
@@ -756,7 +997,7 @@ function Users() {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={editOpen} onClose={handleEditClose}>
+      <Dialog open={editOpen} onClose={handleEditClose} {...stableDialogProps}>
         <DialogTitle>{t('users.editUser')}</DialogTitle>
         <DialogContent>
           <TextField
@@ -852,7 +1093,187 @@ function Users() {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
+      <Dialog open={ratesOpen} onClose={handleRatesClose} maxWidth="md" fullWidth {...stableDialogProps}>
+        <DialogTitle>{rateText('title', { name: formatUserName(ratesUser) })}</DialogTitle>
+        <DialogContent sx={{ pt: 2.5 }}>
+          {rateError && <Alert severity="error" sx={{ mb: 2 }}>{rateError}</Alert>}
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'minmax(220px, 1fr) minmax(220px, 1fr) auto' }, gap: 2, alignItems: 'start', mb: 2, pt: 1 }}>
+            <TextField
+              label={rateText('rate')}
+              type="number"
+              size="small"
+              fullWidth
+              value={rateDraft.rateRubPerHour}
+              onChange={(e) => setRateDraft((draft) => ({ ...draft, rateRubPerHour: e.target.value }))}
+              inputProps={{ min: 0, step: 1 }}
+              InputLabelProps={{ shrink: true }}
+            />
+            <TextField
+              label={rateText('effectiveFrom')}
+              type="date"
+              size="small"
+              fullWidth
+              value={rateDraft.effectiveFrom}
+              onChange={(e) => setRateDraft((draft) => ({ ...draft, effectiveFrom: e.target.value }))}
+              InputLabelProps={{ shrink: true }}
+            />
+            <Button
+              variant="contained"
+              startIcon={<AttachMoneyIcon />}
+              onClick={handleCreateRate}
+              disabled={rateSaving || !ratesUser}
+              sx={{
+                minWidth: 120,
+                height: 40,
+                borderRadius: 2,
+                fontWeight: 600,
+                fontSize: 14,
+                textTransform: 'none',
+                backgroundColor: '#5673DC',
+                color: '#fff',
+                boxShadow: 2,
+                '&:hover': { backgroundColor: '#4A69D9' },
+              }}
+            >
+              {rateSaving ? rateText('saving') : rateText('add')}
+            </Button>
+          </Box>
+
+          {ratesLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+              <CircularProgress size={28} />
+            </Box>
+          ) : rates.length === 0 ? (
+            <Typography color="text.secondary" sx={{ py: 3, textAlign: 'center' }}>
+              {rateText('empty')}
+            </Typography>
+          ) : (
+            <TableContainer component={Paper} sx={{ border: '1px solid #E2E4E9', borderRadius: 2, boxShadow: 'none', overflowX: 'hidden' }}>
+              <Table size="small" sx={{ tableLayout: 'fixed' }}>
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 700, width: 170 }}>{rateText('rate')}</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 140 }}>{rateText('effectiveFrom')}</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 140 }}>{rateText('effectiveTo')}</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 210 }}>{rateText('createdBy')}</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 190 }}>{rateText('createdAt')}</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {rates.map((rate) => (
+                    <TableRow key={rate.id}>
+                      <TableCell sx={{ fontWeight: 600 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Tooltip title={rateText('edit')}>
+                            <span>
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                onClick={() => handleEditRateClick(rate)}
+                                disabled={rateSaving}
+                                sx={{ minWidth: 32, width: 32, height: 30, borderRadius: 2, p: 0, flexShrink: 0 }}
+                              >
+                                <EditIcon fontSize="small" />
+                              </Button>
+                            </span>
+                          </Tooltip>
+                          <span>{formatRate(rate.rateRubPerHour)}</span>
+                        </Box>
+                      </TableCell>
+                      <TableCell>{rate.effectiveFrom}</TableCell>
+                      <TableCell>{rate.effectiveTo || rateText('current')}</TableCell>
+                      <TableCell sx={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <Tooltip title={rate.createdByName || ''}>
+                          <span>{rate.createdByName || '-'}</span>
+                        </Tooltip>
+                      </TableCell>
+                      <TableCell>{rate.createdAt ? new Date(rate.createdAt).toLocaleString(locale === 'ru' ? 'ru-RU' : 'en-US') : '-'}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleRatesClose}
+            variant="outlined"
+            sx={{
+              minWidth: 70,
+              height: 32,
+              borderRadius: 2,
+              border: '1.5px solid #E2E4E9',
+              color: '#222',
+              background: '#f7f8fa',
+              fontWeight: 500,
+              fontSize: 12,
+              boxShadow: 'none',
+              textTransform: 'none',
+              px: 1.2,
+              '&:hover': { background: 'rgba(86,115,220,0.10)', border: '1.5px solid #5673DC', color: '#5673DC' },
+            }}
+          >
+            {t('common.actions.close')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={editRateOpen} onClose={handleEditRateCancel} maxWidth="xs" fullWidth {...stableDialogProps}>
+        <DialogTitle>{rateText('edit')}</DialogTitle>
+        <DialogContent sx={{ pt: 2.5 }}>
+          {rateError && <Alert severity="error" sx={{ mb: 2 }}>{rateError}</Alert>}
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+            <TextField
+              label={rateText('rate')}
+              type="number"
+              size="small"
+              fullWidth
+              value={editRateDraft.rateRubPerHour}
+              onChange={(e) => setEditRateDraft((draft) => ({ ...draft, rateRubPerHour: e.target.value }))}
+              inputProps={{ min: 0, step: 1 }}
+              InputLabelProps={{ shrink: true }}
+            />
+            <TextField
+              label={rateText('effectiveFrom')}
+              type="date"
+              size="small"
+              fullWidth
+              value={editRateDraft.effectiveFrom}
+              onChange={(e) => setEditRateDraft((draft) => ({ ...draft, effectiveFrom: e.target.value }))}
+              InputLabelProps={{ shrink: true }}
+            />
+            <TextField
+              label={rateText('effectiveTo')}
+              type="date"
+              size="small"
+              fullWidth
+              value={editRateDraft.effectiveTo}
+              onChange={(e) => setEditRateDraft((draft) => ({ ...draft, effectiveTo: e.target.value }))}
+              InputLabelProps={{ shrink: true }}
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={handleEditRateCancel}
+            disabled={rateSaving}
+            variant="outlined"
+            sx={{ minWidth: 80, height: 32, borderRadius: 2, textTransform: 'none' }}
+          >
+            {rateText('cancel')}
+          </Button>
+          <Button
+            onClick={() => handleUpdateRate(editingRateId)}
+            disabled={rateSaving || !editingRateId}
+            variant="contained"
+            sx={{ minWidth: 100, height: 32, borderRadius: 2, textTransform: 'none', backgroundColor: '#5673DC', '&:hover': { backgroundColor: '#4A69D9' } }}
+          >
+            {rateSaving ? rateText('saving') : rateText('save')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)} {...stableDialogProps}>
         <DialogTitle>{t('common.actions.delete')}</DialogTitle>
         <DialogContent>
           <Typography>{t('users.confirmDelete', { name: `${userToDelete?.surname || ""} ${userToDelete?.name || ""}`.trim() })}</Typography>
@@ -916,6 +1337,7 @@ function Users() {
       </Dialog>
 
       <Dialog open={inviteDialogOpen} onClose={() => setInviteDialogOpen(false)}
+        {...stableDialogProps}
         PaperProps={{
           sx: { borderRadius: 3, p: 0, minWidth: 380, background: '#F7F8FA' }
         }}
@@ -966,6 +1388,7 @@ function Users() {
       </Dialog>
 
       <Dialog open={resendDialogOpen} onClose={() => setResendDialogOpen(false)}
+        {...stableDialogProps}
         PaperProps={{
           sx: { borderRadius: 3, p: 0, minWidth: 380, background: '#F7F8FA' }
         }}
