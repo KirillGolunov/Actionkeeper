@@ -31,6 +31,7 @@ import useTimeEntries from '../hooks/useTimeEntries';
 import WeekSelector from '../components/WeekSelector';
 import ConfirmationDialog from '../components/ConfirmationDialog';
 import WeekCarousel from '../components/WeekCarousel';
+import PageLayout, { PageToolbar } from '../components/PageLayout';
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from '../i18n/I18nProvider';
 import { getApiErrorMessage } from '../utils/apiErrorMessage';
@@ -177,7 +178,7 @@ const matchesProjectSearch = (project, searchValue) => {
 };
 
 function TimeEntries() {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const daysOfWeek = dayKeys.map((key) => ({ key, label: t(`timeEntries.weekdays.${key}`) }));
   const [timeEntries, setTimeEntries] = useState([]);
   const [projects, setProjects] = useState([]);
@@ -819,20 +820,12 @@ function TimeEntries() {
   };
 
   return (
-    <Box>
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          mb: 2,
-          gap: 2,
-          flexWrap: { xs: 'wrap', sm: 'nowrap' },
-          flexDirection: { xs: 'column', sm: 'row' },
-          justifyContent: { xs: 'center', sm: 'flex-start' },
-        }}
-      >
-        <Typography variant="h4" sx={{ mb: { xs: 1, sm: 0 } }}>{t('timeEntries.title')}</Typography>
-        {currentUser?.role === 'admin' && (
+    <PageLayout
+      title={t('timeEntries.title')}
+      subtitle={`${totalLogged}/${requiredHoursTotal} ${locale === 'ru' ? 'часов за выбранную неделю' : 'hours this week'}`}
+      headerCenter={<WeekSelector weekStart={weekStart} onChange={setWeekStart} />}
+      actions={
+        currentUser?.role === 'admin' ? (
           <TextField
             select
             size="small"
@@ -842,10 +835,9 @@ function TimeEntries() {
               setSelectedUser(e.target.value);
             }}
             sx={{
-              width: 250,
-              minWidth: 250,
-              maxWidth: 250,
-              ml: 2,
+              width: { xs: '100%', sm: 250 },
+              minWidth: { xs: '100%', sm: 250 },
+              maxWidth: { xs: '100%', sm: 250 },
               '& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#5673DC' },
               '& .MuiOutlinedInput-root:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#5673DC' },
               '& .MuiSelect-select': {
@@ -884,59 +876,62 @@ function TimeEntries() {
               );
             })}
           </TextField>
-        )}
-        <Box sx={{ ml: { xs: 0, sm: 2 }, mt: { xs: 1, sm: 0 } }}>
-          <WeekSelector weekStart={weekStart} onChange={setWeekStart} />
-        </Box>
-      </Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', maxWidth: '100vw', height: 64, borderRadius: '12px', border: '1px solid #E2E4E9', boxShadow: '1', background: '#f5f5f5', px: 2, py: 1, mb: 2 }}>
-        <Button
-          variant="outlined"
-          size="small"
-          sx={{
-            mr: 2,
-            minWidth: 168,
-            height: 44,
-            borderRadius: '8px',
-            px: 2.5,
-            py: 0.8,
-            fontSize: 15,
-            textTransform: 'none',
-            flexShrink: 0,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            p: 0,
-            alignSelf: 'center',
-            border: '1px solid #C5C9D3',
-            background: '#ffffff',
-            boxShadow: 'none',
-            color: '#4A69D9',
-            '&:hover': {
-              background: '#fff',
-            },
-          }}
-          onClick={() => setWeeksToShow(w => w + 4)}
-        >
-          + {t('timeEntries.earlierWeeks')}
-        </Button>
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          <WeekCarousel
-            weeks={allWeeks.map(w => ({
-              ...w,
-              isCurrent: w.isCurrent,
-              isSelected: w.isSelected,
-              loggedHours: w.loggedHours,
-            }))}
-            selectedWeek={weekStart}
-            onSelectWeek={dateStr => setWeekStart(getMonday(new Date(dateStr)))}
-            requiredHours={requiredHoursTotal}
-            onPrev={() => scrollCarousel(-1)}
-            onNext={() => scrollCarousel(1)}
-            carouselRef={el => setCarouselRef(el)}
-          />
-        </Box>
-      </Box>
+        ) : null
+      }
+      toolbar={
+        <PageToolbar sx={{ py: { xs: 1, md: 0.75 } }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', maxWidth: '100%' }}>
+            <Button
+              variant="outlined"
+              size="small"
+              sx={{
+                mr: 2,
+                minWidth: 168,
+                height: 40,
+                borderRadius: '8px',
+                px: 2.5,
+                py: 0.8,
+                fontSize: 15,
+                textTransform: 'none',
+                flexShrink: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                p: 0,
+                alignSelf: 'center',
+                border: '1px solid #C5C9D3',
+                background: '#ffffff',
+                boxShadow: 'none',
+                color: '#4A69D9',
+                '&:hover': {
+                  background: '#fff',
+                },
+              }}
+              onClick={() => setWeeksToShow(w => w + 4)}
+            >
+              + {t('timeEntries.earlierWeeks')}
+            </Button>
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <WeekCarousel
+                weeks={allWeeks.map(w => ({
+                  ...w,
+                  isCurrent: w.isCurrent,
+                  isSelected: w.isSelected,
+                  loggedHours: w.loggedHours,
+                }))}
+                selectedWeek={weekStart}
+                onSelectWeek={dateStr => setWeekStart(getMonday(new Date(dateStr)))}
+                requiredHours={requiredHoursTotal}
+                onPrev={() => scrollCarousel(-1)}
+                onNext={() => scrollCarousel(1)}
+                carouselRef={el => setCarouselRef(el)}
+                compact
+              />
+            </Box>
+          </Box>
+        </PageToolbar>
+      }
+    >
       <TableContainer component={Paper} sx={{ mb: 3, border: '1px solid #E2E4E9', borderRadius: '12px', boxShadow: '1' }}>
         <Table size="small">
           <TableHead>
@@ -1384,7 +1379,7 @@ function TimeEntries() {
         confirmLabel={t('common.actions.delete')}
         cancelLabel={t('common.actions.cancel')}
       />
-    </Box>
+    </PageLayout>
   );
 }
 

@@ -33,9 +33,13 @@ import Snackbar from '@mui/material/Snackbar';
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from '../i18n/I18nProvider';
 import { getApiErrorMessage } from '../utils/apiErrorMessage';
+import PageLayout, {
+  PageToolbar,
+  pageFilterChipSx,
+} from '../components/PageLayout';
 
 function Users() {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const [users, setUsers] = useState([]);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState(null);
@@ -316,31 +320,31 @@ function Users() {
   };
 
   return (
-    <Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Typography variant="h4">{t('users.title')}</Typography>
-          <Box sx={{ display: 'flex', gap: 1, ml: 2 }}>
-            {Object.keys(tagStyles).map((key) => (
-              <Chip
-                key={key}
-                label={tagStyles[key].label}
-                clickable
-                onClick={() => setFilters(f => ({ ...f, [key]: !f[key] }))}
-                sx={{
-                  fontSize: '12px',
-                  height: '24px',
-                  borderRadius: '6px',
-                  px: 1.5,
-                  fontWeight: 400,
-                  boxShadow: 'none',
-                  ...((filters[key]) ? tagStyles[key].selected : tagStyles[key].default),
-                }}
-              />
-            ))}
-          </Box>
-        </Box>
-      </Box>
+    <PageLayout
+      title={t('users.title')}
+      subtitle={`${users.length} ${locale === 'ru' ? '\u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u0435\u0439 \u0432 \u043a\u0430\u0442\u0430\u043b\u043e\u0433\u0435' : 'users in catalog'}`}
+      toolbar={
+        <PageToolbar
+          start={
+            <>
+              {Object.keys(tagStyles).map((key) => (
+                <Chip
+                  key={key}
+                  label={tagStyles[key].label}
+                  clickable
+                  onClick={() => setFilters(f => ({ ...f, [key]: !f[key] }))}
+                  sx={{
+                    ...pageFilterChipSx,
+                    minWidth: 112,
+                    ...((filters[key]) ? tagStyles[key].selected : tagStyles[key].default),
+                  }}
+                />
+              ))}
+            </>
+          }
+        />
+      }
+    >
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
@@ -1018,7 +1022,7 @@ function Users() {
         message={snackbarMsg}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       />
-    </Box>
+    </PageLayout>
   );
 }
 
