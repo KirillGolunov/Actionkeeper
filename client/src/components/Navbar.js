@@ -1,5 +1,5 @@
 import React from 'react';
-import { AppBar, Toolbar, Typography, Button, Box, Tooltip } from '@mui/material';
+import { AppBar, Toolbar, Typography, Button, Box, Tooltip, Badge, Divider } from '@mui/material';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import TimerIcon from '@mui/icons-material/Timer';
 import ListAltIcon from '@mui/icons-material/ListAlt';
@@ -11,8 +11,11 @@ import Avatar from '@mui/material/Avatar';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import IconButton from '@mui/material/IconButton';
+import NotificationsIcon from '@mui/icons-material/Notifications';
+import DoneAllIcon from '@mui/icons-material/DoneAll';
 import AutoLoginBadge from './AutoLoginBadge';
 import { useTranslation } from '../i18n/I18nProvider';
+import axios from 'axios';
 
 export default function Navbar() {
   const { user, logout, sessionStatus } = useAuth();
@@ -26,12 +29,79 @@ export default function Navbar() {
   };
 
   const [anchorEl, setAnchorEl] = React.useState(null);
+  const [notificationsAnchor, setNotificationsAnchor] = React.useState(null);
+  const [notifications, setNotifications] = React.useState([]);
+  const [unreadCount, setUnreadCount] = React.useState(0);
   const handleMenuOpen = (event) => {
     setAnchorEl(event.currentTarget);
   };
   const handleMenuClose = () => {
     setAnchorEl(null);
   };
+
+  const fetchNotifications = React.useCallback(async () => {
+    if (!user) return;
+    try {
+      const response = await axios.get('/api/notifications', { params: { limit: 20 } });
+      setNotifications(response.data.items || []);
+      setUnreadCount(response.data.unreadCount || 0);
+    } catch (error) {
+      console.error('[Navbar] Failed to load notifications:', error);
+    }
+  }, [user]);
+
+  React.useEffect(() => {
+    if (!user) {
+      setNotifications([]);
+      setUnreadCount(0);
+      return undefined;
+    }
+    fetchNotifications();
+    const intervalId = window.setInterval(fetchNotifications, 60000);
+    const handleFocus = () => fetchNotifications();
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [user, fetchNotifications]);
+
+  const handleNotificationsOpen = (event) => {
+    setNotificationsAnchor(event.currentTarget);
+    fetchNotifications();
+  };
+
+  const handleNotificationClick = async (notification) => {
+    if (!notification.readAt) {
+      try {
+        const response = await axios.patch(`/api/notifications/${notification.id}/read`);
+        setNotifications((items) => items.map((item) => item.id === notification.id ? response.data : item));
+        setUnreadCount((count) => Math.max(count - 1, 0));
+      } catch (error) {
+        console.error('[Navbar] Failed to mark notification as read:', error);
+      }
+    }
+    setNotificationsAnchor(null);
+    navigate('/projects');
+  };
+
+  const handleReadAll = async () => {
+    try {
+      await axios.post('/api/notifications/read-all');
+      const readAt = new Date().toISOString();
+      setNotifications((items) => items.map((item) => ({ ...item, readAt: item.readAt || readAt })));
+      setUnreadCount(0);
+    } catch (error) {
+      console.error('[Navbar] Failed to mark all notifications as read:', error);
+    }
+  };
+
+  const getNotificationText = (notification) => t(
+    notification.type === 'project_manager_assigned'
+      ? 'notifications.projectManagerAssigned'
+      : 'notifications.projectManagerRemoved',
+    { project: notification.project?.name || '' }
+  );
 
   const avatarUrl = user?.avatar_url || '';
   const initials = user ? ((user.name?.[0] || '') + (user.surname?.[0] || '')).toUpperCase() : '';
@@ -101,7 +171,59 @@ export default function Navbar() {
           </Button>
         </Box>
         {user && (
-          <Box sx={{ ml: 2 }}>
+          <Box sx={{ ml: 2, display: 'flex', alignItems: 'center' }}>
+            <Tooltip title={t('notifications.title')}>
+              <IconButton onClick={handleNotificationsOpen} color="inherit" size="small" aria-label={t('notifications.title')}>
+                <Badge badgeContent={unreadCount} color="error" max={99}>
+                  <NotificationsIcon />
+                </Badge>
+              </IconButton>
+            </Tooltip>
+            <Menu
+              anchorEl={notificationsAnchor}
+              open={Boolean(notificationsAnchor)}
+              onClose={() => setNotificationsAnchor(null)}
+              disableScrollLock
+              anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+              transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+              PaperProps={{ sx: { width: 380, maxWidth: 'calc(100vw - 24px)', maxHeight: 480, mt: 1, borderRadius: 2 } }}
+            >
+              <Box sx={{ px: 2, py: 1.25, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+                <Typography sx={{ fontWeight: 700 }}>{t('notifications.title')}</Typography>
+                {unreadCount > 0 && (
+                  <Button size="small" startIcon={<DoneAllIcon />} onClick={handleReadAll} sx={{ textTransform: 'none' }}>
+                    {t('notifications.readAll')}
+                  </Button>
+                )}
+              </Box>
+              <Divider />
+              {notifications.length === 0 ? (
+                <Typography color="text.secondary" sx={{ px: 2, py: 3, textAlign: 'center', fontSize: 14 }}>
+                  {t('notifications.empty')}
+                </Typography>
+              ) : notifications.map((notification) => (
+                <MenuItem
+                  key={notification.id}
+                  onClick={() => handleNotificationClick(notification)}
+                  sx={{
+                    alignItems: 'flex-start',
+                    whiteSpace: 'normal',
+                    px: 2,
+                    py: 1.25,
+                    backgroundColor: notification.readAt ? 'transparent' : 'rgba(86,115,220,0.08)',
+                  }}
+                >
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography sx={{ fontSize: 14, fontWeight: notification.readAt ? 500 : 700, lineHeight: 1.35 }}>
+                      {getNotificationText(notification)}
+                    </Typography>
+                    <Typography color="text.secondary" sx={{ mt: 0.4, fontSize: 11 }}>
+                      {new Date(notification.createdAt).toLocaleString()}
+                    </Typography>
+                  </Box>
+                </MenuItem>
+              ))}
+            </Menu>
             <IconButton onClick={handleMenuOpen} size="small" sx={{ ml: 2 }}>
               <Avatar src={avatarUrl} sx={{ width: 44, height: 44, bgcolor: '#5673DC', fontWeight: 600, fontSize: 22 }}>
                 {!avatarUrl && initials}
