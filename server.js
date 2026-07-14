@@ -96,6 +96,9 @@ const apiErrors = {
   projectsCategoryInvalid: { errorCode: 'projects.category_invalid', error: 'Project category is invalid.' },
   projectsNoFieldsToUpdate: { errorCode: 'projects.no_fields_to_update', error: 'No fields to update.' },
   projectsNotFound: { errorCode: 'projects.not_found', error: 'Project not found' },
+  projectManagerInvalid: { errorCode: 'project_manager.invalid_candidate', error: 'The selected user cannot be assigned as project manager.' },
+  projectManagerUpdateFailed: { errorCode: 'project_manager.update_failed', error: 'Failed to update the project manager.' },
+  notificationsNotFound: { errorCode: 'notifications.not_found', error: 'Notification not found.' },
   timeEntriesDuplicate: { errorCode: 'time_entries.duplicate', error: 'Duplicate time entry for this user, project, and day.' },
   timeEntriesNoFieldsToUpdate: { errorCode: 'time_entries.no_fields_to_update', error: 'No fields to update.' },
   timeEntriesNotFound: { errorCode: 'time_entries.not_found', error: 'Time entry not found' },
@@ -370,6 +373,7 @@ async function loadFixtures() {
   await createInvitationsTable();
   await createMagicLinksTable();
   await createAuthSessionsTable();
+  await createNotificationsTable();
   console.log('Tables verified');
 }
 
@@ -525,6 +529,20 @@ async function createTables() {
     });
   });
 
+  // Project manager assignment and audit fields. These nullable columns keep
+  // upgrades compatible with existing SQLite databases.
+  for (const statement of [
+    `ALTER TABLE projects ADD COLUMN manager_user_id INTEGER REFERENCES users(id)`,
+    `ALTER TABLE projects ADD COLUMN manager_updated_at DATETIME`,
+    `ALTER TABLE projects ADD COLUMN manager_updated_by INTEGER REFERENCES users(id)`,
+  ]) {
+    await new Promise((resolve, reject) => {
+      db.run(statement, err => {
+        if (err && !/duplicate column/.test(err.message)) reject(err); else resolve();
+      });
+    });
+  }
+
   // Migration: backfill missing categories for older projects
   await new Promise((resolve, reject) => {
     db.run(
@@ -613,6 +631,12 @@ async function createTables() {
       if (err) reject(err); else resolve();
     });
   });
+
+  await new Promise((resolve, reject) => {
+    db.run(`CREATE INDEX IF NOT EXISTS idx_projects_manager_user_id ON projects(manager_user_id)`, err => {
+      if (err) reject(err); else resolve();
+    });
+  });
 }
 
 // Create invitations table if not exists
@@ -629,6 +653,28 @@ async function createInvitationsTable() {
       if (err) reject(err); else resolve();
     });
   });
+}
+
+async function createNotificationsTable() {
+  await new Promise((resolve, reject) => {
+    db.run(`CREATE TABLE IF NOT EXISTS notifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      type TEXT NOT NULL CHECK(type IN ('project_manager_assigned', 'project_manager_removed')),
+      project_id INTEGER,
+      project_name TEXT NOT NULL,
+      actor_user_id INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      read_at DATETIME,
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
+      FOREIGN KEY (actor_user_id) REFERENCES users(id)
+    )`, err => {
+      if (err) reject(err); else resolve();
+    });
+  });
+  await runDb('CREATE INDEX IF NOT EXISTS idx_notifications_user_created ON notifications(user_id, id DESC)');
+  await runDb('CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON notifications(user_id, read_at)');
 }
 
 // Helper to generate a random token
@@ -1021,6 +1067,269 @@ function requireProjectFinancialAccess(projectIdParam = 'projectId') {
     }
   };
 }
+
+function mapProjectManagerRow(row) {
+  return {
+    project: row ? { id: row.id, name: row.name } : null,
+    manager: row?.manager_user_id ? {
+      id: row.manager_user_id,
+      name: row.manager_name,
+      surname: row.manager_surname || '',
+      email: row.manager_email,
+    } : null,
+    updatedAt: row?.manager_updated_at || null,
+    updatedBy: row?.manager_updated_by ? {
+      id: row.manager_updated_by,
+      name: row.updater_name,
+      surname: row.updater_surname || '',
+    } : null,
+  };
+}
+
+async function getProjectManagerRow(projectId) {
+  return getDb(
+    `SELECT
+       p.id, p.name, p.manager_user_id, p.manager_updated_at, p.manager_updated_by,
+       manager.name AS manager_name, manager.surname AS manager_surname, manager.email AS manager_email,
+       manager.language AS manager_language,
+       updater.name AS updater_name, updater.surname AS updater_surname
+     FROM projects p
+     LEFT JOIN users manager ON manager.id = p.manager_user_id
+     LEFT JOIN users updater ON updater.id = p.manager_updated_by
+     WHERE p.id = ?`,
+    [projectId]
+  );
+}
+
+async function sendProjectManagerEmail(req, recipient, type, projectName, actorName) {
+  const settings = loadSmtpSettings();
+  if (!isCompleteSmtpSettings(settings)) {
+    throw new Error(apiErrors.smtpNotConfigured.error);
+  }
+
+  const language = recipient.language === 'en' ? 'en' : 'ru';
+  const assigned = type === 'project_manager_assigned';
+  const strings = language === 'en'
+    ? {
+        subject: assigned ? `You are now managing “${projectName}”` : `You are no longer managing “${projectName}”`,
+        heading: assigned ? 'Project manager assignment' : 'Project manager assignment removed',
+        greeting: `Hello, ${recipient.name || ''}!`,
+        message: assigned
+          ? `You have been assigned as the manager of “${projectName}”.`
+          : `You are no longer the manager of “${projectName}”.`,
+        actor: `Changed by: ${actorName}`,
+        action: 'Open projects',
+      }
+    : {
+        subject: assigned ? `Вы назначены руководителем проекта «${projectName}»` : `Назначение руководителем проекта «${projectName}» снято`,
+        heading: assigned ? 'Назначение руководителем проекта' : 'Снятие с руководства проектом',
+        greeting: `Здравствуйте, ${recipient.name || ''}!`,
+        message: assigned
+          ? `Вы назначены руководителем проекта «${projectName}».`
+          : `Вы больше не являетесь руководителем проекта «${projectName}».`,
+        actor: `Изменил: ${actorName}`,
+        action: 'Открыть проекты',
+      };
+  const projectsUrl = `${resolveAppBaseUrl(req)}/projects`;
+  const templateSource = fs.readFileSync(path.join(__dirname, 'emailTemplates', 'projectManagerNotification.hbs'), 'utf8');
+  const html = handlebars.compile(templateSource)({ ...strings, projectsUrl, appName: 'TimeTracker', year: new Date().getFullYear() });
+  const transporter = nodemailer.createTransport({
+    host: settings.host,
+    port: settings.port,
+    secure: settings.secure,
+    auth: settings.auth,
+    connectionTimeout: 8000,
+    greetingTimeout: 8000,
+    socketTimeout: 12000,
+  });
+
+  await transporter.sendMail({
+    from: settings.from,
+    to: recipient.email,
+    subject: strings.subject,
+    text: `${strings.greeting}\n\n${strings.message}\n${strings.actor}\n\n${projectsUrl}`,
+    html,
+  });
+}
+
+app.get('/api/admin/projects/:projectId/manager', authenticateJWT, requireAdmin, async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  if (!Number.isInteger(projectId)) {
+    return sendApiError(res, 404, 'projectsNotFound');
+  }
+  try {
+    const row = await getProjectManagerRow(projectId);
+    if (!row) return sendApiError(res, 404, 'projectsNotFound');
+    res.json(mapProjectManagerRow(row));
+  } catch (err) {
+    console.error('[ProjectManager] Failed to load assignment:', err);
+    res.status(500).json({ errorCode: apiErrors.projectManagerUpdateFailed.errorCode, error: err.message });
+  }
+});
+
+app.put('/api/admin/projects/:projectId/manager', authenticateJWT, requireAdmin, async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  const rawManagerId = req.body?.managerUserId;
+  const managerUserId = rawManagerId === null ? null : Number(rawManagerId);
+  if (!Number.isInteger(projectId)) return sendApiError(res, 404, 'projectsNotFound');
+  if (rawManagerId === undefined || (managerUserId !== null && (!Number.isInteger(managerUserId) || managerUserId <= 0))) {
+    return sendApiError(res, 400, 'projectManagerInvalid');
+  }
+
+  try {
+    const current = await getProjectManagerRow(projectId);
+    if (!current) return sendApiError(res, 404, 'projectsNotFound');
+
+    let nextManager = null;
+    if (managerUserId !== null) {
+      nextManager = await getDb(
+        `SELECT id, name, surname, email, language
+         FROM users
+         WHERE id = ? AND role IN ('user', 'admin') AND deleted = 0 AND invited = 0`,
+        [managerUserId]
+      );
+      if (!nextManager) return sendApiError(res, 400, 'projectManagerInvalid');
+    }
+
+    if (Number(current.manager_user_id || 0) === Number(managerUserId || 0)) {
+      return res.json({ ...mapProjectManagerRow(current), changed: false, emailDelivery: 'not_required' });
+    }
+
+    let previousManager = null;
+    if (current.manager_user_id) {
+      previousManager = await getDb(
+        'SELECT id, name, surname, email, language FROM users WHERE id = ?',
+        [current.manager_user_id]
+      );
+    }
+
+    await runDb('BEGIN IMMEDIATE TRANSACTION');
+    try {
+      await runDb(
+        `UPDATE projects
+         SET manager_user_id = ?, manager_updated_at = CURRENT_TIMESTAMP, manager_updated_by = ?
+         WHERE id = ?`,
+        [managerUserId, req.user.id, projectId]
+      );
+      if (previousManager) {
+        await runDb(
+          `INSERT INTO notifications (user_id, type, project_id, project_name, actor_user_id)
+           VALUES (?, 'project_manager_removed', ?, ?, ?)`,
+          [previousManager.id, projectId, current.name, req.user.id]
+        );
+      }
+      if (nextManager) {
+        await runDb(
+          `INSERT INTO notifications (user_id, type, project_id, project_name, actor_user_id)
+           VALUES (?, 'project_manager_assigned', ?, ?, ?)`,
+          [nextManager.id, projectId, current.name, req.user.id]
+        );
+      }
+      await runDb('COMMIT');
+    } catch (transactionError) {
+      await runDb('ROLLBACK').catch(() => {});
+      throw transactionError;
+    }
+
+    const recipients = [
+      previousManager && { user: previousManager, type: 'project_manager_removed' },
+      nextManager && { user: nextManager, type: 'project_manager_assigned' },
+    ].filter(Boolean);
+    const actorName = [req.user.surname, req.user.name].filter(Boolean).join(' ');
+    const emailResults = await Promise.allSettled(
+      recipients.map(({ user, type }) => sendProjectManagerEmail(req, user, type, current.name, actorName))
+    );
+    const emailDelivery = emailResults.some((result) => result.status === 'rejected') ? 'failed' : 'sent';
+    emailResults.forEach((result) => {
+      if (result.status === 'rejected') console.error('[ProjectManager] Email delivery failed:', result.reason);
+    });
+
+    const updated = await getProjectManagerRow(projectId);
+    res.json({ ...mapProjectManagerRow(updated), changed: true, emailDelivery });
+  } catch (err) {
+    console.error('[ProjectManager] Failed to update assignment:', err);
+    res.status(500).json({ errorCode: apiErrors.projectManagerUpdateFailed.errorCode, error: apiErrors.projectManagerUpdateFailed.error });
+  }
+});
+
+function mapNotificationRow(row) {
+  return {
+    id: row.id,
+    type: row.type,
+    project: { id: row.project_id, name: row.project_name },
+    actor: row.actor_user_id ? { id: row.actor_user_id, name: row.actor_name, surname: row.actor_surname || '' } : null,
+    createdAt: row.created_at,
+    readAt: row.read_at,
+  };
+}
+
+app.get('/api/notifications', authenticateJWT, async (req, res) => {
+  const requestedLimit = Number(req.query.limit || 20);
+  const limit = Number.isInteger(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 50) : 20;
+  const before = req.query.before ? Number(req.query.before) : null;
+  const params = [req.user.id];
+  let beforeClause = '';
+  if (Number.isInteger(before) && before > 0) {
+    beforeClause = 'AND n.id < ?';
+    params.push(before);
+  }
+  params.push(limit + 1);
+  try {
+    const rows = await allDb(
+      `SELECT n.*, actor.name AS actor_name, actor.surname AS actor_surname
+       FROM notifications n
+       LEFT JOIN users actor ON actor.id = n.actor_user_id
+       WHERE n.user_id = ? ${beforeClause}
+       ORDER BY n.id DESC
+       LIMIT ?`,
+      params
+    );
+    const unread = await getDb('SELECT COUNT(*) AS count FROM notifications WHERE user_id = ? AND read_at IS NULL', [req.user.id]);
+    const hasMore = rows.length > limit;
+    const items = rows.slice(0, limit);
+    res.json({
+      items: items.map(mapNotificationRow),
+      unreadCount: unread?.count || 0,
+      nextCursor: hasMore ? items[items.length - 1].id : null,
+    });
+  } catch (err) {
+    console.error('[Notifications] Failed to load:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.patch('/api/notifications/:id/read', authenticateJWT, async (req, res) => {
+  const notificationId = Number(req.params.id);
+  if (!Number.isInteger(notificationId)) return sendApiError(res, 404, 'notificationsNotFound');
+  try {
+    const result = await runDb(
+      'UPDATE notifications SET read_at = COALESCE(read_at, CURRENT_TIMESTAMP) WHERE id = ? AND user_id = ?',
+      [notificationId, req.user.id]
+    );
+    if (!result.changes) return sendApiError(res, 404, 'notificationsNotFound');
+    const row = await getDb(
+      `SELECT n.*, actor.name AS actor_name, actor.surname AS actor_surname
+       FROM notifications n LEFT JOIN users actor ON actor.id = n.actor_user_id
+       WHERE n.id = ? AND n.user_id = ?`,
+      [notificationId, req.user.id]
+    );
+    res.json(mapNotificationRow(row));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/notifications/read-all', authenticateJWT, async (req, res) => {
+  try {
+    const result = await runDb(
+      'UPDATE notifications SET read_at = CURRENT_TIMESTAMP WHERE user_id = ? AND read_at IS NULL',
+      [req.user.id]
+    );
+    res.json({ updatedCount: result.changes });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Admin-only hourly rate routes
 app.get('/api/admin/users/:userId/rates', authenticateJWT, requireFinancialAdmin, async (req, res) => {
@@ -1449,13 +1758,29 @@ app.delete('/api/clients/:id/full', authenticateJWT, (req, res) => {
 
 // Projects routes
 app.get('/api/projects', authenticateJWT, (req, res) => {
-  db.all('SELECT p.*, c.name as client_name FROM projects p LEFT JOIN clients c ON p.client_id = c.id ORDER BY p.category, p.name', [], (err, rows) => {
+  db.all(
+    `SELECT p.*, c.name AS client_name,
+            manager.name AS manager_name, manager.surname AS manager_surname,
+            CASE
+              WHEN p.manager_user_id = ? OR EXISTS (
+                SELECT 1 FROM time_entries own_entries
+                WHERE own_entries.user_id = ? AND own_entries.project_id = p.id
+              ) THEN 1
+              ELSE 0
+            END AS is_my_project
+     FROM projects p
+     LEFT JOIN clients c ON p.client_id = c.id
+     LEFT JOIN users manager ON manager.id = p.manager_user_id
+     ORDER BY p.category, p.name`,
+    [req.user.id, req.user.id],
+    (err, rows) => {
     if (err) {
       res.status(500).json({ error: err.message });
       return;
     }
     res.json(rows);
-  });
+    }
+  );
 });
 
 app.post('/api/projects', authenticateJWT, (req, res) => {

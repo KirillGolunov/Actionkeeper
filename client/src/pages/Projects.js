@@ -16,6 +16,12 @@ import {
   IconButton,
   Tooltip,
   Chip,
+  Autocomplete,
+  Popover,
+  Checkbox,
+  FormControlLabel,
+  Divider,
+  ClickAwayListener,
 } from '@mui/material';
 import axios from 'axios';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -23,6 +29,7 @@ import AddIcon from '@mui/icons-material/Add';
 import Switch from '@mui/material/Switch';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from '../i18n/I18nProvider';
 import { getApiErrorMessage } from '../utils/apiErrorMessage';
@@ -55,8 +62,11 @@ function Projects() {
     : 'Needs classification';
   const [projects, setProjects] = useState([]);
   const [clients, setClients] = useState([]);
+  const [managerCandidates, setManagerCandidates] = useState([]);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState(null);
+  const [notice, setNotice] = useState(null);
+  const [categoriesAnchorEl, setCategoriesAnchorEl] = useState(null);
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState(null);
   const [newProject, setNewProject] = useState({ 
@@ -65,6 +75,7 @@ function Projects() {
     client_id: '',
     code: '',
     category: '',
+    managerUserId: null,
   });
   const [editOpen, setEditOpen] = useState(false);
   const [editProject, setEditProject] = useState(null);
@@ -72,6 +83,7 @@ function Projects() {
   const [projectToDelete, setProjectToDelete] = useState(null);
   const [expandedProjectIds, setExpandedProjectIds] = useState([]);
   const [filters, setFilters] = useState({
+    scope: 'mine',
     active: true,
     closed: false,
     external_delivery: false,
@@ -107,14 +119,29 @@ function Projects() {
     }
   }, [t]);
 
+  const fetchManagerCandidates = useCallback(async () => {
+    if (currentUser?.role !== 'admin') return;
+    try {
+      const response = await axios.get('/api/users');
+      setManagerCandidates(response.data.filter((candidate) => (
+        !candidate.deleted && !candidate.invited && ['user', 'admin'].includes(candidate.role)
+      )));
+    } catch (fetchError) {
+      console.error('Error fetching project manager candidates:', fetchError);
+      setError(t('projects.manager.errors.fetchCandidates'));
+    }
+  }, [currentUser?.role, t]);
+
   useEffect(() => {
     fetchProjects();
     fetchClients();
-  }, [fetchProjects, fetchClients]);
+    fetchManagerCandidates();
+  }, [fetchProjects, fetchClients, fetchManagerCandidates]);
 
   const handleOpen = () => {
     if (!canEdit) return;
     setError(null);
+    setNotice(null);
     setOpen(true);
   };
 
@@ -162,16 +189,35 @@ function Projects() {
           return;
         }
       }
-      await axios.post('/api/projects', newProject);
-      
+      const projectResponse = await axios.post('/api/projects', {
+        name: newProject.name,
+        description: newProject.description,
+        client_id: newProject.client_id,
+        code: newProject.code,
+        category: newProject.category,
+      });
+      if (newProject.managerUserId) {
+        try {
+          const managerResponse = await axios.put(`/api/admin/projects/${projectResponse.data.id}/manager`, {
+            managerUserId: newProject.managerUserId,
+          });
+          if (managerResponse.data.emailDelivery === 'failed') {
+            setNotice(t('projects.manager.emailFailed'));
+          }
+        } catch (managerError) {
+          console.error('Project created but manager assignment failed:', managerError);
+          setNotice(t('projects.manager.errors.createdWithoutManager'));
+        }
+      }
       fetchProjects();
-      handleClose();
+      setOpen(false);
       setNewProject({ 
         name: '', 
         description: '',
         client_id: '',
         code: '',
         category: '',
+        managerUserId: null,
       });
     } catch (error) {
       console.error('Error creating project:', error);
@@ -187,7 +233,8 @@ function Projects() {
   const handleEditOpen = (project) => {
     if (!canEdit) return;
     setError(null);
-    setEditProject({ ...project });
+    setNotice(null);
+    setEditProject({ ...project, managerUserId: project.manager_user_id || null, originalManagerUserId: project.manager_user_id || null });
     setEditOpen(true);
   };
 
@@ -228,8 +275,22 @@ function Projects() {
       }
       const { name, description, client_id, code, category } = editProject;
       await axios.patch(`/api/projects/${editProject.id}`, { name, description, client_id, code, category });
+      if (Number(editProject.managerUserId || 0) !== Number(editProject.originalManagerUserId || 0)) {
+        try {
+          const managerResponse = await axios.put(`/api/admin/projects/${editProject.id}/manager`, {
+            managerUserId: editProject.managerUserId || null,
+          });
+          if (managerResponse.data.emailDelivery === 'failed') {
+            setNotice(t('projects.manager.emailFailed'));
+          }
+        } catch (managerError) {
+          console.error('Project updated but manager assignment failed:', managerError);
+          setNotice(t('projects.manager.errors.updatedWithoutManager'));
+        }
+      }
       fetchProjects();
-      handleEditClose();
+      setEditOpen(false);
+      setEditProject(null);
     } catch (error) {
       setError(getApiErrorMessage(error, t, 'projects.errors.update'));
     }
@@ -259,10 +320,12 @@ function Projects() {
   };
 
   const activeCategoryFilters = Object.entries(filters)
-    .filter(([key, enabled]) => enabled && !['active', 'closed'].includes(key))
+    .filter(([key, enabled]) => enabled && !['scope', 'active', 'closed'].includes(key))
     .map(([key]) => key);
 
   const filteredProjects = projects.filter(project => {
+    if (filters.scope === 'mine' && !project.is_my_project) return false;
+    if (filters.scope === 'managed' && Number(project.manager_user_id) !== Number(currentUser?.id)) return false;
     const statusVisible = (project.active && filters.active) || (!project.active && filters.closed);
     if (!statusVisible) return false;
     if (activeCategoryFilters.length > 0 && !activeCategoryFilters.includes(project.category || PROJECT_CATEGORY_TRANSITION.value)) {
@@ -270,6 +333,9 @@ function Projects() {
     }
     return true;
   });
+  const hasDefaultStatusAndCategories = filters.active && !filters.closed && activeCategoryFilters.length === 0;
+  const showDefaultMineEmptyState = filters.scope === 'mine' && hasDefaultStatusAndCategories;
+  const showDefaultManagedEmptyState = filters.scope === 'managed' && hasDefaultStatusAndCategories;
 
   const sortedProjects = [...filteredProjects].sort((a, b) => {
     const categoryIndexA = PROJECT_CATEGORY_ORDER.indexOf(a.category || PROJECT_CATEGORY_TRANSITION.value);
@@ -298,16 +364,39 @@ function Projects() {
     return palette[categoryValue] || palette.unclassified;
   };
 
+  const scopeTagStyles = {
+    mine: {
+      selected: { background: '#EEF3FF', color: '#5673DC', border: '1px solid #5673DC' },
+      default: { background: '#F5F7FA', color: '#90A0B7', border: 'none' },
+      label: t('projects.filters.mine'),
+      tooltip: t('projects.filters.tooltips.mine'),
+    },
+    managed: {
+      selected: { background: '#EEF3FF', color: '#5673DC', border: '1px solid #5673DC' },
+      default: { background: '#F5F7FA', color: '#90A0B7', border: 'none' },
+      label: t('projects.filters.managed'),
+      tooltip: t('projects.filters.tooltips.managed'),
+    },
+    all: {
+      selected: { background: '#EEF3FF', color: '#5673DC', border: '1px solid #5673DC' },
+      default: { background: '#F5F7FA', color: '#90A0B7', border: 'none' },
+      label: t('projects.filters.all'),
+      tooltip: t('projects.filters.tooltips.all'),
+    },
+  };
+
   const statusTagStyles = {
     active: {
       selected: { background: '#F5F7FE', color: '#5673DC', border: '1px solid #5673DC' },
       default: { background: '#F5F7FA', color: '#90A0B7', border: 'none' },
       label: t('projects.active'),
+      tooltip: t('projects.filters.tooltips.active'),
     },
     closed: {
       selected: { background: '#F5EAFE', color: '#A259E6', border: '1px solid #A259E6' },
       default: { background: '#F5F7FA', color: '#90A0B7', border: 'none' },
       label: t('projects.closed'),
+      tooltip: t('projects.filters.tooltips.closed'),
     },
   };
 
@@ -322,23 +411,46 @@ function Projects() {
         people_development: isRussian ? 'Развитие' : 'Development',
         time_off: isRussian ? 'Отсутствия' : 'Time off',
       }[category.value] || category.label,
+      tooltip: t(`projects.filters.tooltips.${category.value}`),
     })),
     {
       key: PROJECT_CATEGORY_TRANSITION.value,
       label: unclassifiedFilterLabel,
       shortLabel: isRussian ? 'Без категории' : 'Unclassified',
+      tooltip: t('projects.filters.tooltips.unclassified'),
     },
   ];
 
-  const statusFilterOptions = Object.keys(statusTagStyles).map((key) => ({
+  const scopeFilterOptions = Object.keys(scopeTagStyles).map((key) => ({
     key,
-    label: statusTagStyles[key].label,
+    ...scopeTagStyles[key],
   }));
 
-  const hasActiveFilters = Object.values(filters).some(Boolean);
+  const statusFilterOptions = Object.keys(statusTagStyles).map((key) => ({
+    key,
+    ...statusTagStyles[key],
+  }));
+
+  const hasNonDefaultFilters = filters.scope !== 'mine'
+    || !filters.active
+    || filters.closed
+    || activeCategoryFilters.length > 0;
+
+  const clearCategoryFilters = () => {
+    setFilters((currentFilters) => ({
+      ...currentFilters,
+      external_delivery: false,
+      internal_project: false,
+      operations: false,
+      people_development: false,
+      time_off: false,
+      unclassified: false,
+    }));
+  };
 
   const resetFilters = () => {
     setFilters({
+      scope: 'mine',
       active: true,
       closed: false,
       external_delivery: false,
@@ -371,80 +483,207 @@ function Projects() {
         ) : null
       }
       toolbar={
-        <PageToolbar>
+        <PageToolbar sx={{ py: { xs: 1, md: 1 } }}>
           <Box
             sx={{
               display: 'flex',
-              alignItems: { xs: 'flex-start', md: 'center' },
+              alignItems: { xs: 'stretch', md: 'center' },
               justifyContent: 'space-between',
-              gap: 2,
+              gap: { xs: 1, md: 1.25 },
               flexDirection: { xs: 'column', md: 'row' },
             }}
           >
-            <Box sx={{ flex: 1, width: '100%', display: 'flex', flexDirection: 'column', gap: 1 }}>
-              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, flexDirection: { xs: 'column', sm: 'row' } }}>
-                <Typography sx={{ minWidth: 72, color: '#69758C', fontSize: 14, fontWeight: 600, pt: 0.6 }}>
-                  {isRussian ? 'Статус' : 'Status'}
-                </Typography>
-                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                  {statusFilterOptions.map((status) => (
+            <Box
+              sx={{
+                display: 'flex',
+                gap: 1,
+                flexWrap: 'nowrap',
+                overflowX: 'auto',
+                width: { xs: '100%', md: 'auto' },
+                pb: { xs: 0.25, md: 0 },
+                scrollbarWidth: 'thin',
+              }}
+            >
+              {scopeFilterOptions.map((scope) => (
+                <Tooltip key={scope.key} title={scope.tooltip} arrow>
+                  <Chip
+                    label={scope.label}
+                    clickable
+                    onClick={() => setFilters((currentFilters) => ({ ...currentFilters, scope: scope.key }))}
+                    sx={{
+                      ...pageFilterChipSx,
+                      flexShrink: 0,
+                      ...(filters.scope === scope.key ? scope.selected : scope.default),
+                    }}
+                  />
+                </Tooltip>
+              ))}
+            </Box>
+
+            <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', md: 'block' }, mx: 0.25 }} />
+
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', width: { xs: '100%', md: 'auto' } }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                {statusFilterOptions.map((status) => (
+                  <Tooltip key={status.key} title={status.tooltip} arrow>
                     <Chip
-                      key={status.key}
                       label={status.label}
                       clickable
                       onClick={() => setFilters((currentFilters) => ({ ...currentFilters, [status.key]: !currentFilters[status.key] }))}
                       sx={{
                         ...pageFilterChipSx,
-                        ...(filters[status.key] ? statusTagStyles[status.key].selected : statusTagStyles[status.key].default),
+                        ...(filters[status.key] ? status.selected : status.default),
                       }}
                     />
-                  ))}
-                </Box>
+                  </Tooltip>
+                ))}
               </Box>
 
-              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, flexDirection: { xs: 'column', sm: 'row' } }}>
-                <Typography sx={{ minWidth: 72, color: '#69758C', fontSize: 14, fontWeight: 600, pt: 0.6 }}>
-                  {isRussian ? 'Категории' : 'Categories'}
-                </Typography>
-                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                  {categoryFilterOptions.map((category) => (
-                    <Chip
-                      key={category.key}
-                      label={category.shortLabel}
-                      clickable
-                      onClick={() => setFilters((currentFilters) => ({ ...currentFilters, [category.key]: !currentFilters[category.key] }))}
-                      sx={{
-                        ...pageFilterChipSx,
-                        ...(filters[category.key]
-                          ? getCategoryChipStyles(category.key)
-                          : { background: '#F5F7FA', color: '#7D8AA5', border: 'none' }),
-                      }}
-                    />
-                  ))}
-                </Box>
-              </Box>
-            </Box>
+              <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', md: 'block' }, mx: 0.25 }} />
 
-            {hasActiveFilters && (
+              <Tooltip title={t('projects.filters.categoriesTooltip')} arrow>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  endIcon={<ArrowDropDownIcon />}
+                  onClick={(event) => setCategoriesAnchorEl((anchor) => anchor ? null : event.currentTarget)}
+                  aria-haspopup="true"
+                  aria-expanded={Boolean(categoriesAnchorEl)}
+                  sx={{
+                    height: 32,
+                    borderRadius: '10px',
+                    px: 1.25,
+                    textTransform: 'none',
+                    fontSize: 13,
+                    fontWeight: 500,
+                    boxShadow: 'none',
+                    whiteSpace: 'nowrap',
+                    color: '#5673DC',
+                    borderColor: activeCategoryFilters.length > 0 ? '#5673DC' : '#D7DFF5',
+                    backgroundColor: activeCategoryFilters.length > 0 ? '#EEF3FF' : '#FFFFFF',
+                    '&:hover': {
+                      color: '#4256B2',
+                      borderColor: '#5673DC',
+                      backgroundColor: '#EEF3FF',
+                      boxShadow: 'none',
+                    },
+                  }}
+                >
+                  {t('projects.filters.categories')}{activeCategoryFilters.length > 0 ? ` · ${activeCategoryFilters.length}` : ''}
+                </Button>
+              </Tooltip>
+
+              <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', md: 'block' }, mx: 0.25 }} />
+
               <Button
                 onClick={resetFilters}
+                disabled={!hasNonDefaultFilters}
                 sx={{
-                  alignSelf: { xs: 'flex-start', md: 'center' },
+                  ml: { xs: 0, md: 'auto' },
                   color: '#5673DC',
                   textTransform: 'none',
                   fontWeight: 500,
-                  fontSize: 14,
-                  minWidth: 'auto',
-                  px: 0,
+                  fontSize: 13,
+                  minWidth: isRussian ? 72 : 48,
+                  px: 0.5,
                   '&:hover': {
                     background: 'transparent',
                     color: '#4256B2',
                   },
+                  '&.Mui-disabled': {
+                    color: '#AEB8CA',
+                    background: 'transparent',
+                  },
                 }}
               >
-                {isRussian ? 'Сбросить фильтры' : 'Reset filters'}
+                {isRussian ? 'Сбросить' : 'Reset'}
               </Button>
-            )}
+            </Box>
+
+            <Popover
+              open={Boolean(categoriesAnchorEl)}
+              anchorEl={categoriesAnchorEl}
+              onClose={() => setCategoriesAnchorEl(null)}
+              hideBackdrop
+              disableScrollLock
+              anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+              transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+              sx={{ pointerEvents: 'none' }}
+              PaperProps={{
+                sx: {
+                  pointerEvents: 'auto',
+                  mt: 0.75,
+                  width: 390,
+                  maxWidth: 'calc(100vw - 32px)',
+                  borderRadius: 2.5,
+                  border: '1px solid #D2DCF2',
+                  backgroundColor: '#FFFFFF',
+                  color: '#222832',
+                  boxShadow: '0 14px 36px rgba(53, 67, 112, 0.18)',
+                },
+              }}
+            >
+              <ClickAwayListener
+                onClickAway={(event) => {
+                  if (categoriesAnchorEl?.contains(event.target)) return;
+                  setCategoriesAnchorEl(null);
+                }}
+              >
+                <Box sx={{ px: 2, py: 1.5 }}>
+                  <Typography sx={{ color: '#222832', fontSize: 14, fontWeight: 700, mb: 1 }}>
+                    {t('projects.filters.categoriesTitle')}
+                  </Typography>
+                  <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }, columnGap: 1.5, rowGap: 0.25 }}>
+                    {categoryFilterOptions.map((category) => (
+                      <Tooltip key={category.key} title={category.tooltip} arrow placement="right">
+                        <FormControlLabel
+                          control={
+                            <Checkbox
+                              size="small"
+                              checked={!!filters[category.key]}
+                              onChange={() => setFilters((currentFilters) => ({ ...currentFilters, [category.key]: !currentFilters[category.key] }))}
+                              sx={{
+                                color: '#AEB8CA',
+                                '&.Mui-checked': { color: '#5673DC' },
+                                '&:hover': { backgroundColor: '#EEF3FF' },
+                              }}
+                            />
+                          }
+                          label={category.shortLabel}
+                          sx={{
+                            m: 0,
+                            minWidth: 0,
+                            color: '#222832',
+                            '& .MuiFormControlLabel-label': { fontSize: 13 },
+                          }}
+                        />
+                      </Tooltip>
+                    ))}
+                  </Box>
+                  {activeCategoryFilters.length > 0 && (
+                    <>
+                      <Divider sx={{ my: 1, borderColor: '#D2DCF2' }} />
+                      <Button
+                        size="small"
+                        onClick={clearCategoryFilters}
+                        sx={{
+                          px: 0,
+                          color: '#5673DC',
+                          textTransform: 'none',
+                          fontSize: 13,
+                          '&:hover': {
+                            color: '#4256B2',
+                            backgroundColor: 'transparent',
+                          },
+                        }}
+                      >
+                        {t('projects.filters.clearCategories')}
+                      </Button>
+                    </>
+                  )}
+                </Box>
+              </ClickAwayListener>
+            </Popover>
           </Box>
         </PageToolbar>
       }
@@ -455,8 +694,22 @@ function Projects() {
           {error}
         </Alert>
       )}
+      {notice && (
+        <Alert severity="warning" onClose={() => setNotice(null)} sx={{ mb: 2 }}>
+          {notice}
+        </Alert>
+      )}
 
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+        {filteredProjects.length === 0 && (
+          <Alert severity="info">
+            {showDefaultMineEmptyState
+              ? t('projects.filters.emptyMine')
+              : showDefaultManagedEmptyState
+                ? t('projects.filters.emptyManaged')
+                : t('projects.filters.empty')}
+          </Alert>
+        )}
         {groupedProjects.map((group) => (
           <Box key={group.categoryValue}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
@@ -587,6 +840,13 @@ function Projects() {
                             return client && client.type ? ` (${client.type.charAt(0).toUpperCase() + client.type.slice(1)})` : '';
                           })()}
                         </Typography>
+                        {(project.manager_user_id || canEdit) && (
+                          <Typography color="text.secondary" variant="body2" sx={{ mb: 0.25, fontSize: 13, lineHeight: 1.3 }}>
+                            {t('projects.manager.label')}: {project.manager_user_id
+                              ? [project.manager_surname, project.manager_name].filter(Boolean).join(' ')
+                              : t('projects.manager.unassigned')}
+                          </Typography>
+                        )}
                         {!expanded && project.description && (
                           <Typography color="text.secondary" variant="body2" sx={{ fontSize: 13, lineHeight: 1.3, mb: 0.25, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {project.description}
@@ -597,36 +857,36 @@ function Projects() {
                             <Typography color="text.secondary" variant="body2" sx={{ fontSize: 13, lineHeight: 1.3, mb: 0.5 }}>
                               {project.description}
                             </Typography>
-                            <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', mt: 0.5, mb: 1 }}>
-                              <ProjectAnalyticsButton onClick={() => handleAnalyticsOpen(project)} />
-                              <Box sx={{ flex: 1 }} />
-                              <Button
-                                size="small"
-                                variant="outlined"
-                                onClick={() => handleEditOpen(project)}
-                                sx={{
-                                  minWidth: 70,
-                                  height: 32,
-                                  borderRadius: 2,
-                                  border: '1.5px solid #E2E4E9',
-                                  color: '#222',
-                                  background: '#f7f8fa',
-                                  fontWeight: 500,
-                                  fontSize: 12,
-                                  boxShadow: 'none',
-                                  textTransform: 'none',
-                                  px: 1.2,
-                                  ml: 1,
-                                  '&:hover': {
-                                    background: 'rgba(86,115,220,0.10)',
-                                    border: '1.5px solid #5673DC',
-                                    color: '#5673DC',
-                                  },
-                                }}
-                              >
-                                {t('users.editUser')}
-                              </Button>
-                              {currentUser?.role === 'admin' && (
+                            {canEdit && (
+                              <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', mt: 0.5, mb: 1 }}>
+                                <ProjectAnalyticsButton onClick={() => handleAnalyticsOpen(project)} />
+                                <Box sx={{ flex: 1 }} />
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  onClick={() => handleEditOpen(project)}
+                                  sx={{
+                                    minWidth: 70,
+                                    height: 32,
+                                    borderRadius: 2,
+                                    border: '1.5px solid #E2E4E9',
+                                    color: '#222',
+                                    background: '#f7f8fa',
+                                    fontWeight: 500,
+                                    fontSize: 12,
+                                    boxShadow: 'none',
+                                    textTransform: 'none',
+                                    px: 1.2,
+                                    ml: 1,
+                                    '&:hover': {
+                                      background: 'rgba(86,115,220,0.10)',
+                                      border: '1.5px solid #5673DC',
+                                      color: '#5673DC',
+                                    },
+                                  }}
+                                >
+                                  {t('users.editUser')}
+                                </Button>
                                 <Button
                                   size="small"
                                   color="error"
@@ -654,8 +914,8 @@ function Projects() {
                                 >
                                   {t('projects.deleteProject')}
                                 </Button>
-                              )}
-                            </Box>
+                              </Box>
+                            )}
                           </>
                         )}
                       </CardContent>
@@ -708,6 +968,14 @@ function Projects() {
               </MenuItem>
             ))}
           </TextField>
+          <Autocomplete
+            options={managerCandidates}
+            value={managerCandidates.find((candidate) => candidate.id === newProject.managerUserId) || null}
+            onChange={(_event, candidate) => setNewProject({ ...newProject, managerUserId: candidate?.id || null })}
+            isOptionEqualToValue={(option, value) => option.id === value.id}
+            getOptionLabel={(candidate) => `${[candidate.surname, candidate.name].filter(Boolean).join(' ')} · ${candidate.email} · ${candidate.role === 'admin' ? t('users.admin') : t('users.user')}`}
+            renderInput={(params) => <TextField {...params} margin="dense" label={t('projects.manager.label')} placeholder={t('projects.manager.unassigned')} />}
+          />
           <TextField
             autoFocus
             margin="dense"
@@ -827,6 +1095,14 @@ function Projects() {
               </MenuItem>
             ))}
           </TextField>
+          <Autocomplete
+            options={managerCandidates}
+            value={managerCandidates.find((candidate) => candidate.id === editProject?.managerUserId) || null}
+            onChange={(_event, candidate) => setEditProject({ ...editProject, managerUserId: candidate?.id || null })}
+            isOptionEqualToValue={(option, value) => option.id === value.id}
+            getOptionLabel={(candidate) => `${[candidate.surname, candidate.name].filter(Boolean).join(' ')} · ${candidate.email} · ${candidate.role === 'admin' ? t('users.admin') : t('users.user')}`}
+            renderInput={(params) => <TextField {...params} margin="dense" label={t('projects.manager.label')} placeholder={t('projects.manager.unassigned')} />}
+          />
           <TextField
             autoFocus
             margin="dense"
