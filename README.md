@@ -96,6 +96,8 @@ In a new terminal, start the frontend development server:
 
 Open `http://localhost:3000` in your browser. The React development server proxies API requests to `http://localhost:3001` via `client/package.json`.
 
+In development, use port `3000` for all browser navigation. Non-API requests sent to the backend on port `3001` are redirected to `APP_BASE_URL`, and local magic links use that same frontend URL. This prevents the backend from serving a stale production build from `client/build` during local development.
+
 Note: `npm run dev` starts the backend through `nodemon`. If `nodemon` fails on Windows with `spawn EPERM`, use `npm start` for the backend during local development.
 
 ## Project Structure

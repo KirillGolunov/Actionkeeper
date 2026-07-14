@@ -28,7 +28,13 @@ const resolveAppBaseUrl = (req) => {
   const originHeader = req.headers.origin;
   const origin = normalizeBaseUrl(Array.isArray(originHeader) ? originHeader[0] : originHeader);
 
-  if (envBase && !/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(envBase)) {
+  if (
+    envBase &&
+    (
+      process.env.NODE_ENV !== 'production' ||
+      !/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(envBase)
+    )
+  ) {
     return envBase;
   }
 
@@ -95,6 +101,7 @@ const apiErrors = {
   timeEntriesNotFound: { errorCode: 'time_entries.not_found', error: 'Time entry not found' },
   timeEntriesWeekRequired: { errorCode: 'time_entries.week_required', error: 'user_id, project_id, and week_start are required' },
   timeEntriesNoEntries: { errorCode: 'time_entries.no_entries', error: 'No entries provided.' },
+  adminForbidden: { errorCode: 'admin.forbidden', error: 'Only administrators can perform this action.' },
   financialForbidden: { errorCode: 'financial.forbidden', error: 'Only administrators can manage financial data.' },
   ratesValidationFailed: { errorCode: 'rates.validation_failed', error: '{{message}}' },
   ratesOverlap: { errorCode: 'rates.overlap', error: 'Rate periods cannot overlap for the same user.' },
@@ -954,7 +961,7 @@ function optionalAuthenticateJWT(req, res, next) {
 
 function requireAdmin(req, res, next) {
   if (!req.user || req.user.role !== 'admin') {
-    return sendApiError(res, 403, 'smtpForbidden');
+    return sendApiError(res, 403, 'adminForbidden');
   }
   next();
 }
@@ -964,6 +971,55 @@ function requireFinancialAdmin(req, res, next) {
     return sendApiError(res, 403, 'financialForbidden');
   }
   next();
+}
+
+let projectsManagerColumnAvailable = null;
+
+async function hasProjectManagerColumn() {
+  if (projectsManagerColumnAvailable !== null) {
+    return projectsManagerColumnAvailable;
+  }
+
+  const columns = await allDb('PRAGMA table_info(projects)');
+  projectsManagerColumnAvailable = columns.some((column) => column.name === 'manager_user_id');
+  return projectsManagerColumnAvailable;
+}
+
+async function canAccessProjectFinancials(user, projectId) {
+  if (!user) {
+    return false;
+  }
+  if (user.role === 'admin') {
+    return true;
+  }
+
+  const numericProjectId = Number(projectId);
+  if (!Number.isInteger(numericProjectId)) {
+    return false;
+  }
+
+  if (!(await hasProjectManagerColumn())) {
+    return false;
+  }
+
+  const project = await getDb('SELECT manager_user_id FROM projects WHERE id = ?', [numericProjectId]);
+  return Number(project?.manager_user_id) === Number(user.id);
+}
+
+function requireProjectFinancialAccess(projectIdParam = 'projectId') {
+  return async (req, res, next) => {
+    try {
+      const projectId = req.params[projectIdParam];
+      const allowed = await canAccessProjectFinancials(req.user, projectId);
+      if (!allowed) {
+        return sendApiError(res, 403, 'financialForbidden');
+      }
+      next();
+    } catch (err) {
+      console.error('[FinancialAccess] Failed to verify project access:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  };
 }
 
 // Admin-only hourly rate routes
@@ -1148,7 +1204,14 @@ app.patch('/api/admin/users/:userId/rates/:rateId', authenticateJWT, requireFina
 // Users routes
 app.get('/api/users', authenticateJWT, (req, res) => {
   console.log('GET /api/users called');
-  db.all('SELECT * FROM users ORDER BY name', [], (err, rows) => {
+  db.all(
+    `SELECT
+       id, name, surname, email, role, created_at, deleted, invited,
+       phone, department, job_title, avatar_url, language, timezone
+     FROM users
+     ORDER BY name`,
+    [],
+    (err, rows) => {
     if (err) {
       console.error('Error fetching users:', err);
       res.status(500).json({ error: err.message });
@@ -1159,7 +1222,7 @@ app.get('/api/users', authenticateJWT, (req, res) => {
   });
 });
 
-app.post('/api/users', authenticateJWT, (req, res) => {
+app.post('/api/users', authenticateJWT, requireAdmin, (req, res) => {
   console.log('POST /api/users called with data:', req.body);
   const { name, surname, email, role } = req.body;
   db.run('INSERT INTO users (name, surname, email, role) VALUES (?, ?, ?, ?)',
@@ -1194,14 +1257,27 @@ app.get('/api/users/:id', authenticateJWT, (req, res) => {
 app.patch('/api/users/:id', authenticateJWT, (req, res) => {
   const { id } = req.params;
   const { name, surname, email, role, deleted, phone, department, job_title, avatar_url, language, timezone } = req.body;
+  const isAdmin = req.user?.role === 'admin';
+  const isSelf = Number(id) === Number(req.user?.id);
+  if (!isAdmin && !isSelf) {
+    return sendApiError(res, 403, 'adminForbidden');
+  }
+
   // Build dynamic update query
   const fields = [];
   const values = [];
-  if (name !== undefined) { fields.push('name = ?'); values.push(name); }
-  if (surname !== undefined) { fields.push('surname = ?'); values.push(surname); }
-  if (email !== undefined) { fields.push('email = ?'); values.push(email); }
-  if (role !== undefined) { fields.push('role = ?'); values.push(role); }
-  if (deleted !== undefined) { fields.push('deleted = ?'); values.push(deleted); }
+
+  if (isAdmin) {
+    if (name !== undefined) { fields.push('name = ?'); values.push(name); }
+    if (surname !== undefined) { fields.push('surname = ?'); values.push(surname); }
+    if (email !== undefined) { fields.push('email = ?'); values.push(email); }
+    if (role !== undefined) { fields.push('role = ?'); values.push(role); }
+    if (deleted !== undefined) { fields.push('deleted = ?'); values.push(deleted); }
+  } else {
+    if (name !== undefined) { fields.push('name = ?'); values.push(name); }
+    if (surname !== undefined) { fields.push('surname = ?'); values.push(surname); }
+  }
+
   if (phone !== undefined) { fields.push('phone = ?'); values.push(phone); }
   if (department !== undefined) { fields.push('department = ?'); values.push(department); }
   if (job_title !== undefined) { fields.push('job_title = ?'); values.push(job_title); }
@@ -1230,7 +1306,7 @@ app.patch('/api/users/:id', authenticateJWT, (req, res) => {
 });
 
 // DELETE user only (keep logged hours)
-app.delete('/api/users/:id', authenticateJWT, (req, res) => {
+app.delete('/api/users/:id', authenticateJWT, requireAdmin, (req, res) => {
   const userId = req.params.id;
   db.run('UPDATE users SET deleted = 1 WHERE id = ?', [userId], function(err) {
     if (err) {
@@ -1246,7 +1322,7 @@ app.delete('/api/users/:id', authenticateJWT, (req, res) => {
 });
 
 // DELETE user and all their time entries
-app.delete('/api/users/:id/full', (req, res) => {
+app.delete('/api/users/:id/full', authenticateJWT, requireAdmin, (req, res) => {
   const userId = req.params.id;
   db.serialize(() => {
     db.run('BEGIN TRANSACTION');
@@ -2031,7 +2107,7 @@ app.post('/api/time-entries/batch', authenticateJWT, (req, res) => {
 });
 
 // Bulk delete all time entries for a project
-app.delete('/api/time-entries/by-project/:project_id', (req, res) => {
+app.delete('/api/time-entries/by-project/:project_id', authenticateJWT, requireAdmin, (req, res) => {
   const { project_id } = req.params;
   db.run('DELETE FROM time_entries WHERE project_id = ?', [project_id], function(err) {
     if (err) {
@@ -2111,7 +2187,7 @@ app.post('/api/smtp-test', optionalAuthenticateJWT, async (req, res) => {
 });
 
 // POST /api/invitations - create and send invitation
-app.post('/api/invitations', async (req, res) => {
+app.post('/api/invitations', authenticateJWT, requireAdmin, async (req, res) => {
   const { email, invited_by, name, surname, role } = req.body;
   const invitedRole = role === 'admin' ? 'admin' : 'user';
   if (!email) return sendApiError(res, 400, 'invitationEmailRequired');
@@ -2216,7 +2292,7 @@ app.get('/api/invitations/accept/:token', (req, res) => {
 });
 
 // GET /api/invitations - list all invitations
-app.get('/api/invitations', (req, res) => {
+app.get('/api/invitations', authenticateJWT, requireAdmin, (req, res) => {
   db.all('SELECT * FROM invitations', [], (err, rows) => {
     if (err) {
       res.status(500).json({ error: err.message });
@@ -2510,15 +2586,25 @@ app.get('/api/setup-required', async (req, res) => {
 
 app.use('/avatars', express.static(path.join(__dirname, 'client', 'public', 'avatars')));
 
-// Serve static files from the React app (adjust path if needed)
-app.use(express.static(path.join(__dirname, 'client', 'build')));
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static(path.join(__dirname, 'client', 'build')));
 
-// Catch-all route to serve index.html for React SPA (except API routes)
-app.get('*', (req, res) => {
-  if (!req.path.startsWith('/api')) {
-    res.sendFile(path.join(__dirname, 'client', 'build', 'index.html'));
-  }
-});
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api')) {
+      return next();
+    }
+    return res.sendFile(path.join(__dirname, 'client', 'build', 'index.html'));
+  });
+} else {
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api')) {
+      return next();
+    }
+
+    const frontendBaseUrl = normalizeBaseUrl(process.env.APP_BASE_URL) || 'http://localhost:3000';
+    return res.redirect(307, `${frontendBaseUrl}${req.originalUrl}`);
+  });
+}
 
 // On server start, check if any users exist and if an admin exists
 async function checkFirstRun() {
