@@ -340,38 +340,10 @@ function Users() {
     return new Intl.NumberFormat(locale === 'ru' ? 'ru-RU' : 'en-US').format(amount);
   };
 
-  const rateText = useCallback((key, params = {}) => {
-    const ruRates = {
-      action: 'Ставки',
-      title: 'Ставки: {{name}}',
-      rate: 'Ставка, руб/ч',
-      effectiveFrom: 'Действует с',
-      effectiveTo: 'Действует до',
-      createdBy: 'Кто добавил',
-      createdAt: 'Когда',
-      current: 'текущая',
-      add: 'Добавить',
-      edit: 'Редактировать',
-      saving: 'Сохранение...',
-      save: 'Сохранить',
-      cancel: 'Отмена',
-      empty: 'Ставки еще не заданы',
-      saved: 'Ставка сохранена',
-      updated: 'Ставка обновлена',
-      'validation.rate': 'Укажите целую неотрицательную ставку',
-      'validation.effectiveFrom': 'Укажите дату начала',
-      'errors.fetch': 'Не удалось загрузить ставки.',
-      'errors.save': 'Не удалось сохранить ставку.',
-      'errors.overlap': 'Периоды ставок не должны пересекаться.',
-    };
-
-    const template = locale === 'ru' ? ruRates[key] : null;
-    const value = template || t(`users.rates.${key}`);
-    return Object.entries(params).reduce(
-      (message, [paramKey, paramValue]) => message.replace(new RegExp(`{{${paramKey}}}`, 'g'), String(paramValue)),
-      value
-    );
-  }, [locale, t]);
+  const rateText = useCallback(
+    (key, params = {}) => t(`users.rates.${key}`, params),
+    [t]
+  );
 
   const fetchRates = useCallback(async (userId) => {
     setRatesLoading(true);

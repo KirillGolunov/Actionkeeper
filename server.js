@@ -12,6 +12,15 @@ const path = require('path');
 const multer = require('multer');
 const handlebars = require('handlebars');
 const { endOfNextWeekSession, endOfWeekSession, getWeekProgress } = require('./weeklyProgress');
+const {
+  BPS_SCALE,
+  parseBudgetPayload,
+  mapBudgetRow,
+  calculateLaborSummary,
+  buildLaborCostSeries,
+  kopecksToRubles,
+} = require('./budgetUtils');
+const { getProjectEditRole, canEditProjectField } = require('./projectUtils');
 
 const app = express();
 app.set('trust proxy', true);
@@ -94,6 +103,11 @@ const apiErrors = {
   projectsDuplicateCode: { errorCode: 'projects.duplicate_code', error: 'A project with this code already exists.' },
   projectsCategoryRequired: { errorCode: 'projects.category_required', error: 'Project category is required.' },
   projectsCategoryInvalid: { errorCode: 'projects.category_invalid', error: 'Project category is invalid.' },
+  projectsNameRequired: { errorCode: 'projects.name_required', error: 'Project name is required.' },
+  projectsClientRequired: { errorCode: 'projects.client_required', error: 'Project client is required.' },
+  projectsClientInvalid: { errorCode: 'projects.client_invalid', error: 'Project client was not found.' },
+  projectsEditForbidden: { errorCode: 'projects.edit_forbidden', error: 'Only an administrator or the current project manager can edit this project.' },
+  projectsFieldForbidden: { errorCode: 'projects.field_forbidden', error: 'You cannot edit this project field.' },
   projectsNoFieldsToUpdate: { errorCode: 'projects.no_fields_to_update', error: 'No fields to update.' },
   projectsNotFound: { errorCode: 'projects.not_found', error: 'Project not found' },
   projectManagerInvalid: { errorCode: 'project_manager.invalid_candidate', error: 'The selected user cannot be assigned as project manager.' },
@@ -106,6 +120,12 @@ const apiErrors = {
   timeEntriesNoEntries: { errorCode: 'time_entries.no_entries', error: 'No entries provided.' },
   adminForbidden: { errorCode: 'admin.forbidden', error: 'Only administrators can perform this action.' },
   financialForbidden: { errorCode: 'financial.forbidden', error: 'Only administrators can manage financial data.' },
+  budgetValidationFailed: { errorCode: 'budget.validation_failed', error: '{{message}}' },
+  budgetNotFound: { errorCode: 'budget.not_found', error: 'Budget was not found.' },
+  budgetPendingRequest: { errorCode: 'budget.pending_request_exists', error: 'Resolve the pending budget request first.' },
+  budgetRequestNotFound: { errorCode: 'budget_request.not_found', error: 'Budget request was not found.' },
+  budgetRequestPending: { errorCode: 'budget_request.pending_exists', error: 'A pending budget request already exists.' },
+  budgetRequestStale: { errorCode: 'budget_request.stale', error: 'The budget request is no longer pending.' },
   ratesValidationFailed: { errorCode: 'rates.validation_failed', error: '{{message}}' },
   ratesOverlap: { errorCode: 'rates.overlap', error: 'Rate periods cannot overlap for the same user.' },
   ratesUserNotFound: { errorCode: 'rates.user_not_found', error: 'User not found.' },
@@ -370,6 +390,7 @@ async function checkAdminUserExists() {
 async function loadFixtures() {
   console.log('Checking if tables exist...');
   await createTables();
+  await createBudgetTables();
   await createInvitationsTable();
   await createMagicLinksTable();
   await createAuthSessionsTable();
@@ -535,6 +556,9 @@ async function createTables() {
     `ALTER TABLE projects ADD COLUMN manager_user_id INTEGER REFERENCES users(id)`,
     `ALTER TABLE projects ADD COLUMN manager_updated_at DATETIME`,
     `ALTER TABLE projects ADD COLUMN manager_updated_by INTEGER REFERENCES users(id)`,
+    `ALTER TABLE projects ADD COLUMN current_budget_version_id INTEGER`,
+    `ALTER TABLE projects ADD COLUMN budget_updated_at DATETIME`,
+    `ALTER TABLE projects ADD COLUMN budget_updated_by INTEGER REFERENCES users(id)`,
   ]) {
     await new Promise((resolve, reject) => {
       db.run(statement, err => {
@@ -639,6 +663,318 @@ async function createTables() {
   });
 }
 
+async function createBudgetTables() {
+  await runDb(`CREATE TABLE IF NOT EXISTS project_budget_versions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    version_number INTEGER NOT NULL,
+    budget_mode TEXT NOT NULL CHECK(budget_mode IN ('none', 'contract', 'manual')),
+    contract_amount_kopecks INTEGER,
+    management_reserve_bps INTEGER,
+    management_reserve_kopecks INTEGER,
+    project_budget_limit_kopecks INTEGER CHECK(project_budget_limit_kopecks >= 0),
+    payroll_limit_mode TEXT CHECK(payroll_limit_mode IN ('fixed_amount', 'percent')),
+    payroll_limit_bps INTEGER CHECK(payroll_limit_bps >= 0 AND payroll_limit_bps <= 10000),
+    payroll_limit_kopecks INTEGER CHECK(payroll_limit_kopecks >= 0),
+    payroll_warning_threshold_bps INTEGER CHECK(payroll_warning_threshold_bps > 0 AND payroll_warning_threshold_bps < 10000),
+    note TEXT,
+    created_by INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    approved_by INTEGER,
+    approved_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    FOREIGN KEY(created_by) REFERENCES users(id),
+    FOREIGN KEY(approved_by) REFERENCES users(id),
+    UNIQUE(project_id, version_number),
+    CHECK(budget_mode = 'none' OR payroll_limit_kopecks <= project_budget_limit_kopecks)
+  )`);
+
+  await runDb(`CREATE TABLE IF NOT EXISTS project_budget_change_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    base_budget_version_id INTEGER,
+    responsible_manager_user_id INTEGER,
+    requested_by INTEGER NOT NULL,
+    requested_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    reason TEXT NOT NULL,
+    budget_mode TEXT NOT NULL CHECK(budget_mode IN ('contract', 'manual')),
+    contract_amount_kopecks INTEGER,
+    management_reserve_bps INTEGER,
+    management_reserve_kopecks INTEGER,
+    project_budget_limit_kopecks INTEGER NOT NULL,
+    payroll_limit_mode TEXT NOT NULL CHECK(payroll_limit_mode IN ('fixed_amount', 'percent')),
+    payroll_limit_bps INTEGER NOT NULL,
+    payroll_limit_kopecks INTEGER NOT NULL,
+    payroll_warning_threshold_bps INTEGER NOT NULL,
+    note TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'rejected')),
+    reviewed_by INTEGER,
+    reviewed_at DATETIME,
+    review_comment TEXT,
+    approved_budget_version_id INTEGER,
+    FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    FOREIGN KEY(base_budget_version_id) REFERENCES project_budget_versions(id),
+    FOREIGN KEY(responsible_manager_user_id) REFERENCES users(id),
+    FOREIGN KEY(requested_by) REFERENCES users(id),
+    FOREIGN KEY(reviewed_by) REFERENCES users(id),
+    FOREIGN KEY(approved_budget_version_id) REFERENCES project_budget_versions(id)
+  )`);
+  await runDb('CREATE INDEX IF NOT EXISTS idx_project_budget_versions_project ON project_budget_versions(project_id, version_number DESC)');
+  await runDb('CREATE INDEX IF NOT EXISTS idx_budget_requests_project_status ON project_budget_change_requests(project_id, status)');
+  await runDb("CREATE UNIQUE INDEX IF NOT EXISTS idx_one_pending_budget_request ON project_budget_change_requests(project_id) WHERE status = 'pending'");
+
+  const addColumnIfMissing = async (table, column, definition) => {
+    const columns = await allDb(`PRAGMA table_info(${table})`);
+    if (!columns.some((item) => item.name === column)) {
+      await runDb(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    }
+  };
+
+  await addColumnIfMissing('project_budget_versions', 'change_reason', 'TEXT');
+  await addColumnIfMissing('project_budget_versions', 'source_type', "TEXT NOT NULL DEFAULT 'admin_direct'");
+  await addColumnIfMissing('project_budget_versions', 'source_request_id', 'INTEGER');
+  await addColumnIfMissing('project_budget_change_requests', 'current_revision_number', 'INTEGER NOT NULL DEFAULT 1');
+  await addColumnIfMissing('project_budget_change_requests', 'decision_type', 'TEXT');
+  await addColumnIfMissing('project_budget_change_requests', 'proposed_version_number', 'INTEGER');
+  await ensureBudgetVersionsSupportNoLimit();
+
+  await runDb(`CREATE TABLE IF NOT EXISTS project_budget_request_revisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    request_id INTEGER NOT NULL,
+    revision_number INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    budget_mode TEXT NOT NULL CHECK(budget_mode IN ('contract', 'manual')),
+    contract_amount_kopecks INTEGER,
+    management_reserve_bps INTEGER,
+    management_reserve_kopecks INTEGER,
+    project_budget_limit_kopecks INTEGER NOT NULL,
+    payroll_limit_mode TEXT NOT NULL CHECK(payroll_limit_mode IN ('fixed_amount', 'percent')),
+    payroll_limit_bps INTEGER NOT NULL,
+    payroll_limit_kopecks INTEGER NOT NULL,
+    payroll_warning_threshold_bps INTEGER NOT NULL,
+    created_by INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(request_id) REFERENCES project_budget_change_requests(id) ON DELETE CASCADE,
+    FOREIGN KEY(created_by) REFERENCES users(id),
+    UNIQUE(request_id, revision_number)
+  )`);
+  await runDb('CREATE INDEX IF NOT EXISTS idx_budget_request_revisions_request ON project_budget_request_revisions(request_id, revision_number DESC)');
+  await runDb(`CREATE TABLE IF NOT EXISTS project_budget_audit_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    event_type TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    actor_user_id INTEGER,
+    budget_version_id INTEGER,
+    request_id INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    FOREIGN KEY(actor_user_id) REFERENCES users(id),
+    FOREIGN KEY(budget_version_id) REFERENCES project_budget_versions(id),
+    FOREIGN KEY(request_id) REFERENCES project_budget_change_requests(id)
+  )`);
+  await runDb('CREATE INDEX IF NOT EXISTS idx_budget_audit_project ON project_budget_audit_events(project_id, id DESC)');
+  await runDb(`INSERT OR IGNORE INTO project_budget_request_revisions (
+    request_id, revision_number, reason, budget_mode, contract_amount_kopecks,
+    management_reserve_bps, management_reserve_kopecks, project_budget_limit_kopecks,
+    payroll_limit_mode, payroll_limit_bps, payroll_limit_kopecks,
+    payroll_warning_threshold_bps, created_by, created_at
+  )
+  SELECT id, 1, reason, budget_mode, contract_amount_kopecks,
+    management_reserve_bps, management_reserve_kopecks, project_budget_limit_kopecks,
+    payroll_limit_mode, payroll_limit_bps, payroll_limit_kopecks,
+    payroll_warning_threshold_bps, requested_by, requested_at
+  FROM project_budget_change_requests`);
+  await runDb(`UPDATE project_budget_versions
+    SET change_reason = COALESCE(NULLIF(TRIM(note), ''), 'Причина не указана')
+    WHERE change_reason IS NULL OR TRIM(change_reason) = ''`);
+  await migrateUnifiedBudgetVersionNumbers();
+  await runDb('CREATE INDEX IF NOT EXISTS idx_project_budget_versions_project ON project_budget_versions(project_id, version_number DESC)');
+  await runDb(`CREATE UNIQUE INDEX IF NOT EXISTS idx_budget_requests_project_version
+    ON project_budget_change_requests(project_id, proposed_version_number)
+    WHERE proposed_version_number IS NOT NULL`);
+}
+
+async function ensureBudgetVersionsSupportNoLimit() {
+  const table = await getDb("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'project_budget_versions'");
+  if (!table?.sql || table.sql.includes("'none'")) return;
+  await runDb('BEGIN IMMEDIATE TRANSACTION');
+  try {
+    await runDb(`CREATE TABLE project_budget_versions_v2 (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id INTEGER NOT NULL,
+      version_number INTEGER NOT NULL,
+      budget_mode TEXT NOT NULL CHECK(budget_mode IN ('none', 'contract', 'manual')),
+      contract_amount_kopecks INTEGER,
+      management_reserve_bps INTEGER,
+      management_reserve_kopecks INTEGER,
+      project_budget_limit_kopecks INTEGER CHECK(project_budget_limit_kopecks >= 0),
+      payroll_limit_mode TEXT CHECK(payroll_limit_mode IN ('fixed_amount', 'percent')),
+      payroll_limit_bps INTEGER CHECK(payroll_limit_bps >= 0 AND payroll_limit_bps <= 10000),
+      payroll_limit_kopecks INTEGER CHECK(payroll_limit_kopecks >= 0),
+      payroll_warning_threshold_bps INTEGER CHECK(payroll_warning_threshold_bps > 0 AND payroll_warning_threshold_bps < 10000),
+      note TEXT,
+      change_reason TEXT,
+      source_type TEXT NOT NULL DEFAULT 'admin_direct',
+      source_request_id INTEGER,
+      created_by INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      approved_by INTEGER,
+      approved_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+      FOREIGN KEY(created_by) REFERENCES users(id),
+      FOREIGN KEY(approved_by) REFERENCES users(id),
+      UNIQUE(project_id, version_number),
+      CHECK(budget_mode = 'none' OR payroll_limit_kopecks <= project_budget_limit_kopecks)
+    )`);
+    await runDb(`INSERT INTO project_budget_versions_v2 (
+      id, project_id, version_number, budget_mode, contract_amount_kopecks,
+      management_reserve_bps, management_reserve_kopecks, project_budget_limit_kopecks,
+      payroll_limit_mode, payroll_limit_bps, payroll_limit_kopecks,
+      payroll_warning_threshold_bps, note, change_reason, source_type, source_request_id,
+      created_by, created_at, approved_by, approved_at
+    )
+    SELECT id, project_id, version_number, budget_mode, contract_amount_kopecks,
+      management_reserve_bps, management_reserve_kopecks, project_budget_limit_kopecks,
+      payroll_limit_mode, payroll_limit_bps, payroll_limit_kopecks,
+      payroll_warning_threshold_bps, note, change_reason, source_type, source_request_id,
+      created_by, created_at, approved_by, approved_at
+    FROM project_budget_versions`);
+    await runDb('DROP TABLE project_budget_versions');
+    await runDb('ALTER TABLE project_budget_versions_v2 RENAME TO project_budget_versions');
+    await runDb('COMMIT');
+  } catch (error) {
+    await runDb('ROLLBACK').catch(() => {});
+    throw error;
+  }
+}
+
+async function migrateUnifiedBudgetVersionNumbers() {
+  await runDb(`CREATE TABLE IF NOT EXISTS schema_migrations (
+    migration_key TEXT PRIMARY KEY,
+    applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
+  const migrationKey = 'unified_budget_version_numbers_v1';
+  if (await getDb('SELECT migration_key FROM schema_migrations WHERE migration_key = ?', [migrationKey])) return;
+
+  await runDb('BEGIN IMMEDIATE TRANSACTION');
+  try {
+    const projects = await allDb(`SELECT DISTINCT project_id FROM (
+      SELECT project_id FROM project_budget_versions
+      UNION SELECT project_id FROM project_budget_change_requests
+      UNION SELECT project_id FROM project_budget_audit_events WHERE event_type = 'budget_removed'
+    )`);
+    for (const { project_id: projectId } of projects) {
+      const [versions, requests, removals] = await Promise.all([
+        allDb('SELECT * FROM project_budget_versions WHERE project_id = ?', [projectId]),
+        allDb('SELECT * FROM project_budget_change_requests WHERE project_id = ?', [projectId]),
+        allDb("SELECT * FROM project_budget_audit_events WHERE project_id = ? AND event_type = 'budget_removed'", [projectId]),
+      ]);
+      const requestById = new Map(requests.map((request) => [Number(request.id), request]));
+      const requestByApprovedVersion = new Map(
+        requests.filter((request) => request.approved_budget_version_id)
+          .map((request) => [Number(request.approved_budget_version_id), request])
+      );
+      const representedRequestIds = new Set();
+      const events = [];
+
+      versions.forEach((version) => {
+        const request = requestById.get(Number(version.source_request_id))
+          || requestByApprovedVersion.get(Number(version.id))
+          || null;
+        if (request) representedRequestIds.add(Number(request.id));
+        events.push({
+          kind: 'version',
+          id: Number(version.id),
+          version,
+          request,
+          timestamp: request?.requested_at || version.created_at || version.approved_at || '',
+          stableOrder: Number(version.id),
+        });
+      });
+      requests.forEach((request) => {
+        if (representedRequestIds.has(Number(request.id))) return;
+        events.push({
+          kind: 'request',
+          id: Number(request.id),
+          request,
+          timestamp: request.requested_at || '',
+          stableOrder: 1000000000 + Number(request.id),
+        });
+      });
+      removals.forEach((event) => {
+        events.push({
+          kind: 'removal',
+          id: Number(event.id),
+          event,
+          timestamp: event.created_at || '',
+          stableOrder: 2000000000 + Number(event.id),
+        });
+      });
+      events.sort((left, right) => (
+        String(left.timestamp).localeCompare(String(right.timestamp))
+        || left.stableOrder - right.stableOrder
+      ));
+
+      await runDb('UPDATE project_budget_versions SET version_number = -id WHERE project_id = ?', [projectId]);
+      for (let index = 0; index < events.length; index += 1) {
+        const versionNumber = index + 1;
+        const event = events[index];
+        if (event.kind === 'version') {
+          await runDb(
+            `UPDATE project_budget_versions SET version_number = ?, source_type = ?,
+             source_request_id = COALESCE(?, source_request_id) WHERE id = ?`,
+            [versionNumber, event.request ? 'budget_request' : (event.version.source_type || 'admin_direct'), event.request?.id || null, event.id]
+          );
+          if (event.request) {
+            await runDb(
+              'UPDATE project_budget_change_requests SET proposed_version_number = ? WHERE id = ?',
+              [versionNumber, event.request.id]
+            );
+          }
+        } else if (event.kind === 'request') {
+          await runDb(
+            'UPDATE project_budget_change_requests SET proposed_version_number = ? WHERE id = ?',
+            [versionNumber, event.id]
+          );
+        } else {
+          const insertion = await runDb(
+            `INSERT INTO project_budget_versions (
+              project_id, version_number, budget_mode, contract_amount_kopecks,
+              management_reserve_bps, management_reserve_kopecks, project_budget_limit_kopecks,
+              payroll_limit_mode, payroll_limit_bps, payroll_limit_kopecks,
+              payroll_warning_threshold_bps, note, change_reason, source_type,
+              created_by, created_at, approved_by, approved_at
+            ) VALUES (?, ?, 'none', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, 'admin_direct', ?, ?, ?, ?)`,
+            [
+              projectId, versionNumber, event.event.reason || 'Причина не указана',
+              event.event.actor_user_id, event.event.created_at,
+              event.event.actor_user_id, event.event.created_at,
+            ]
+          );
+          await runDb(
+            'UPDATE project_budget_audit_events SET budget_version_id = ? WHERE id = ?',
+            [insertion.lastID, event.id]
+          );
+        }
+      }
+      const latestApproved = await getDb(
+        'SELECT id FROM project_budget_versions WHERE project_id = ? ORDER BY version_number DESC LIMIT 1',
+        [projectId]
+      );
+      await runDb(
+        'UPDATE projects SET current_budget_version_id = ? WHERE id = ?',
+        [latestApproved?.id || null, projectId]
+      );
+    }
+    await runDb('INSERT INTO schema_migrations (migration_key) VALUES (?)', [migrationKey]);
+    await runDb('COMMIT');
+  } catch (error) {
+    await runDb('ROLLBACK').catch(() => {});
+    throw error;
+  }
+}
+
 // Create invitations table if not exists
 async function createInvitationsTable() {
   await new Promise((resolve, reject) => {
@@ -656,25 +992,83 @@ async function createInvitationsTable() {
 }
 
 async function createNotificationsTable() {
-  await new Promise((resolve, reject) => {
-    db.run(`CREATE TABLE IF NOT EXISTS notifications (
+  const existing = await getDb("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'notifications'");
+  const needsMigration = existing && (
+    !existing.sql.includes('budget_version_id')
+    || !existing.sql.includes('project_payroll_warning')
+    || !existing.sql.includes('project_budget_change_updated')
+  );
+  if (needsMigration) {
+    await runDb('BEGIN IMMEDIATE TRANSACTION');
+    try {
+      await runDb('ALTER TABLE notifications RENAME TO notifications_legacy');
+      await runDb(`CREATE TABLE notifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        type TEXT NOT NULL CHECK(type IN (
+          'project_manager_assigned', 'project_manager_removed',
+           'project_payroll_warning', 'project_payroll_limit_reached',
+          'project_budget_change_requested', 'project_budget_change_updated', 'project_budget_change_approved',
+          'project_budget_change_rejected', 'project_budget_request_transferred'
+        )),
+        project_id INTEGER,
+        project_name TEXT NOT NULL,
+        actor_user_id INTEGER,
+        budget_version_id INTEGER,
+        budget_change_request_id INTEGER,
+        threshold_bps INTEGER,
+        metadata_json TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        read_at DATETIME,
+        FOREIGN KEY (user_id) REFERENCES users(id),
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
+        FOREIGN KEY (actor_user_id) REFERENCES users(id),
+        FOREIGN KEY (budget_version_id) REFERENCES project_budget_versions(id),
+        FOREIGN KEY (budget_change_request_id) REFERENCES project_budget_change_requests(id)
+      )`);
+      await runDb(`INSERT INTO notifications (id, user_id, type, project_id, project_name, actor_user_id, created_at, read_at)
+                   SELECT id, user_id, type, project_id, project_name, actor_user_id, created_at, read_at
+                   FROM notifications_legacy`);
+      await runDb('DROP TABLE notifications_legacy');
+      await runDb('COMMIT');
+    } catch (err) {
+      await runDb('ROLLBACK').catch(() => {});
+      throw err;
+    }
+  } else {
+    await runDb(`CREATE TABLE IF NOT EXISTS notifications (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,
-      type TEXT NOT NULL CHECK(type IN ('project_manager_assigned', 'project_manager_removed')),
+      type TEXT NOT NULL CHECK(type IN (
+        'project_manager_assigned', 'project_manager_removed',
+         'project_payroll_warning', 'project_payroll_limit_reached',
+        'project_budget_change_requested', 'project_budget_change_updated', 'project_budget_change_approved',
+        'project_budget_change_rejected', 'project_budget_request_transferred'
+      )),
       project_id INTEGER,
       project_name TEXT NOT NULL,
       actor_user_id INTEGER,
+      budget_version_id INTEGER,
+      budget_change_request_id INTEGER,
+      threshold_bps INTEGER,
+      metadata_json TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       read_at DATETIME,
       FOREIGN KEY (user_id) REFERENCES users(id),
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
-      FOREIGN KEY (actor_user_id) REFERENCES users(id)
-    )`, err => {
-      if (err) reject(err); else resolve();
-    });
-  });
+      FOREIGN KEY (actor_user_id) REFERENCES users(id),
+      FOREIGN KEY (budget_version_id) REFERENCES project_budget_versions(id),
+      FOREIGN KEY (budget_change_request_id) REFERENCES project_budget_change_requests(id)
+    )`);
+  }
   await runDb('CREATE INDEX IF NOT EXISTS idx_notifications_user_created ON notifications(user_id, id DESC)');
   await runDb('CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON notifications(user_id, read_at)');
+  await runDb(`CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_budget_threshold_recipient
+               ON notifications(user_id, type, budget_version_id)
+               WHERE budget_version_id IS NOT NULL AND type IN ('project_payroll_warning', 'project_payroll_limit_reached')`);
+  await runDb(`CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_budget_request_recipient
+               ON notifications(user_id, type, budget_change_request_id)
+               WHERE budget_change_request_id IS NOT NULL`);
 }
 
 // Helper to generate a random token
@@ -1086,6 +1480,269 @@ function mapProjectManagerRow(row) {
   };
 }
 
+function mapBudgetRequestRow(row) {
+  if (!row) return null;
+  const proposedBudget = mapBudgetRow({ ...row, id: -1, version_number: null, approved_at: null });
+  if (proposedBudget) {
+    delete proposedBudget.id;
+    delete proposedBudget.version;
+    delete proposedBudget.approvedAt;
+  }
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    baseBudgetVersionId: row.base_budget_version_id,
+    responsibleManagerUserId: row.responsible_manager_user_id,
+    requestedBy: row.requested_by,
+    requestedByName: row.requested_by_name || null,
+    requestedAt: row.requested_at,
+    reason: row.reason,
+    status: row.status,
+    proposedVersionNumber: Number(row.proposed_version_number || 0) || null,
+    currentRevision: Number(row.current_revision_number || 1),
+    decisionType: row.decision_type || null,
+    proposedBudget,
+    reviewedBy: row.reviewed_by,
+    reviewedByName: row.reviewed_by_name || null,
+    reviewedAt: row.reviewed_at,
+    reviewComment: row.review_comment || '',
+    approvedBudgetVersionId: row.approved_budget_version_id,
+  };
+}
+
+function mapBudgetRevisionRow(row) {
+  if (!row) return null;
+  const proposedBudget = mapBudgetRow({ ...row, id: -1, version_number: null, approved_at: null });
+  if (proposedBudget) {
+    delete proposedBudget.id;
+    delete proposedBudget.version;
+    delete proposedBudget.approvedAt;
+    delete proposedBudget.changeReason;
+    delete proposedBudget.sourceType;
+    delete proposedBudget.sourceRequestId;
+  }
+  return {
+    id: row.id,
+    requestId: row.request_id,
+    revision: Number(row.revision_number),
+    reason: row.reason,
+    createdBy: row.created_by,
+    createdByName: row.created_by_name || null,
+    createdAt: row.created_at,
+    proposedBudget,
+  };
+}
+
+async function getCurrentBudgetRow(projectId) {
+  return getDb(
+    `SELECT v.* FROM projects p
+     LEFT JOIN project_budget_versions v ON v.id = p.current_budget_version_id
+     WHERE p.id = ?`,
+    [projectId]
+  );
+}
+
+async function getProjectLaborAggregate(projectId) {
+  return getDb(
+    `SELECT
+       COALESCE(SUM(CASE WHEN r.id IS NULL THEN 0 ELSE ROUND(t.hours * r.rate_rub_per_hour * 100) END), 0) AS total_labor_cost_kopecks,
+       COALESCE(SUM(CASE WHEN r.id IS NULL THEN 1 ELSE 0 END), 0) AS missing_rate_entries_count
+     FROM time_entries t
+     LEFT JOIN user_rate_history r ON r.id = (
+       SELECT candidate.id FROM user_rate_history candidate
+       WHERE candidate.user_id = t.user_id
+         AND candidate.effective_from <= substr(t.date, 1, 10)
+         AND (candidate.effective_to IS NULL OR candidate.effective_to >= substr(t.date, 1, 10))
+       ORDER BY candidate.effective_from DESC, candidate.id DESC LIMIT 1
+     )
+     WHERE t.project_id = ?`,
+    [projectId]
+  );
+}
+
+async function getProjectLaborCostSeries(projectId) {
+  const rows = await allDb(
+    `SELECT
+       substr(t.date, 1, 10) AS entry_date,
+       COALESCE(SUM(CASE WHEN r.id IS NULL THEN 0 ELSE ROUND(t.hours * r.rate_rub_per_hour * 100) END), 0) AS daily_labor_cost_kopecks,
+       COALESCE(SUM(CASE WHEN r.id IS NULL THEN 1 ELSE 0 END), 0) AS missing_rate_entries_count
+     FROM time_entries t
+     LEFT JOIN user_rate_history r ON r.id = (
+       SELECT candidate.id FROM user_rate_history candidate
+       WHERE candidate.user_id = t.user_id
+         AND candidate.effective_from <= substr(t.date, 1, 10)
+         AND (candidate.effective_to IS NULL OR candidate.effective_to >= substr(t.date, 1, 10))
+       ORDER BY candidate.effective_from DESC, candidate.id DESC LIMIT 1
+     )
+     WHERE t.project_id = ?
+     GROUP BY substr(t.date, 1, 10)
+     ORDER BY entry_date ASC`,
+    [projectId]
+  );
+  return buildLaborCostSeries(rows);
+}
+
+async function getActiveBudgetRequest(projectId) {
+  return getDb(
+    `SELECT r.*, TRIM(COALESCE(u.surname, '') || ' ' || COALESCE(u.name, '')) AS requested_by_name,
+      TRIM(COALESCE(reviewer.surname, '') || ' ' || COALESCE(reviewer.name, '')) AS reviewed_by_name
+     FROM project_budget_change_requests r
+     LEFT JOIN users u ON u.id = r.requested_by
+     LEFT JOIN users reviewer ON reviewer.id = r.reviewed_by
+     WHERE r.project_id = ? AND r.status = 'pending'`,
+    [projectId]
+  );
+}
+
+async function insertBudgetRequestRevision(requestId, revisionNumber, normalized, reason, actorUserId) {
+  const result = await runDb(
+    `INSERT INTO project_budget_request_revisions (
+      request_id, revision_number, reason, budget_mode, contract_amount_kopecks,
+      management_reserve_bps, management_reserve_kopecks, project_budget_limit_kopecks,
+      payroll_limit_mode, payroll_limit_bps, payroll_limit_kopecks,
+      payroll_warning_threshold_bps, created_by
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      requestId, revisionNumber, reason, normalized.budget_mode, normalized.contract_amount_kopecks,
+      normalized.management_reserve_bps, normalized.management_reserve_kopecks,
+      normalized.project_budget_limit_kopecks, normalized.payroll_limit_mode,
+      normalized.payroll_limit_bps, normalized.payroll_limit_kopecks,
+      normalized.payroll_warning_threshold_bps, actorUserId,
+    ]
+  );
+  return result.lastID;
+}
+
+async function createBudgetVersion(projectId, normalized, actorUserId, {
+  reason = '',
+  sourceType = 'admin_direct',
+  sourceRequestId = null,
+  versionNumber = null,
+} = {}) {
+  const nextVersionNumber = versionNumber || await getNextBudgetVersionNumber(projectId);
+  const result = await runDb(
+    `INSERT INTO project_budget_versions (
+       project_id, version_number, budget_mode, contract_amount_kopecks,
+       management_reserve_bps, management_reserve_kopecks, project_budget_limit_kopecks,
+       payroll_limit_mode, payroll_limit_bps, payroll_limit_kopecks,
+       payroll_warning_threshold_bps, note, change_reason, source_type, source_request_id,
+       created_by, approved_by
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      projectId, nextVersionNumber, normalized.budget_mode, normalized.contract_amount_kopecks ?? null,
+      normalized.management_reserve_bps ?? null, normalized.management_reserve_kopecks ?? null,
+      normalized.project_budget_limit_kopecks ?? null,
+      normalized.payroll_limit_mode ?? null, normalized.payroll_limit_bps ?? null,
+      normalized.payroll_limit_kopecks ?? null,
+      normalized.payroll_warning_threshold_bps ?? null, null, reason.trim(), sourceType, sourceRequestId,
+      actorUserId, actorUserId,
+    ]
+  );
+  await runDb(
+    `UPDATE projects SET current_budget_version_id = ?, budget_updated_at = CURRENT_TIMESTAMP, budget_updated_by = ? WHERE id = ?`,
+    [result.lastID, actorUserId, projectId]
+  );
+  return getDb('SELECT * FROM project_budget_versions WHERE id = ?', [result.lastID]);
+}
+
+async function getNextBudgetVersionNumber(projectId) {
+  const row = await getDb(
+    `SELECT MAX(version_number) AS max_number FROM (
+      SELECT version_number FROM project_budget_versions WHERE project_id = ?
+      UNION ALL
+      SELECT proposed_version_number AS version_number
+      FROM project_budget_change_requests
+      WHERE project_id = ? AND proposed_version_number IS NOT NULL
+    )`,
+    [projectId, projectId]
+  );
+  return Number(row?.max_number || 0) + 1;
+}
+
+async function insertBudgetNotification({ userId, type, project, actorUserId = null, budgetVersionId = null, requestId = null, thresholdBps = null, metadata = null }) {
+  return runDb(
+    `INSERT OR IGNORE INTO notifications (
+       user_id, type, project_id, project_name, actor_user_id,
+       budget_version_id, budget_change_request_id, threshold_bps, metadata_json
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [userId, type, project.id, project.name, actorUserId, budgetVersionId, requestId, thresholdBps, metadata ? JSON.stringify(metadata) : null]
+  );
+}
+
+async function getBudgetNotificationRecipients(project) {
+  const admins = await allDb("SELECT id, name, surname, email, language FROM users WHERE role = 'admin' AND deleted = 0 AND invited = 0");
+  const recipients = [...admins];
+  if (project.manager_user_id && !recipients.some((recipient) => Number(recipient.id) === Number(project.manager_user_id))) {
+    const manager = await getDb('SELECT id, name, surname, email, language FROM users WHERE id = ? AND deleted = 0', [project.manager_user_id]);
+    if (manager) recipients.push(manager);
+  }
+  return recipients;
+}
+
+async function evaluateProjectBudgetThresholds(projectId, actorUserId = null, reqContext = null) {
+  const project = await getDb('SELECT id, name, manager_user_id, current_budget_version_id FROM projects WHERE id = ?', [projectId]);
+  if (!project || !project.current_budget_version_id) return null;
+  const budget = await getDb('SELECT * FROM project_budget_versions WHERE id = ?', [project.current_budget_version_id]);
+  if (!budget || budget.budget_mode === 'none') return null;
+  const aggregate = await getProjectLaborAggregate(projectId);
+  const total = Number(aggregate.total_labor_cost_kopecks || 0);
+  const limit = Number(budget.payroll_limit_kopecks || 0);
+  const hasSpendAgainstZero = limit === 0 && total > 0;
+  const warningReached = hasSpendAgainstZero || (limit > 0 && total * BPS_SCALE >= limit * budget.payroll_warning_threshold_bps);
+  const limitReached = hasSpendAgainstZero || (limit > 0 && total >= limit);
+  if (warningReached || limitReached) {
+    const recipients = await getBudgetNotificationRecipients(project);
+    for (const recipient of recipients) {
+      if (warningReached) {
+        const inserted = await insertBudgetNotification({
+          userId: recipient.id, type: 'project_payroll_warning', project, actorUserId,
+          budgetVersionId: budget.id, thresholdBps: budget.payroll_warning_threshold_bps,
+        });
+        if (inserted.changes && reqContext) {
+          sendBudgetNotificationEmail(reqContext, recipient, 'project_payroll_warning', project.name, budget.payroll_warning_threshold_bps / 100)
+            .catch((emailError) => console.error('[Budget] Warning email failed:', emailError));
+        }
+      }
+      if (limitReached) {
+        const inserted = await insertBudgetNotification({
+          userId: recipient.id, type: 'project_payroll_limit_reached', project, actorUserId,
+          budgetVersionId: budget.id, thresholdBps: BPS_SCALE,
+        });
+        if (inserted.changes && reqContext) {
+          sendBudgetNotificationEmail(reqContext, recipient, 'project_payroll_limit_reached', project.name)
+            .catch((emailError) => console.error('[Budget] Limit email failed:', emailError));
+        }
+      }
+    }
+  }
+  return limitReached ? { projectId: project.id, type: 'payroll_limit_reached' } : null;
+}
+
+async function evaluateProjectsForUserRates(userId, actorUserId = null, reqContext = null) {
+  const rows = await allDb('SELECT DISTINCT project_id FROM time_entries WHERE user_id = ?', [userId]);
+  for (const row of rows) await evaluateProjectBudgetThresholds(row.project_id, actorUserId, reqContext);
+}
+
+async function getBudgetStatus(projectId) {
+  const rawBudget = await getCurrentBudgetRow(projectId);
+  const budget = rawBudget?.id ? rawBudget : null;
+  const [aggregate, activeRequest, laborCostSeries] = await Promise.all([
+    getProjectLaborAggregate(projectId),
+    getActiveBudgetRequest(projectId),
+    getProjectLaborCostSeries(projectId),
+  ]);
+  return {
+    budget: mapBudgetRow(budget),
+    summary: calculateLaborSummary(
+      aggregate.total_labor_cost_kopecks,
+      aggregate.missing_rate_entries_count,
+      budget?.budget_mode === 'none' ? null : budget
+    ),
+    activeRequest: mapBudgetRequestRow(activeRequest),
+    laborCostSeries,
+  };
+}
+
 async function getProjectManagerRow(projectId) {
   return getDb(
     `SELECT
@@ -1152,6 +1809,50 @@ async function sendProjectManagerEmail(req, recipient, type, projectName, actorN
   });
 }
 
+async function sendBudgetNotificationEmail(req, recipient, type, projectName, threshold = null) {
+  const settings = loadSmtpSettings();
+  if (!isCompleteSmtpSettings(settings)) throw new Error(apiErrors.smtpNotConfigured.error);
+  const language = recipient.language === 'en' ? 'en' : 'ru';
+  const messages = {
+    en: {
+      project_payroll_warning: [`Payroll warning for “${projectName}”`, `The project reached ${threshold}% of its payroll limit.`],
+      project_payroll_limit_reached: [`Payroll limit reached for “${projectName}”`, 'The project reached or exceeded its payroll limit.'],
+      project_budget_change_requested: [`Budget request for “${projectName}”`, 'A project manager submitted a budget request.'],
+      project_budget_change_updated: [`Budget request updated for “${projectName}”`, 'The project manager updated the pending budget request.'],
+      project_budget_change_approved: [`Budget request approved for “${projectName}”`, 'The project budget request was approved.'],
+      project_budget_change_rejected: [`Budget request rejected for “${projectName}”`, 'The project budget request was rejected.'],
+      project_budget_request_transferred: [`Budget request transferred for “${projectName}”`, 'An active project budget request was transferred to you.'],
+    },
+    ru: {
+      project_payroll_warning: [`Предупреждение по ФОТ проекта «${projectName}»`, `Проект достиг ${threshold}% лимита ФОТ.`],
+      project_payroll_limit_reached: [`Лимит ФОТ проекта «${projectName}» достигнут`, 'Проект достиг или превысил лимит ФОТ.'],
+      project_budget_change_requested: [`Запрос бюджета проекта «${projectName}»`, 'Руководитель проекта отправил запрос бюджета.'],
+      project_budget_change_updated: [`Запрос бюджета проекта «${projectName}» изменён`, 'Руководитель проекта обновил ожидающий решения запрос.'],
+      project_budget_change_approved: [`Бюджет проекта «${projectName}» одобрен`, 'Запрос бюджета проекта одобрен.'],
+      project_budget_change_rejected: [`Запрос бюджета проекта «${projectName}» отклонён`, 'Запрос бюджета проекта отклонён.'],
+      project_budget_request_transferred: [`Передан запрос бюджета проекта «${projectName}»`, 'Вам передан активный запрос бюджета проекта.'],
+    },
+  };
+  const [subject, message] = messages[language][type];
+  const projectsUrl = `${resolveAppBaseUrl(req)}/projects`;
+  const templateSource = fs.readFileSync(path.join(__dirname, 'emailTemplates', 'projectManagerNotification.hbs'), 'utf8');
+  const html = handlebars.compile(templateSource)({
+    heading: subject,
+    greeting: language === 'en' ? `Hello, ${recipient.name || ''}!` : `Здравствуйте, ${recipient.name || ''}!`,
+    message,
+    actor: '',
+    action: language === 'en' ? 'Open projects' : 'Открыть проекты',
+    projectsUrl,
+    appName: 'TimeTracker',
+    year: new Date().getFullYear(),
+  });
+  const transporter = nodemailer.createTransport({
+    host: settings.host, port: settings.port, secure: settings.secure, auth: settings.auth,
+    connectionTimeout: 8000, greetingTimeout: 8000, socketTimeout: 12000,
+  });
+  await transporter.sendMail({ from: settings.from, to: recipient.email, subject, text: `${message}\n\n${projectsUrl}`, html });
+}
+
 app.get('/api/admin/projects/:projectId/manager', authenticateJWT, requireAdmin, async (req, res) => {
   const projectId = Number(req.params.projectId);
   if (!Number.isInteger(projectId)) {
@@ -1211,6 +1912,22 @@ app.put('/api/admin/projects/:projectId/manager', authenticateJWT, requireAdmin,
          WHERE id = ?`,
         [managerUserId, req.user.id, projectId]
       );
+      const pendingBudgetRequest = await getActiveBudgetRequest(projectId);
+      if (pendingBudgetRequest) {
+        await runDb(
+          'UPDATE project_budget_change_requests SET responsible_manager_user_id = ? WHERE id = ?',
+          [managerUserId, pendingBudgetRequest.id]
+        );
+        if (nextManager) {
+          await insertBudgetNotification({
+            userId: nextManager.id,
+            type: 'project_budget_request_transferred',
+            project: { id: projectId, name: current.name },
+            actorUserId: req.user.id,
+            requestId: pendingBudgetRequest.id,
+          });
+        }
+      }
       if (previousManager) {
         await runDb(
           `INSERT INTO notifications (user_id, type, project_id, project_name, actor_user_id)
@@ -1245,6 +1962,18 @@ app.put('/api/admin/projects/:projectId/manager', authenticateJWT, requireAdmin,
     });
 
     const updated = await getProjectManagerRow(projectId);
+    if (nextManager) {
+      const transferredRequest = await getActiveBudgetRequest(projectId);
+      if (transferredRequest) {
+        sendBudgetNotificationEmail(req, nextManager, 'project_budget_request_transferred', current.name)
+          .catch((emailError) => console.error('[ProjectManager] Budget transfer email failed:', emailError));
+      }
+    }
+    if (nextManager) {
+      await evaluateProjectBudgetThresholds(projectId, req.user.id, req).catch((thresholdError) => {
+        console.error('[ProjectManager] Failed to evaluate budget thresholds:', thresholdError);
+      });
+    }
     res.json({ ...mapProjectManagerRow(updated), changed: true, emailDelivery });
   } catch (err) {
     console.error('[ProjectManager] Failed to update assignment:', err);
@@ -1252,12 +1981,531 @@ app.put('/api/admin/projects/:projectId/manager', authenticateJWT, requireAdmin,
   }
 });
 
+app.get('/api/projects/:projectId/budget', authenticateJWT, requireProjectFinancialAccess('projectId'), async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  if (!Number.isInteger(projectId)) return sendApiError(res, 404, 'projectsNotFound');
+  try {
+    const project = await getDb('SELECT id, name FROM projects WHERE id = ?', [projectId]);
+    if (!project) return sendApiError(res, 404, 'projectsNotFound');
+    res.json({ project, ...(await getBudgetStatus(projectId)) });
+  } catch (err) {
+    console.error('[Budget] Failed to load status:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.patch('/api/admin/projects/:projectId/budget', authenticateJWT, requireFinancialAdmin, async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+  if (!Number.isInteger(projectId)) return sendApiError(res, 404, 'projectsNotFound');
+  if (!reason) return sendApiError(res, 400, 'budgetValidationFailed', { message: 'Change reason is required.' });
+  let normalized;
+  try {
+    normalized = parseBudgetPayload(req.body?.budget || req.body);
+  } catch (err) {
+    return sendApiError(res, 400, 'budgetValidationFailed', { message: err.message });
+  }
+  try {
+    await runDb('BEGIN IMMEDIATE TRANSACTION');
+    const project = await getDb('SELECT id FROM projects WHERE id = ?', [projectId]);
+    if (!project) {
+      await runDb('ROLLBACK');
+      return sendApiError(res, 404, 'projectsNotFound');
+    }
+    if (await getActiveBudgetRequest(projectId)) {
+      await runDb('ROLLBACK');
+      return sendApiError(res, 409, 'budgetPendingRequest');
+    }
+    const budget = await createBudgetVersion(projectId, normalized, req.user.id, {
+      reason,
+      sourceType: 'admin_direct',
+    });
+    await runDb('COMMIT');
+    if (normalized.budget_mode !== 'none') await evaluateProjectBudgetThresholds(projectId, req.user.id, req).catch((thresholdError) => {
+      console.error('[Budget] Failed to evaluate thresholds:', thresholdError);
+    });
+    res.json(await getBudgetStatus(projectId));
+  } catch (err) {
+    await runDb('ROLLBACK').catch(() => {});
+    console.error('[Budget] Failed to update:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/projects/:projectId/budget-change-requests', authenticateJWT, async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+  if (!Number.isInteger(projectId)) return sendApiError(res, 404, 'projectsNotFound');
+  if (!reason) return sendApiError(res, 400, 'budgetValidationFailed', { message: 'Reason is required.' });
+  let normalized;
+  try {
+    normalized = parseBudgetPayload(req.body.proposedBudget || req.body);
+    if (normalized.budget_mode === 'none') throw new Error('A budget request must propose a contract or manual budget.');
+  } catch (err) {
+    return sendApiError(res, 400, 'budgetValidationFailed', { message: err.message });
+  }
+  try {
+    const project = await getDb('SELECT id, name, manager_user_id, current_budget_version_id FROM projects WHERE id = ?', [projectId]);
+    if (!project) return sendApiError(res, 404, 'projectsNotFound');
+    if (Number(project.manager_user_id) !== Number(req.user.id)) return sendApiError(res, 403, 'financialForbidden');
+    await runDb('BEGIN IMMEDIATE TRANSACTION');
+    if (await getActiveBudgetRequest(projectId)) {
+      await runDb('ROLLBACK');
+      return sendApiError(res, 409, 'budgetRequestPending');
+    }
+    const lockedProject = await getDb(
+      'SELECT current_budget_version_id, manager_user_id FROM projects WHERE id = ?',
+      [projectId]
+    );
+    if (!lockedProject || Number(lockedProject.manager_user_id) !== Number(req.user.id)) {
+      await runDb('ROLLBACK');
+      return sendApiError(res, lockedProject ? 403 : 404, lockedProject ? 'financialForbidden' : 'projectsNotFound');
+    }
+    const proposedVersionNumber = await getNextBudgetVersionNumber(projectId);
+    const result = await runDb(
+      `INSERT INTO project_budget_change_requests (
+         project_id, base_budget_version_id, responsible_manager_user_id, requested_by, reason,
+         proposed_version_number,
+         budget_mode, contract_amount_kopecks, management_reserve_bps, management_reserve_kopecks,
+         project_budget_limit_kopecks, payroll_limit_mode, payroll_limit_bps, payroll_limit_kopecks,
+         payroll_warning_threshold_bps, note
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        projectId, lockedProject.current_budget_version_id, lockedProject.manager_user_id, req.user.id, reason.slice(0, 2000),
+        proposedVersionNumber,
+        normalized.budget_mode, normalized.contract_amount_kopecks, normalized.management_reserve_bps,
+        normalized.management_reserve_kopecks, normalized.project_budget_limit_kopecks,
+        normalized.payroll_limit_mode, normalized.payroll_limit_bps, normalized.payroll_limit_kopecks,
+        normalized.payroll_warning_threshold_bps, normalized.note || null,
+      ]
+    );
+    await insertBudgetRequestRevision(result.lastID, 1, normalized, reason.slice(0, 2000), req.user.id);
+    const admins = await allDb("SELECT id, name, surname, email, language FROM users WHERE role = 'admin' AND deleted = 0 AND invited = 0");
+    for (const admin of admins) {
+      await insertBudgetNotification({
+        userId: admin.id, type: 'project_budget_change_requested', project,
+        actorUserId: req.user.id, requestId: result.lastID,
+        metadata: { version: proposedVersionNumber },
+      });
+    }
+    await runDb('COMMIT');
+    admins.forEach((admin) => {
+      sendBudgetNotificationEmail(req, admin, 'project_budget_change_requested', project.name)
+        .catch((emailError) => console.error('[BudgetRequest] Request email failed:', emailError));
+    });
+    res.status(201).json(mapBudgetRequestRow(await getActiveBudgetRequest(projectId)));
+  } catch (err) {
+    await runDb('ROLLBACK').catch(() => {});
+    if (err.code === 'SQLITE_CONSTRAINT') return sendApiError(res, 409, 'budgetRequestPending');
+    console.error('[BudgetRequest] Failed to create:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.patch('/api/projects/:projectId/budget-change-requests/:requestId', authenticateJWT, async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  const requestId = Number(req.params.requestId);
+  const expectedRevision = Number(req.body?.expectedRevision);
+  const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+  if (!Number.isInteger(projectId) || !Number.isInteger(requestId)) return sendApiError(res, 404, 'budgetRequestNotFound');
+  if (!Number.isInteger(expectedRevision) || expectedRevision < 1) return sendApiError(res, 400, 'budgetValidationFailed', { message: 'Expected revision is required.' });
+  if (!reason) return sendApiError(res, 400, 'budgetValidationFailed', { message: 'Change reason is required.' });
+  let normalized;
+  try {
+    normalized = parseBudgetPayload(req.body.proposedBudget || {});
+    if (normalized.budget_mode === 'none') throw new Error('A budget request must propose a contract or manual budget.');
+  } catch (err) {
+    return sendApiError(res, 400, 'budgetValidationFailed', { message: err.message });
+  }
+  try {
+    const project = await getDb('SELECT id, name, manager_user_id FROM projects WHERE id = ?', [projectId]);
+    if (!project) return sendApiError(res, 404, 'projectsNotFound');
+    if (Number(project.manager_user_id) !== Number(req.user.id)) return sendApiError(res, 403, 'financialForbidden');
+    await runDb('BEGIN IMMEDIATE TRANSACTION');
+    const request = await getDb(
+      'SELECT * FROM project_budget_change_requests WHERE id = ? AND project_id = ?',
+      [requestId, projectId]
+    );
+    if (!request || request.status !== 'pending' || Number(request.responsible_manager_user_id) !== Number(req.user.id)) {
+      await runDb('ROLLBACK');
+      return sendApiError(res, 409, 'budgetRequestStale');
+    }
+    if (Number(request.current_revision_number || 1) !== expectedRevision) {
+      await runDb('ROLLBACK');
+      return sendApiError(res, 409, 'budgetRequestStale');
+    }
+    const nextRevision = expectedRevision + 1;
+    await runDb(
+      `UPDATE project_budget_change_requests SET
+        reason = ?, budget_mode = ?, contract_amount_kopecks = ?,
+        management_reserve_bps = ?, management_reserve_kopecks = ?,
+        project_budget_limit_kopecks = ?, payroll_limit_mode = ?, payroll_limit_bps = ?,
+        payroll_limit_kopecks = ?, payroll_warning_threshold_bps = ?, note = NULL,
+        current_revision_number = ?
+       WHERE id = ?`,
+      [
+        reason.slice(0, 2000), normalized.budget_mode, normalized.contract_amount_kopecks,
+        normalized.management_reserve_bps, normalized.management_reserve_kopecks,
+        normalized.project_budget_limit_kopecks, normalized.payroll_limit_mode,
+        normalized.payroll_limit_bps, normalized.payroll_limit_kopecks,
+        normalized.payroll_warning_threshold_bps, nextRevision, requestId,
+      ]
+    );
+    await insertBudgetRequestRevision(requestId, nextRevision, normalized, reason.slice(0, 2000), req.user.id);
+    const admins = await allDb("SELECT id, name, surname, email, language FROM users WHERE role = 'admin' AND deleted = 0 AND invited = 0");
+    for (const admin of admins) {
+      const metadata = JSON.stringify({
+        version: request.proposed_version_number,
+        revision: nextRevision,
+      });
+      const updated = await runDb(
+        `UPDATE notifications SET type = 'project_budget_change_updated', actor_user_id = ?,
+          metadata_json = ?, created_at = CURRENT_TIMESTAMP, read_at = NULL
+         WHERE user_id = ? AND budget_change_request_id = ?
+           AND type IN ('project_budget_change_requested', 'project_budget_change_updated')`,
+        [req.user.id, metadata, admin.id, requestId]
+      );
+      if (!updated.changes) {
+        await insertBudgetNotification({
+          userId: admin.id,
+          type: 'project_budget_change_updated',
+          project,
+          actorUserId: req.user.id,
+          requestId,
+          metadata: {
+            version: request.proposed_version_number,
+            revision: nextRevision,
+          },
+        });
+      }
+    }
+    await runDb('COMMIT');
+    admins.forEach((admin) => {
+      sendBudgetNotificationEmail(req, admin, 'project_budget_change_updated', project.name)
+        .catch((emailError) => console.error('[BudgetRequest] Update email failed:', emailError));
+    });
+    res.json(mapBudgetRequestRow(await getActiveBudgetRequest(projectId)));
+  } catch (err) {
+    await runDb('ROLLBACK').catch(() => {});
+    console.error('[BudgetRequest] Failed to update:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/projects/:projectId/budget-change-requests', authenticateJWT, requireProjectFinancialAccess('projectId'), async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  if (!Number.isInteger(projectId)) return sendApiError(res, 404, 'projectsNotFound');
+  try {
+    const rows = await allDb(
+      `SELECT r.*, TRIM(COALESCE(u.surname, '') || ' ' || COALESCE(u.name, '')) AS requested_by_name,
+        TRIM(COALESCE(reviewer.surname, '') || ' ' || COALESCE(reviewer.name, '')) AS reviewed_by_name
+       FROM project_budget_change_requests r
+       LEFT JOIN users u ON u.id = r.requested_by
+       LEFT JOIN users reviewer ON reviewer.id = r.reviewed_by
+       WHERE r.project_id = ? ORDER BY r.id DESC`,
+      [projectId]
+    );
+    res.json(rows.map(mapBudgetRequestRow));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/admin/project-budget-change-requests', authenticateJWT, requireFinancialAdmin, async (req, res) => {
+  const status = req.query.status === 'pending' ? 'pending' : null;
+  try {
+    const params = [];
+    const where = status ? 'WHERE r.status = ?' : '';
+    if (status) params.push(status);
+    const rows = await allDb(
+      `SELECT r.id, r.project_id, r.status, r.requested_at, r.current_revision_number,
+        r.proposed_version_number,
+        COALESCE((SELECT MAX(rr.created_at) FROM project_budget_request_revisions rr WHERE rr.request_id = r.id), r.requested_at) AS updated_at,
+        p.name AS project_name, p.code AS project_code,
+        TRIM(COALESCE(requester.surname, '') || ' ' || COALESCE(requester.name, '')) AS requested_by_name
+       FROM project_budget_change_requests r
+       JOIN projects p ON p.id = r.project_id
+       LEFT JOIN users requester ON requester.id = r.requested_by
+       ${where}
+       ORDER BY updated_at DESC, r.id DESC`,
+      params
+    );
+    res.json(rows.map((row) => ({
+      id: row.id,
+      projectId: row.project_id,
+      projectName: row.project_name,
+      projectCode: row.project_code || '',
+      status: row.status,
+      requestedAt: row.requested_at,
+      updatedAt: row.updated_at,
+      requestedByName: row.requested_by_name || null,
+      proposedVersionNumber: Number(row.proposed_version_number || 0) || null,
+      currentRevision: Number(row.current_revision_number || 1),
+    })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/projects/:projectId/budget-history', authenticateJWT, requireProjectFinancialAccess('projectId'), async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  if (!Number.isInteger(projectId)) return sendApiError(res, 404, 'projectsNotFound');
+  try {
+    const [versionRows, requestRows, revisionRows, eventRows, project] = await Promise.all([
+      allDb(
+        `SELECT v.*,
+          TRIM(COALESCE(actor.surname, '') || ' ' || COALESCE(actor.name, '')) AS actor_name
+         FROM project_budget_versions v
+         LEFT JOIN users actor ON actor.id = v.approved_by
+         WHERE v.project_id = ? ORDER BY v.version_number DESC`,
+        [projectId]
+      ),
+      allDb(
+        `SELECT r.*,
+          TRIM(COALESCE(requester.surname, '') || ' ' || COALESCE(requester.name, '')) AS requested_by_name,
+          TRIM(COALESCE(reviewer.surname, '') || ' ' || COALESCE(reviewer.name, '')) AS reviewed_by_name
+         FROM project_budget_change_requests r
+         LEFT JOIN users requester ON requester.id = r.requested_by
+         LEFT JOIN users reviewer ON reviewer.id = r.reviewed_by
+         WHERE r.project_id = ? ORDER BY r.id DESC`,
+        [projectId]
+      ),
+      allDb(
+        `SELECT rr.*,
+          TRIM(COALESCE(author.surname, '') || ' ' || COALESCE(author.name, '')) AS created_by_name
+         FROM project_budget_request_revisions rr
+         JOIN project_budget_change_requests r ON r.id = rr.request_id
+         LEFT JOIN users author ON author.id = rr.created_by
+         WHERE r.project_id = ? ORDER BY rr.request_id DESC, rr.revision_number DESC`,
+        [projectId]
+      ),
+      allDb(
+        `SELECT e.*, TRIM(COALESCE(actor.surname, '') || ' ' || COALESCE(actor.name, '')) AS actor_name
+         FROM project_budget_audit_events e
+         LEFT JOIN users actor ON actor.id = e.actor_user_id
+         WHERE e.project_id = ? ORDER BY e.id DESC`,
+        [projectId]
+      ),
+      getDb('SELECT current_budget_version_id FROM projects WHERE id = ?', [projectId]),
+    ]);
+    const versions = versionRows.map((row) => ({
+      ...mapBudgetRow(row),
+      actorName: row.actor_name || null,
+      isCurrent: Number(project?.current_budget_version_id) === Number(row.id),
+    }));
+    const versionsById = new Map(versions.map((version) => [Number(version.id), version]));
+    const revisionsByRequest = new Map();
+    revisionRows.forEach((row) => {
+      const list = revisionsByRequest.get(Number(row.request_id)) || [];
+      list.push(mapBudgetRevisionRow(row));
+      revisionsByRequest.set(Number(row.request_id), list);
+    });
+    const requests = requestRows.map((row) => ({
+        ...mapBudgetRequestRow(row),
+        revisions: revisionsByRequest.get(Number(row.id)) || [],
+        approvedBudget: row.approved_budget_version_id ? versionsById.get(Number(row.approved_budget_version_id)) || null : null,
+      }));
+    const requestsById = new Map(requests.map((request) => [Number(request.id), request]));
+    const requestsByVersionId = new Map(
+      requests
+        .filter((request) => request.approvedBudgetVersionId)
+        .map((request) => [Number(request.approvedBudgetVersionId), request])
+    );
+    const mergedRequestIds = new Set();
+    const entries = versions.map((version) => {
+      const request = requestsById.get(Number(version.sourceRequestId))
+        || requestsByVersionId.get(Number(version.id))
+        || null;
+      if (request) mergedRequestIds.add(Number(request.id));
+      return {
+        key: `version-${version.id}`,
+        versionNumber: Number(version.version),
+        status: 'approved',
+        source: request ? 'budget_request' : 'admin_direct',
+        versionId: version.id,
+        requestId: request?.id || null,
+        isCurrent: version.isCurrent,
+        createdAt: request?.requestedAt || version.approvedAt,
+        approvedAt: version.approvedAt,
+        requestedByName: request?.requestedByName || null,
+        approvedByName: version.actorName || request?.reviewedByName || null,
+        changeReason: request?.reason || version.changeReason || '',
+        decisionReason: request?.reviewComment || version.changeReason || '',
+        decisionType: request?.decisionType || (request ? 'approve' : null),
+        proposedBudget: request?.proposedBudget || null,
+        finalBudget: version,
+        revisions: request?.revisions || [],
+      };
+    });
+    requests.forEach((request) => {
+      if (mergedRequestIds.has(Number(request.id))) return;
+      entries.push({
+        key: `request-${request.id}`,
+        versionNumber: Number(request.proposedVersionNumber),
+        status: request.status,
+        source: 'budget_request',
+        versionId: null,
+        requestId: request.id,
+        isCurrent: false,
+        createdAt: request.requestedAt,
+        approvedAt: request.reviewedAt,
+        requestedByName: request.requestedByName,
+        approvedByName: request.reviewedByName,
+        changeReason: request.reason || '',
+        decisionReason: request.reviewComment || '',
+        decisionType: request.decisionType,
+        proposedBudget: request.proposedBudget,
+        finalBudget: null,
+        revisions: request.revisions || [],
+      });
+    });
+    entries.sort((left, right) => (
+      Number(right.versionNumber || 0) - Number(left.versionNumber || 0)
+      || String(right.createdAt || '').localeCompare(String(left.createdAt || ''))
+    ));
+    res.json({
+      entries,
+      versions,
+      requests,
+      events: eventRows
+        .filter((row) => !row.budget_version_id)
+        .map((row) => ({
+          id: row.id,
+          type: row.event_type,
+          reason: row.reason,
+          actorUserId: row.actor_user_id,
+          actorName: row.actor_name || null,
+          budgetVersionId: row.budget_version_id,
+          requestId: row.request_id,
+          createdAt: row.created_at,
+        })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.patch('/api/admin/projects/:projectId/budget-change-requests/:requestId', authenticateJWT, requireFinancialAdmin, async (req, res) => {
+  const projectId = Number(req.params.projectId);
+  const requestId = Number(req.params.requestId);
+  const decision = req.body?.decision;
+  const expectedRevision = Number(req.body?.expectedRevision);
+  const comment = typeof req.body?.reason === 'string'
+    ? req.body.reason.trim()
+    : typeof req.body?.comment === 'string' ? req.body.comment.trim() : '';
+  if (!Number.isInteger(projectId) || !Number.isInteger(requestId)) return sendApiError(res, 404, 'budgetRequestNotFound');
+  if (!['approve', 'approve_with_changes', 'reject'].includes(decision)) {
+    return sendApiError(res, 400, 'budgetValidationFailed', { message: 'Decision is invalid.' });
+  }
+  if (!Number.isInteger(expectedRevision) || expectedRevision < 1) return sendApiError(res, 400, 'budgetValidationFailed', { message: 'Expected revision is required.' });
+  if (!comment) return sendApiError(res, 400, 'budgetValidationFailed', { message: 'Decision reason is required.' });
+  let replacement = null;
+  if (decision === 'approve_with_changes') {
+    try {
+      replacement = parseBudgetPayload(req.body.approvedBudget || {});
+      if (replacement.budget_mode === 'none') throw new Error('An approved request must create a budget.');
+    } catch (err) {
+      return sendApiError(res, 400, 'budgetValidationFailed', { message: err.message });
+    }
+  }
+  try {
+    await runDb('BEGIN IMMEDIATE TRANSACTION');
+    const request = await getDb('SELECT * FROM project_budget_change_requests WHERE id = ? AND project_id = ?', [requestId, projectId]);
+    if (!request) {
+      await runDb('ROLLBACK');
+      return sendApiError(res, 404, 'budgetRequestNotFound');
+    }
+    if (request.status !== 'pending') {
+      await runDb('ROLLBACK');
+      return sendApiError(res, 409, 'budgetRequestStale');
+    }
+    if (Number(request.current_revision_number || 1) !== expectedRevision) {
+      await runDb('ROLLBACK');
+      return sendApiError(res, 409, 'budgetRequestStale');
+    }
+    const project = await getDb('SELECT id, name, manager_user_id FROM projects WHERE id = ?', [projectId]);
+    let proposedVersionNumber = Number(request.proposed_version_number || 0);
+    if (!proposedVersionNumber) {
+      proposedVersionNumber = await getNextBudgetVersionNumber(projectId);
+      await runDb(
+        'UPDATE project_budget_change_requests SET proposed_version_number = ? WHERE id = ?',
+        [proposedVersionNumber, requestId]
+      );
+    }
+    let version = null;
+    if (decision !== 'reject') {
+      const approved = replacement || {
+        budget_mode: request.budget_mode,
+        contract_amount_kopecks: request.contract_amount_kopecks,
+        management_reserve_bps: request.management_reserve_bps,
+        management_reserve_kopecks: request.management_reserve_kopecks,
+        project_budget_limit_kopecks: request.project_budget_limit_kopecks,
+        payroll_limit_mode: request.payroll_limit_mode,
+        payroll_limit_bps: request.payroll_limit_bps,
+        payroll_limit_kopecks: request.payroll_limit_kopecks,
+        payroll_warning_threshold_bps: request.payroll_warning_threshold_bps,
+        note: request.note,
+      };
+      version = await createBudgetVersion(projectId, approved, req.user.id, {
+        reason: comment,
+        sourceType: 'budget_request',
+        sourceRequestId: requestId,
+        versionNumber: proposedVersionNumber,
+      });
+    }
+    const status = decision === 'reject' ? 'rejected' : 'approved';
+    await runDb(
+      `UPDATE project_budget_change_requests SET status = ?, reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP,
+       review_comment = ?, approved_budget_version_id = ?, decision_type = ? WHERE id = ?`,
+      [status, req.user.id, comment, version?.id || null, decision, requestId]
+    );
+    if (request.responsible_manager_user_id) {
+      await insertBudgetNotification({
+        userId: request.responsible_manager_user_id,
+        type: status === 'approved' ? 'project_budget_change_approved' : 'project_budget_change_rejected',
+        project, actorUserId: req.user.id, budgetVersionId: version?.id || null, requestId,
+        metadata: { version: proposedVersionNumber },
+      });
+    }
+    await runDb('COMMIT');
+    if (request.responsible_manager_user_id) {
+      const recipient = await getDb('SELECT id, name, surname, email, language FROM users WHERE id = ?', [request.responsible_manager_user_id]);
+      if (recipient) {
+        sendBudgetNotificationEmail(
+          req,
+          recipient,
+          status === 'approved' ? 'project_budget_change_approved' : 'project_budget_change_rejected',
+          project.name
+        ).catch((emailError) => console.error('[BudgetRequest] Decision email failed:', emailError));
+      }
+    }
+    if (version) await evaluateProjectBudgetThresholds(projectId, req.user.id, req).catch((thresholdError) => {
+      console.error('[BudgetRequest] Failed to evaluate thresholds:', thresholdError);
+    });
+    res.json(await getBudgetStatus(projectId));
+  } catch (err) {
+    await runDb('ROLLBACK').catch(() => {});
+    console.error('[BudgetRequest] Failed to review:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 function mapNotificationRow(row) {
+  let metadata = null;
+  try {
+    metadata = row.metadata_json ? JSON.parse(row.metadata_json) : null;
+  } catch (_err) {
+    metadata = null;
+  }
   return {
     id: row.id,
     type: row.type,
     project: { id: row.project_id, name: row.project_name },
     actor: row.actor_user_id ? { id: row.actor_user_id, name: row.actor_name, surname: row.actor_surname || '' } : null,
+    budgetVersionId: row.budget_version_id || null,
+    budgetChangeRequestId: row.budget_change_request_id || null,
+    thresholdPercent: row.threshold_bps === null || row.threshold_bps === undefined ? null : Number((row.threshold_bps / 100).toFixed(2)),
+    metadata,
     createdAt: row.created_at,
     readAt: row.read_at,
   };
@@ -1433,6 +2681,10 @@ app.post('/api/admin/users/:userId/rates', authenticateJWT, requireFinancialAdmi
         [result.lastID]
       );
 
+      await evaluateProjectsForUserRates(userId, req.user.id, req).catch((thresholdError) => {
+        console.error('[Rates] Failed to evaluate project budgets:', thresholdError);
+      });
+
       res.status(201).json(mapRateRow(row));
     } catch (transactionErr) {
       await runDb('ROLLBACK').catch((rollbackErr) => console.error('Rate rollback failed:', rollbackErr));
@@ -1502,6 +2754,10 @@ app.patch('/api/admin/users/:userId/rates/:rateId', authenticateJWT, requireFina
        WHERE r.id = ?`,
       [rateId]
     );
+
+    await evaluateProjectsForUserRates(userId, req.user.id, req).catch((thresholdError) => {
+      console.error('[Rates] Failed to evaluate project budgets:', thresholdError);
+    });
 
     res.json(mapRateRow(updated));
   } catch (err) {
@@ -1767,12 +3023,19 @@ app.get('/api/projects', authenticateJWT, (req, res) => {
                 WHERE own_entries.user_id = ? AND own_entries.project_id = p.id
               ) THEN 1
               ELSE 0
-            END AS is_my_project
+            END AS is_my_project,
+            CASE
+              WHEN (? = 'admin' OR p.manager_user_id = ?) AND EXISTS (
+                SELECT 1 FROM project_budget_change_requests budget_request
+                WHERE budget_request.project_id = p.id AND budget_request.status = 'pending'
+              ) THEN 1
+              ELSE 0
+            END AS has_pending_budget_request
      FROM projects p
      LEFT JOIN clients c ON p.client_id = c.id
      LEFT JOIN users manager ON manager.id = p.manager_user_id
      ORDER BY p.category, p.name`,
-    [req.user.id, req.user.id],
+    [req.user.id, req.user.id, req.user.role, req.user.id],
     (err, rows) => {
     if (err) {
       res.status(500).json({ error: err.message });
@@ -1829,80 +3092,85 @@ app.post('/api/projects', authenticateJWT, (req, res) => {
   });
 });
 
-// PATCH endpoint to update a project by id
-app.patch('/api/projects/:id', authenticateJWT, (req, res) => {
-  const { id } = req.params;
-  const { name, description, client_id, active, code } = req.body;
-  const category = req.body.category !== undefined ? normalizeProjectCategory(req.body.category) : undefined;
+// PATCH endpoint to update individual project fields through inline editing.
+app.patch('/api/projects/:id', authenticateJWT, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return sendApiError(res, 404, 'projectsNotFound');
 
-  if (req.body.category !== undefined) {
-    if (!category) {
-      return sendApiError(res, 400, 'projectsCategoryRequired');
-    }
-    if (!PROJECT_CATEGORIES.includes(category)) {
-      return sendApiError(res, 400, 'projectsCategoryInvalid');
-    }
-  }
+    const current = await getDb('SELECT * FROM projects WHERE id = ?', [id]);
+    if (!current) return sendApiError(res, 404, 'projectsNotFound');
 
-  // Check for duplicate name (exclude self)
-  if (name !== undefined) {
-    db.get('SELECT * FROM projects WHERE LOWER(name) = LOWER(?) AND id != ?', [name, id], (err, row) => {
-      if (err) return res.status(500).json({ error: err.message });
-      if (row) return sendApiError(res, 409, 'projectsDuplicateName');
-      // Check for duplicate code (if code is set, exclude self)
-      if (code && code.trim()) {
-        db.get('SELECT * FROM projects WHERE code IS NOT NULL AND LOWER(code) = LOWER(?) AND id != ?', [code, id], (err2, row2) => {
-          if (err2) return res.status(500).json({ error: err2.message });
-          if (row2) return sendApiError(res, 409, 'projectsDuplicateCode');
-          // No duplicates, proceed to update
-          updateProject();
-        });
-      } else {
-        updateProject();
-      }
-    });
-  } else if (code && code.trim()) {
-    db.get('SELECT * FROM projects WHERE code IS NOT NULL AND LOWER(code) = LOWER(?) AND id != ?', [code, id], (err2, row2) => {
-      if (err2) return res.status(500).json({ error: err2.message });
-      if (row2) return sendApiError(res, 409, 'projectsDuplicateCode');
-      updateProject();
-    });
-  } else {
-    updateProject();
-  }
-  function updateProject() {
+    const editRole = getProjectEditRole(req.user, current);
+    if (!editRole) return sendApiError(res, 403, 'projectsEditForbidden');
+    const requestedFields = Object.keys(req.body).filter((field) => ['name', 'description', 'client_id', 'code', 'category', 'active'].includes(field));
+    if (requestedFields.some((field) => !canEditProjectField(editRole, field))) {
+      return sendApiError(res, 403, 'projectsFieldForbidden');
+    }
+
     const fields = [];
     const values = [];
-    if (name !== undefined) { fields.push('name = ?'); values.push(name); }
-    if (description !== undefined) { fields.push('description = ?'); values.push(description); }
-    if (client_id !== undefined) { fields.push('client_id = ?'); values.push(client_id); }
-    if (active !== undefined) { fields.push('active = ?'); values.push(active); }
-    if (code !== undefined) { fields.push('code = ?'); values.push(code); }
-    if (category !== undefined) { fields.push('category = ?'); values.push(category); }
-    if (fields.length === 0) {
-      return sendApiError(res, 400, 'projectsNoFieldsToUpdate');
+    const has = (field) => Object.prototype.hasOwnProperty.call(req.body, field);
+
+    if (has('name')) {
+      const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+      if (!name) return sendApiError(res, 400, 'projectsNameRequired');
+      const duplicate = await getDb('SELECT id FROM projects WHERE LOWER(name) = LOWER(?) AND id != ?', [name, id]);
+      if (duplicate) return sendApiError(res, 409, 'projectsDuplicateName');
+      fields.push('name = ?'); values.push(name);
     }
-    values.push(id);
-    db.run(
-      `UPDATE projects SET ${fields.join(', ')} WHERE id = ?`,
-      values,
-      function (err) {
-        if (err) {
-          res.status(500).json({ error: err.message });
-          return;
-        }
-        if (this.changes === 0) {
-          sendApiError(res, 404, 'projectsNotFound');
-          return;
-        }
-        res.json({ id, name, description, client_id, active, code, category });
+    if (has('description')) {
+      fields.push('description = ?'); values.push(typeof req.body.description === 'string' ? req.body.description : '');
+    }
+    if (has('client_id')) {
+      const clientId = Number(req.body.client_id);
+      if (!Number.isInteger(clientId)) return sendApiError(res, 400, 'projectsClientRequired');
+      const client = await getDb('SELECT id FROM clients WHERE id = ?', [clientId]);
+      if (!client) return sendApiError(res, 400, 'projectsClientInvalid');
+      fields.push('client_id = ?'); values.push(clientId);
+    }
+    if (has('code')) {
+      const code = typeof req.body.code === 'string' ? req.body.code.trim() : '';
+      if (code) {
+        const duplicate = await getDb('SELECT id FROM projects WHERE code IS NOT NULL AND LOWER(code) = LOWER(?) AND id != ?', [code, id]);
+        if (duplicate) return sendApiError(res, 409, 'projectsDuplicateCode');
       }
+      fields.push('code = ?'); values.push(code || null);
+    }
+    if (has('category')) {
+      const category = normalizeProjectCategory(req.body.category);
+      if (!category) return sendApiError(res, 400, 'projectsCategoryRequired');
+      if (!PROJECT_CATEGORIES.includes(category)) return sendApiError(res, 400, 'projectsCategoryInvalid');
+      fields.push('category = ?'); values.push(category);
+    }
+    if (has('active')) {
+      fields.push('active = ?'); values.push(req.body.active ? 1 : 0);
+    }
+    if (fields.length === 0) return sendApiError(res, 400, 'projectsNoFieldsToUpdate');
+
+    values.push(id);
+    await runDb(`UPDATE projects SET ${fields.join(', ')} WHERE id = ?`, values);
+    const updated = await getDb(
+      `SELECT p.*, c.name AS client_name,
+              manager.name AS manager_name, manager.surname AS manager_surname
+       FROM projects p
+       LEFT JOIN clients c ON c.id = p.client_id
+       LEFT JOIN users manager ON manager.id = p.manager_user_id
+       WHERE p.id = ?`,
+      [id]
     );
+    return res.json(updated);
+  } catch (err) {
+    console.error('[ProjectInlineEdit] Failed to update project', err);
+    return res.status(500).json({ error: err.message });
   }
 });
 
 // PATCH endpoint to toggle project active status
 app.patch('/api/projects/:id/active', authenticateJWT, (req, res) => {
+  if (req.user.role !== 'admin') {
+    return sendApiError(res, 403, 'projectsFieldForbidden');
+  }
   const { id } = req.params;
   const { active } = req.body;
   db.run('UPDATE projects SET active = ? WHERE id = ?', [active, id], function(err) {
@@ -1919,7 +3187,7 @@ app.patch('/api/projects/:id/active', authenticateJWT, (req, res) => {
 });
 
 // DELETE endpoint to delete a project by id
-app.delete('/api/projects/:id', authenticateJWT, (req, res) => {
+app.delete('/api/projects/:id', authenticateJWT, requireAdmin, (req, res) => {
   const { id } = req.params;
   db.run('DELETE FROM projects WHERE id = ?', [id], function(err) {
     if (err) {
@@ -1935,26 +3203,25 @@ app.delete('/api/projects/:id', authenticateJWT, (req, res) => {
 });
 
 // Time entries routes
-app.post('/api/time-entries', authenticateJWT, (req, res) => {
+app.post('/api/time-entries', authenticateJWT, async (req, res) => {
   const { project_id, user_id, date, hours, description, submission_time } = req.body;
   console.log('Received submission_time:', submission_time);
-  db.run(
-    'INSERT INTO time_entries (project_id, user_id, date, hours, description, submission_time) VALUES (?, ?, ?, ?, ?, ?)',
-    [project_id, user_id, date, hours, description, submission_time],
-    function(err) {
-      if (err) {
-        if (err.code === 'SQLITE_CONSTRAINT') {
-          sendApiError(res, 409, 'timeEntriesDuplicate');
-        } else {
-          console.error('Error inserting time entry:', err);
-          res.status(500).json({ error: err.message });
-        }
-        return;
-      }
-      extendSessionIfEligible(user_id).catch((sessionErr) => console.error('[AutoLogin] Failed after single insert:', sessionErr));
-      res.json({ id: this.lastID, project_id, user_id, date, hours, description, submission_time });
-    }
-  );
+  try {
+    const result = await runDb(
+      'INSERT INTO time_entries (project_id, user_id, date, hours, description, submission_time) VALUES (?, ?, ?, ?, ?, ?)',
+      [project_id, user_id, date, hours, description, submission_time]
+    );
+    extendSessionIfEligible(user_id).catch((sessionErr) => console.error('[AutoLogin] Failed after single insert:', sessionErr));
+    const payrollWarning = await evaluateProjectBudgetThresholds(project_id, req.user.id, req).catch((thresholdError) => {
+      console.error('[TimeEntries] Failed to evaluate project budget:', thresholdError);
+      return null;
+    });
+    res.json({ id: result.lastID, project_id, user_id, date, hours, description, submission_time, payrollWarning });
+  } catch (err) {
+    if (err.code === 'SQLITE_CONSTRAINT') return sendApiError(res, 409, 'timeEntriesDuplicate');
+    console.error('Error inserting time entry:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get('/api/time-entries', authenticateJWT, (req, res) => {
@@ -1995,7 +3262,7 @@ app.get('/api/time-entries', authenticateJWT, (req, res) => {
   });
 });
 
-app.patch('/api/time-entries/:id', authenticateJWT, (req, res) => {
+app.patch('/api/time-entries/:id', authenticateJWT, async (req, res) => {
   const { id } = req.params;
   const { date, hours, description, project_id } = req.body;
   const fields = [];
@@ -2020,28 +3287,29 @@ app.patch('/api/time-entries/:id', authenticateJWT, (req, res) => {
     return sendApiError(res, 400, 'timeEntriesNoFieldsToUpdate');
   }
 
-  db.get('SELECT user_id FROM time_entries WHERE id = ?', [id], (lookupErr, existingEntry) => {
-    if (lookupErr) {
-      return res.status(500).json({ error: lookupErr.message });
-    }
+  try {
+    const existingEntry = await getDb('SELECT user_id, project_id FROM time_entries WHERE id = ?', [id]);
+    if (!existingEntry) return sendApiError(res, 404, 'timeEntriesNotFound');
     values.push(id);
-    db.run(
+    const result = await runDb(
       `UPDATE time_entries SET ${fields.join(', ')} WHERE id = ?`,
-      values,
-      function (err) {
-        if (err) {
-          res.status(500).json({ error: err.message });
-          return;
-        }
-        if (this.changes === 0) {
-          sendApiError(res, 404, 'timeEntriesNotFound');
-          return;
-        }
-        extendSessionIfEligible(existingEntry && existingEntry.user_id).catch((sessionErr) => console.error('[AutoLogin] Failed after patch:', sessionErr));
-        res.json({ id, ...req.body });
-      }
+      values
     );
-  });
+    if (!result.changes) return sendApiError(res, 404, 'timeEntriesNotFound');
+    extendSessionIfEligible(existingEntry.user_id).catch((sessionErr) => console.error('[AutoLogin] Failed after patch:', sessionErr));
+    const affectedProjectIds = [...new Set([Number(existingEntry.project_id), Number(project_id || existingEntry.project_id)])];
+    const warnings = [];
+    for (const affectedProjectId of affectedProjectIds) {
+      const warning = await evaluateProjectBudgetThresholds(affectedProjectId, req.user.id, req).catch((thresholdError) => {
+        console.error('[TimeEntries] Failed to evaluate project budget:', thresholdError);
+        return null;
+      });
+      if (warning) warnings.push(warning);
+    }
+    res.json({ id, ...req.body, payrollWarning: warnings[0] || null });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Add DELETE route for time entries
@@ -2390,45 +3658,41 @@ app.get('/api/projects/:id/analytics', authenticateJWT, (req, res) => {
 });
 
 // Batch insert time entries
-app.post('/api/time-entries/batch', authenticateJWT, (req, res) => {
+app.post('/api/time-entries/batch', authenticateJWT, async (req, res) => {
   const { entries } = req.body;
   if (!Array.isArray(entries) || entries.length === 0) {
     return sendApiError(res, 400, 'timeEntriesNoEntries');
   }
-  db.serialize(() => {
-    db.run('BEGIN TRANSACTION');
-    let hasError = false;
-    let errorMsg = '';
-    entries.forEach(entry => {
+  try {
+    await runDb('BEGIN IMMEDIATE TRANSACTION');
+    for (const entry of entries) {
       if (!entry.user_id || !entry.project_id || !entry.date || typeof entry.hours !== 'number') {
-        hasError = true;
-        errorMsg = 'Missing required fields in one or more entries.';
-        return;
+        throw new Error('Missing required fields in one or more entries.');
       }
-      db.run(
+      await runDb(
         `INSERT INTO time_entries (user_id, project_id, date, hours, submission_time)
          VALUES (?, ?, ?, ?, datetime('now'))
          ON CONFLICT(user_id, project_id, date) DO UPDATE SET hours=excluded.hours, submission_time=datetime('now')`,
-        [entry.user_id, entry.project_id, entry.date, entry.hours],
-        function(err) {
-          if (err) {
-            hasError = true;
-            errorMsg = err.message;
-          }
-        }
+        [entry.user_id, entry.project_id, entry.date, entry.hours]
       );
-    });
-    db.run('COMMIT', err => {
-      if (hasError || err) {
-        db.run('ROLLBACK');
-        return res.status(500).json({ error: errorMsg || (err && err.message) || 'Failed to insert batch.' });
-      }
-      const touchedUsers = [...new Set(entries.map((entry) => entry.user_id).filter(Boolean))];
-      Promise.all(touchedUsers.map((userId) => extendSessionIfEligible(userId)))
-        .catch((sessionErr) => console.error('[AutoLogin] Failed after batch:', sessionErr));
-      return res.json({ success: true });
-    });
-  });
+    }
+    await runDb('COMMIT');
+    const touchedUsers = [...new Set(entries.map((entry) => entry.user_id).filter(Boolean))];
+    Promise.all(touchedUsers.map((userId) => extendSessionIfEligible(userId)))
+      .catch((sessionErr) => console.error('[AutoLogin] Failed after batch:', sessionErr));
+    const payrollWarnings = [];
+    for (const projectId of [...new Set(entries.map((entry) => Number(entry.project_id)))]) {
+      const warning = await evaluateProjectBudgetThresholds(projectId, req.user.id, req).catch((thresholdError) => {
+        console.error('[TimeEntries] Failed to evaluate project budget:', thresholdError);
+        return null;
+      });
+      if (warning) payrollWarnings.push(warning);
+    }
+    res.json({ success: true, payrollWarnings });
+  } catch (err) {
+    await runDb('ROLLBACK').catch(() => {});
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Bulk delete all time entries for a project

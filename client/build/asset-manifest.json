@@ -1,13 +1,11 @@
 {
   "files": {
-    "main.js": "/static/js/main.dafa3825.js",
-    "static/media/announcement-timeentries-real.png": "/static/media/announcement-timeentries-real.d70faaf33d5a2d026876.png",
-    "static/media/announcement-projects-real.png": "/static/media/announcement-projects-real.6a98a15f29e19fe57eb1.png",
-    "static/media/announcement-dashboard-real.png": "/static/media/announcement-dashboard-real.b133586fd05d051ddbc5.png",
+    "main.js": "/static/js/main.0ce71f0b.js",
+    "static/media/announcement-project-budget-overview.jpg": "/static/media/announcement-project-budget-overview.30de1d3f6a2f68e1b26a.jpg",
     "index.html": "/index.html",
-    "main.dafa3825.js.map": "/static/js/main.dafa3825.js.map"
+    "main.0ce71f0b.js.map": "/static/js/main.0ce71f0b.js.map"
   },
   "entrypoints": [
-    "static/js/main.dafa3825.js"
+    "static/js/main.0ce71f0b.js"
   ]
 }

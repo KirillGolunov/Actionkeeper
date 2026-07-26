@@ -1,40 +1,51 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Box,
   Button,
   Card,
   CardContent,
   Typography,
-  TextField,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
   Grid,
-  MenuItem,
   Alert,
   IconButton,
   Tooltip,
   Chip,
-  Autocomplete,
   Popover,
   Checkbox,
   FormControlLabel,
   Divider,
   ClickAwayListener,
+  CircularProgress,
+  Snackbar,
+  Stack,
+  Menu,
+  MenuItem,
+  ToggleButton,
 } from '@mui/material';
 import axios from 'axios';
+import { useLocation, useNavigate } from 'react-router-dom';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
-import Switch from '@mui/material/Switch';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
+import PauseCircleOutlineIcon from '@mui/icons-material/PauseCircleOutline';
+import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from '../i18n/I18nProvider';
 import { getApiErrorMessage } from '../utils/apiErrorMessage';
-import ProjectAnalyticsDialog from '../components/ProjectAnalyticsDialog';
-import ProjectAnalyticsButton from '../components/ProjectAnalyticsButton';
+import ProjectBudgetSection, { emptyBudgetDraft, validateBudgetDraft } from '../components/ProjectBudgetSection';
+import ProjectBudgetOverview from '../components/ProjectBudgetOverview';
+import ProjectHoursOverview from '../components/ProjectHoursOverview';
+import ProjectDialogLayout from '../components/ProjectDialogLayout';
+import ProjectDetailsForm from '../components/ProjectDetailsForm';
+import {
+  getProjectStatusLabelSx,
+  projectCardSurfaceSx,
+} from '../utils/projectCardSurface';
 import PageLayout, {
   PageToolbar,
   pageActionButtonSx,
@@ -50,16 +61,9 @@ import {
 function Projects() {
   const { t, locale } = useTranslation();
   const isRussian = locale === 'ru';
-  const categoryFieldLabel = isRussian ? 'Категория' : 'Category';
-  const categoryHelpText = isRussian
-    ? 'Категория обязательна для новых и обновляемых проектов.'
-    : 'Category is required for new and updated projects.';
-  const categoryRequiredText = isRussian
-    ? 'Выберите категорию проекта'
-    : 'Please select a project category';
-  const unclassifiedFilterLabel = isRussian
-    ? 'Требуют классификации'
-    : 'Needs classification';
+  const categoryFieldLabel = t('projects.category');
+  const categoryRequiredText = t('projects.validation.categoryRequired');
+  const unclassifiedFilterLabel = t('projects.filters.unclassified');
   const [projects, setProjects] = useState([]);
   const [clients, setClients] = useState([]);
   const [managerCandidates, setManagerCandidates] = useState([]);
@@ -67,8 +71,6 @@ function Projects() {
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
   const [categoriesAnchorEl, setCategoriesAnchorEl] = useState(null);
-  const [analyticsOpen, setAnalyticsOpen] = useState(false);
-  const [selectedProject, setSelectedProject] = useState(null);
   const [newProject, setNewProject] = useState({ 
     name: '', 
     description: '',
@@ -77,15 +79,39 @@ function Projects() {
     category: '',
     managerUserId: null,
   });
+  const [newProjectBudget, setNewProjectBudget] = useState(emptyBudgetDraft());
+  const [newProjectBudgetPreview, setNewProjectBudgetPreview] = useState(emptyBudgetDraft());
+  const [newProjectBudgetReason, setNewProjectBudgetReason] = useState('');
+  const [createBudgetEditing, setCreateBudgetEditing] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [editProject, setEditProject] = useState(null);
+  const [editViewMode, setEditViewMode] = useState('budget');
+  const [editHoursActivated, setEditHoursActivated] = useState(false);
+  const [editBudgetEditing, setEditBudgetEditing] = useState(false);
+  const [editBudgetPreviewDraft, setEditBudgetPreviewDraft] = useState(null);
+  const [editBudgetDirty, setEditBudgetDirty] = useState(false);
+  const [editBudgetMeta, setEditBudgetMeta] = useState({ primaryVisible: false, primaryDisabled: true, hasErrors: false });
+  const [editBudgetStatus, setEditBudgetStatus] = useState(null);
+  const [editBudgetHistory, setEditBudgetHistory] = useState({ versions: [], requests: [], events: [] });
+  const [editBudgetLoading, setEditBudgetLoading] = useState(false);
+  const [editBudgetLoadError, setEditBudgetLoadError] = useState(null);
+  const [confirmNavigation, setConfirmNavigation] = useState(null);
+  const [formErrors, setFormErrors] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [activeSaving, setActiveSaving] = useState(false);
+  const budgetSectionRef = useRef(null);
+  const detailsFormRef = useRef(null);
+  const editViewButtonRefs = useRef({});
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [projectToDelete, setProjectToDelete] = useState(null);
-  const [expandedProjectIds, setExpandedProjectIds] = useState([]);
+  const [projectActionsAnchorEl, setProjectActionsAnchorEl] = useState(null);
+  const [deletingProject, setDeletingProject] = useState(false);
+  const [pendingBudgetRequests, setPendingBudgetRequests] = useState([]);
   const [filters, setFilters] = useState({
     scope: 'mine',
     active: true,
     closed: false,
+    requiresDecision: false,
     external_delivery: false,
     internal_project: false,
     operations: false,
@@ -94,7 +120,78 @@ function Projects() {
     unclassified: false,
   });
   const { user: currentUser } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
   const canEdit = currentUser?.role === 'admin';
+  const deepLinkParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const focusedBudgetRequestId = deepLinkParams.get('requestId');
+  const focusedBudgetNotificationId = deepLinkParams.get('notificationId');
+  const initialBudgetView = deepLinkParams.get('view');
+  const deepLinkTargetsEditProject = Number(deepLinkParams.get('projectId')) === Number(editProject?.id);
+  const isEditProjectManager = Number(editProject?.manager_user_id) === Number(currentUser?.id);
+  const canViewEditProjectFinance = Boolean(canEdit || isEditProjectManager);
+  const fetchPendingBudgetRequests = useCallback(async () => {
+    if (currentUser?.role !== 'admin') {
+      setPendingBudgetRequests([]);
+      return;
+    }
+    try {
+      const response = await axios.get('/api/admin/project-budget-change-requests?status=pending');
+      setPendingBudgetRequests(response.data || []);
+    } catch (fetchError) {
+      console.error('Error fetching pending budget requests:', fetchError);
+    }
+  }, [currentUser?.role]);
+
+  const loadEditBudgetData = useCallback(async () => {
+    if (!editOpen || !editProject?.id || !canViewEditProjectFinance) return null;
+    setEditBudgetLoading(true);
+    setEditBudgetLoadError(null);
+    try {
+      const [statusResult, historyResult] = await Promise.allSettled([
+        axios.get(`/api/projects/${editProject.id}/budget`),
+        axios.get(`/api/projects/${editProject.id}/budget-history`),
+      ]);
+      if (statusResult.status === 'rejected') throw statusResult.reason;
+      const statusResponse = statusResult.value;
+      setEditBudgetStatus(statusResponse.data);
+      setProjects((items) => items.map((project) => (
+        Number(project.id) === Number(editProject.id)
+          ? { ...project, has_pending_budget_request: statusResponse.data?.activeRequest ? 1 : 0 }
+          : project
+      )));
+      if (historyResult.status === 'fulfilled') {
+        setEditBudgetHistory(historyResult.value.data || { versions: [], requests: [], events: [] });
+      } else {
+        console.warn('Budget history could not be loaded:', historyResult.reason);
+        setEditBudgetHistory({ versions: [], requests: [], events: [] });
+      }
+      if (canEdit) fetchPendingBudgetRequests();
+      return statusResponse.data;
+    } catch (budgetError) {
+      setEditBudgetLoadError(getApiErrorMessage(budgetError, t, 'projects.budget.errors.fetch'));
+      return null;
+    } finally {
+      setEditBudgetLoading(false);
+    }
+  }, [editOpen, editProject?.id, canViewEditProjectFinance, canEdit, fetchPendingBudgetRequests, t]);
+
+  useEffect(() => {
+    if (editOpen && editProject?.id && canViewEditProjectFinance) loadEditBudgetData();
+  }, [editOpen, editProject?.id, canViewEditProjectFinance, loadEditBudgetData]);
+
+  const projectComparable = useCallback((project) => JSON.stringify({
+    name: project?.name || '',
+    description: project?.description || '',
+    client_id: project?.client_id || '',
+    code: project?.code || '',
+    category: project?.category || '',
+    managerUserId: project?.managerUserId || null,
+    active: project?.active === undefined ? true : Boolean(project.active),
+  }), []);
+  const emptyProjectComparable = useMemo(() => projectComparable({}), [projectComparable]);
+  const createProjectDirty = projectComparable(newProject) !== emptyProjectComparable;
+  const createBudgetDirty = JSON.stringify(newProjectBudget) !== JSON.stringify(emptyBudgetDraft()) || Boolean(newProjectBudgetReason.trim());
 
   // Helper to normalize strings: remove all whitespace and lowercase
   const normalize = str => (str || '').replace(/\s+/g, '').toLowerCase();
@@ -136,59 +233,92 @@ function Projects() {
     fetchProjects();
     fetchClients();
     fetchManagerCandidates();
-  }, [fetchProjects, fetchClients, fetchManagerCandidates]);
+    fetchPendingBudgetRequests();
+  }, [fetchProjects, fetchClients, fetchManagerCandidates, fetchPendingBudgetRequests]);
+
+  useEffect(() => {
+    if (!canEdit) return undefined;
+    const intervalId = window.setInterval(fetchPendingBudgetRequests, 30000);
+    return () => window.clearInterval(intervalId);
+  }, [canEdit, fetchPendingBudgetRequests]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('budget') !== '1' || editOpen || projects.length === 0) return;
+    const project = projects.find((item) => Number(item.id) === Number(params.get('projectId')));
+    if (project) {
+      handleEditOpen(project, 'budget');
+    }
+  // The URL is an entry trigger; form state changes must not reopen the dialog.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.search, projects, canEdit, currentUser?.id]);
 
   const handleOpen = () => {
     if (!canEdit) return;
     setError(null);
     setNotice(null);
+    setFormErrors({});
+    setCreateBudgetEditing(false);
     setOpen(true);
   };
 
-  const handleClose = () => {
+  const handleCreateBudgetChange = (nextDraft) => {
+    setNewProjectBudget(nextDraft);
+    if (Object.keys(validateBudgetDraft(nextDraft, true)).length === 0) {
+      setNewProjectBudgetPreview(nextDraft);
+    }
+  };
+
+  const forceCreateClose = () => {
     setError(null);
     setOpen(false);
+    setConfirmNavigation(null);
   };
 
-  const handleAnalyticsOpen = (project) => {
-    setSelectedProject(project);
-    setAnalyticsOpen(true);
+  const handleClose = () => {
+    if (createProjectDirty || createBudgetDirty) {
+      setConfirmNavigation({ dialog: 'create', kind: 'close' });
+      return;
+    }
+    forceCreateClose();
   };
 
-  const handleAnalyticsClose = () => {
-    setAnalyticsOpen(false);
-    setSelectedProject(null);
+  const validateProjectForm = (project, excludedProjectId = null) => {
+    const nextErrors = {};
+    if (!project.name?.trim()) nextErrors.name = t('projects.validation.nameRequired');
+    if (!project.client_id) nextErrors.client = t('projects.validation.clientRequired');
+    if (!project.category) nextErrors.category = categoryRequiredText;
+    if (project.name?.trim() && projects.some((item) => item.id !== excludedProjectId && normalize(item.name) === normalize(project.name))) {
+      nextErrors.name = t('projects.validation.duplicateName');
+    }
+    if (project.code?.trim() && projects.some((item) => item.id !== excludedProjectId && item.code && normalize(item.code) === normalize(project.code))) {
+      nextErrors.code = t('projects.validation.duplicateCode');
+    }
+    return nextErrors;
   };
 
   const handleSubmit = async () => {
-    if (!canEdit) return;
+    if (!canEdit || saving) return false;
+    const nextErrors = validateProjectForm(newProject);
+    const budgetErrors = validateBudgetDraft(newProjectBudget, true);
+    if (Object.keys(nextErrors).length > 0) {
+      setFormErrors(nextErrors);
+      return false;
+    }
+    if (Object.keys(budgetErrors).length > 0) {
+      setCreateBudgetEditing(true);
+      setError(t('projects.budget.validation.fixErrors'));
+      return false;
+    }
+    if (newProjectBudget.budgetMode !== 'none' && !newProjectBudgetReason.trim()) {
+      setCreateBudgetEditing(true);
+      setError(t('projects.budget.validation.reasonRequired'));
+      return false;
+    }
+    setSaving(true);
+    setFormErrors({});
+    setError(null);
     try {
-      if (!newProject.name.trim()) {
-        setError(t('projects.validation.nameRequired'));
-        return;
-      }
-      if (!newProject.client_id) {
-        setError(t('projects.validation.clientRequired'));
-        return;
-      }
-      if (!newProject.category) {
-        setError(categoryRequiredText);
-        return;
-      }
-      // Duplicate check for name (ignore case and whitespace)
-      const nameExists = projects.some(p => normalize(p.name) === normalize(newProject.name));
-      if (nameExists) {
-        setError(t('projects.validation.duplicateName'));
-        return;
-      }
-      // Duplicate check for code (if code is set, ignore case and whitespace)
-      if (newProject.code && newProject.code.trim()) {
-        const codeExists = projects.some(p => p.code && normalize(p.code) === normalize(newProject.code));
-        if (codeExists) {
-          setError(t('projects.validation.duplicateCode'));
-          return;
-        }
-      }
       const projectResponse = await axios.post('/api/projects', {
         name: newProject.name,
         description: newProject.description,
@@ -196,21 +326,58 @@ function Projects() {
         code: newProject.code,
         category: newProject.category,
       });
+      let managerSaved = !newProject.managerUserId;
+      let budgetSaved = newProjectBudget.budgetMode === 'none';
+      let partialMessage = null;
       if (newProject.managerUserId) {
         try {
           const managerResponse = await axios.put(`/api/admin/projects/${projectResponse.data.id}/manager`, {
             managerUserId: newProject.managerUserId,
           });
+          managerSaved = true;
           if (managerResponse.data.emailDelivery === 'failed') {
-            setNotice(t('projects.manager.emailFailed'));
+            partialMessage = t('projects.manager.emailFailed');
           }
         } catch (managerError) {
           console.error('Project created but manager assignment failed:', managerError);
-          setNotice(t('projects.manager.errors.createdWithoutManager'));
+          partialMessage = t('projects.manager.errors.createdWithoutManager');
         }
       }
-      fetchProjects();
-      setOpen(false);
+      if (newProjectBudget.budgetMode !== 'none') {
+        try {
+          await axios.patch(`/api/admin/projects/${projectResponse.data.id}/budget`, {
+            reason: newProjectBudgetReason,
+            budget: newProjectBudget,
+          });
+          budgetSaved = true;
+        } catch (budgetError) {
+          console.error('Project created but budget failed:', budgetError);
+          partialMessage = t('projects.budget.errors.createdWithoutBudget');
+        }
+      }
+      await fetchProjects();
+
+      if (!managerSaved || !budgetSaved) {
+        const assignedManager = managerSaved
+          ? managerCandidates.find((candidate) => Number(candidate.id) === Number(newProject.managerUserId))
+          : null;
+        const createdProject = {
+          ...projectResponse.data,
+          manager_user_id: assignedManager?.id || null,
+          managerUserId: assignedManager?.id || null,
+          originalManagerUserId: assignedManager?.id || null,
+          manager_name: assignedManager?.name || '',
+          manager_surname: assignedManager?.surname || '',
+        };
+        setOpen(false);
+        setEditProject(createdProject);
+        setEditBudgetEditing(!budgetSaved);
+        setEditOpen(true);
+        setNotice(partialMessage);
+      } else {
+        forceCreateClose();
+        setNotice(partialMessage);
+      }
       setNewProject({ 
         name: '', 
         description: '',
@@ -219,9 +386,17 @@ function Projects() {
         category: '',
         managerUserId: null,
       });
+      setNewProjectBudget(emptyBudgetDraft());
+      setNewProjectBudgetPreview(emptyBudgetDraft());
+      setNewProjectBudgetReason('');
+      setFormErrors({});
+      return true;
     } catch (error) {
       console.error('Error creating project:', error);
       setError(getApiErrorMessage(error, t, 'projects.errors.create'));
+      return false;
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -230,80 +405,206 @@ function Projects() {
     return client ? client.name : t('projects.noClient');
   };
 
-  const handleEditOpen = (project) => {
-    if (!canEdit) return;
+  const handleEditOpen = (project, initialMode = 'project') => {
     setError(null);
     setNotice(null);
-    setEditProject({ ...project, managerUserId: project.manager_user_id || null, originalManagerUserId: project.manager_user_id || null });
+    setFormErrors({});
+    const nextProject = { ...project, managerUserId: project.manager_user_id || null, originalManagerUserId: project.manager_user_id || null };
+    const isManager = Number(project.manager_user_id) === Number(currentUser?.id);
+    const nextViewMode = initialMode === 'budget' || canEdit || isManager ? 'budget' : 'hours';
+    setEditProject(nextProject);
+    setEditViewMode(nextViewMode);
+    setEditHoursActivated(nextViewMode === 'hours');
+    setEditBudgetEditing(initialMode === 'budget');
+    setEditBudgetPreviewDraft(null);
+    setEditBudgetDirty(false);
+    setEditBudgetStatus(null);
+    setEditBudgetHistory({ versions: [], requests: [], events: [] });
+    setEditBudgetLoadError(null);
+    setEditBudgetMeta({ primaryVisible: false, primaryDisabled: true, hasErrors: false });
     setEditOpen(true);
   };
 
-  const handleEditClose = () => {
+  const forceEditClose = () => {
     setError(null);
+    setProjectActionsAnchorEl(null);
     setEditOpen(false);
     setEditProject(null);
+    setEditViewMode('budget');
+    setEditHoursActivated(false);
+    setEditBudgetDirty(false);
+    setEditBudgetStatus(null);
+    setEditBudgetHistory({ versions: [], requests: [], events: [] });
+    setEditBudgetLoadError(null);
+    setEditBudgetEditing(false);
+    setEditBudgetPreviewDraft(null);
+    setEditBudgetMeta({ primaryVisible: false, primaryDisabled: true, loading: false, hasErrors: false });
+    setConfirmNavigation(null);
+    if (deepLinkTargetsEditProject) navigate('/projects', { replace: true });
   };
 
-  const handleEditSave = async () => {
-    if (!canEdit) return;
-    try {
-      if (!editProject.name.trim()) {
-        setError(t('projects.validation.nameRequired'));
-        return;
-      }
-      if (!editProject.client_id) {
-        setError(t('projects.validation.clientRequired'));
-        return;
-      }
-      if (!editProject.category) {
-        setError(categoryRequiredText);
-        return;
-      }
-      // Duplicate check for name (exclude self, ignore case and whitespace)
-      const nameExists = projects.some(p => p.id !== editProject.id && normalize(p.name) === normalize(editProject.name));
-      if (nameExists) {
-        setError(t('projects.validation.duplicateName')); 
-        return;
-      }
-      // Duplicate check for code (if code is set, exclude self, ignore case and whitespace)
-      if (editProject.code && editProject.code.trim()) {
-        const codeExists = projects.some(p => p.id !== editProject.id && p.code && normalize(p.code) === normalize(editProject.code));
-        if (codeExists) {
-          setError(t('projects.validation.duplicateCode')); 
-          return;
-        }
-      }
-      const { name, description, client_id, code, category } = editProject;
-      await axios.patch(`/api/projects/${editProject.id}`, { name, description, client_id, code, category });
-      if (Number(editProject.managerUserId || 0) !== Number(editProject.originalManagerUserId || 0)) {
-        try {
-          const managerResponse = await axios.put(`/api/admin/projects/${editProject.id}/manager`, {
-            managerUserId: editProject.managerUserId || null,
-          });
-          if (managerResponse.data.emailDelivery === 'failed') {
-            setNotice(t('projects.manager.emailFailed'));
-          }
-        } catch (managerError) {
-          console.error('Project updated but manager assignment failed:', managerError);
-          setNotice(t('projects.manager.errors.updatedWithoutManager'));
-        }
-      }
-      fetchProjects();
-      setEditOpen(false);
-      setEditProject(null);
-    } catch (error) {
-      setError(getApiErrorMessage(error, t, 'projects.errors.update'));
+  const handleEditClose = async () => {
+    const fieldSaved = await detailsFormRef.current?.commitActive?.();
+    if (fieldSaved === false) return;
+    if (editBudgetDirty) {
+      setConfirmNavigation({ dialog: 'edit', kind: 'close-budget' });
+      return;
     }
+    forceEditClose();
+  };
+
+  const handleInlineProjectSave = async (field, nextValue) => {
+    if (!editProject?.id) return { ok: false, error: t('projects.errors.update') };
+    const isManager = Number(editProject.manager_user_id) === Number(currentUser?.id);
+    if (!canEdit && !isManager) return { ok: false, error: t('common.notAuthorized') };
+    try {
+      if (field === 'managerUserId') {
+        if (!canEdit) return { ok: false, error: t('common.notAuthorized') };
+        const managerUserId = nextValue === '' ? null : Number(nextValue);
+        const response = await axios.put(`/api/admin/projects/${editProject.id}/manager`, { managerUserId });
+        const assigned = response.data.manager;
+        const nextProject = {
+          ...editProject,
+          manager_user_id: assigned?.id || null,
+          managerUserId: assigned?.id || null,
+          originalManagerUserId: assigned?.id || null,
+          manager_name: assigned?.name || '',
+          manager_surname: assigned?.surname || '',
+        };
+        setEditProject(nextProject);
+        setProjects((items) => items.map((item) => item.id === nextProject.id ? { ...item, ...nextProject } : item));
+        if (response.data.emailDelivery === 'failed') setNotice(t('projects.manager.emailFailed'));
+        await loadEditBudgetData();
+        return { ok: true };
+      }
+
+      const candidate = { ...editProject, [field]: nextValue };
+      const validation = validateProjectForm(candidate, editProject.id);
+      const errorField = field === 'client_id' ? 'client' : field;
+      if (validation[errorField]) return { ok: false, error: validation[errorField] };
+
+      const response = await axios.patch(`/api/projects/${editProject.id}`, { [field]: nextValue });
+      const updated = response.data;
+      const nextProject = {
+        ...editProject,
+        ...updated,
+        managerUserId: updated.manager_user_id || editProject.managerUserId || null,
+        originalManagerUserId: updated.manager_user_id || editProject.originalManagerUserId || null,
+      };
+      setEditProject(nextProject);
+      setProjects((items) => items.map((item) => item.id === nextProject.id ? { ...item, ...nextProject } : item));
+      return { ok: true };
+    } catch (saveError) {
+      return { ok: false, error: getApiErrorMessage(saveError, t, 'projects.errors.update') };
+    }
+  };
+
+  const handleInlineActiveChange = async (nextActive) => {
+    const previousActive = Boolean(editProject?.active);
+    setActiveSaving(true);
+    setEditProject((current) => current ? { ...current, active: nextActive ? 1 : 0 } : current);
+    const result = await handleInlineProjectSave('active', nextActive);
+    if (!result.ok) {
+      setEditProject((current) => current ? { ...current, active: previousActive ? 1 : 0 } : current);
+      setError(result.error);
+    }
+    setActiveSaving(false);
+  };
+
+  const cancelEditBudgetSettings = () => {
+    if (editBudgetDirty) {
+      setConfirmNavigation({ dialog: 'edit', kind: 'cancel-budget' });
+      return;
+    }
+    setEditBudgetPreviewDraft(null);
+    setEditBudgetEditing(false);
+  };
+
+  const switchEditView = (nextMode) => {
+    if (nextMode === editViewMode) return;
+    if (nextMode === 'hours' && editBudgetDirty) {
+      setConfirmNavigation({ dialog: 'edit', kind: 'switch-hours' });
+      return;
+    }
+    setEditViewMode(nextMode);
+    if (nextMode === 'hours') setEditHoursActivated(true);
+  };
+
+  const handleEditViewKeyDown = (event, currentMode) => {
+    if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+    event.preventDefault();
+    const nextMode = currentMode === 'budget' ? 'hours' : 'budget';
+    editViewButtonRefs.current[nextMode]?.focus();
+    switchEditView(nextMode);
+  };
+
+  const completePendingNavigation = (navigation) => {
+    setConfirmNavigation(null);
+    if (!navigation) return;
+    if (navigation.dialog === 'edit') {
+      if (navigation.kind === 'close-budget') forceEditClose();
+      else {
+        setEditBudgetEditing(false);
+        if (navigation.kind === 'switch-hours') {
+          setEditViewMode('hours');
+          setEditHoursActivated(true);
+        }
+      }
+    } else if (navigation.kind === 'close') {
+      forceCreateClose();
+    } else {
+      setCreateBudgetEditing(false);
+    }
+  };
+
+  const saveAndContinueNavigation = async () => {
+    const navigation = confirmNavigation;
+    if (!navigation) return;
+    const saved = navigation.dialog === 'create' ? await handleSubmit() : false;
+    if (saved) completePendingNavigation(navigation);
+  };
+
+  const discardAndContinueNavigation = () => {
+    const navigation = confirmNavigation;
+    if (!navigation) return;
+    if (navigation.dialog === 'create') {
+      setNewProject({ name: '', description: '', client_id: '', code: '', category: '', managerUserId: null });
+      setNewProjectBudget(emptyBudgetDraft());
+      setNewProjectBudgetPreview(emptyBudgetDraft());
+      setNewProjectBudgetReason('');
+    } else {
+      budgetSectionRef.current?.discard();
+      setEditBudgetPreviewDraft(null);
+    }
+    completePendingNavigation(navigation);
+  };
+
+  const saveEditBudgetAndReturn = async () => {
+    const saved = await budgetSectionRef.current?.save();
+    if (saved) {
+      setEditBudgetPreviewDraft(null);
+      setEditBudgetMeta((current) => ({ ...current, loading: false }));
+      setEditBudgetEditing(false);
+    }
+    return saved;
   };
 
   const handleDeleteProject = (project) => {
     if (!canEdit) return;
+    setProjectActionsAnchorEl(null);
     setProjectToDelete(project);
     setDeleteDialogOpen(true);
   };
 
+  const closeDeleteDialog = () => {
+    if (deletingProject) return;
+    setDeleteDialogOpen(false);
+    setProjectToDelete(null);
+  };
+
   const confirmDeleteProject = async () => {
-    if (!projectToDelete) return;
+    if (!projectToDelete || deletingProject) return;
+    setDeletingProject(true);
     try {
       // Delete all time entries for this project
       await axios.delete(`/api/time-entries/by-project/${projectToDelete.id}`);
@@ -311,21 +612,26 @@ function Projects() {
       await axios.delete(`/api/projects/${projectToDelete.id}`);
       setDeleteDialogOpen(false);
       setProjectToDelete(null);
-      fetchProjects();
+      setProjects((items) => items.filter((item) => Number(item.id) !== Number(projectToDelete.id)));
+      forceEditClose();
     } catch (error) {
       setError(t('projects.errors.delete'));
       setDeleteDialogOpen(false);
       setProjectToDelete(null);
+    } finally {
+      setDeletingProject(false);
     }
   };
 
   const activeCategoryFilters = Object.entries(filters)
-    .filter(([key, enabled]) => enabled && !['scope', 'active', 'closed'].includes(key))
+    .filter(([key, enabled]) => enabled && !['scope', 'active', 'closed', 'requiresDecision'].includes(key))
     .map(([key]) => key);
+  const pendingBudgetProjectIds = new Set(pendingBudgetRequests.map((request) => Number(request.projectId)));
 
   const filteredProjects = projects.filter(project => {
     if (filters.scope === 'mine' && !project.is_my_project) return false;
     if (filters.scope === 'managed' && Number(project.manager_user_id) !== Number(currentUser?.id)) return false;
+    if (filters.requiresDecision && !pendingBudgetProjectIds.has(Number(project.id))) return false;
     const statusVisible = (project.active && filters.active) || (!project.active && filters.closed);
     if (!statusVisible) return false;
     if (activeCategoryFilters.length > 0 && !activeCategoryFilters.includes(project.category || PROJECT_CATEGORY_TRANSITION.value)) {
@@ -404,19 +710,13 @@ function Projects() {
     ...PROJECT_CATEGORY_OPTIONS.map((category) => ({
       key: category.value,
       label: category.label,
-      shortLabel: {
-        external_delivery: isRussian ? 'Внешние' : 'External',
-        internal_project: isRussian ? 'Внутренние' : 'Internal',
-        operations: isRussian ? 'Операционка' : 'Operations',
-        people_development: isRussian ? 'Развитие' : 'Development',
-        time_off: isRussian ? 'Отсутствия' : 'Time off',
-      }[category.value] || category.label,
+      shortLabel: t(`projects.filters.shortCategories.${category.value}`),
       tooltip: t(`projects.filters.tooltips.${category.value}`),
     })),
     {
       key: PROJECT_CATEGORY_TRANSITION.value,
       label: unclassifiedFilterLabel,
-      shortLabel: isRussian ? 'Без категории' : 'Unclassified',
+      shortLabel: t('projects.filters.shortCategories.unclassified'),
       tooltip: t('projects.filters.tooltips.unclassified'),
     },
   ];
@@ -434,6 +734,7 @@ function Projects() {
   const hasNonDefaultFilters = filters.scope !== 'mine'
     || !filters.active
     || filters.closed
+    || filters.requiresDecision
     || activeCategoryFilters.length > 0;
 
   const clearCategoryFilters = () => {
@@ -453,6 +754,7 @@ function Projects() {
       scope: 'mine',
       active: true,
       closed: false,
+      requiresDecision: false,
       external_delivery: false,
       internal_project: false,
       operations: false,
@@ -465,7 +767,7 @@ function Projects() {
   return (
     <PageLayout
       title={t('projects.title')}
-      subtitle={projects.length + (isRussian ? ' \u043f\u0440\u043e\u0435\u043a\u0442\u0430 \u0432 \u043a\u0430\u0442\u0430\u043b\u043e\u0433\u0435' : ' projects in catalog')}
+      subtitle={t('projects.catalogCount', { count: projects.length })}
       actions={
         canEdit ? (
           <Button
@@ -518,6 +820,22 @@ function Projects() {
                   />
                 </Tooltip>
               ))}
+              {canEdit ? (
+                <Tooltip title={t('projects.filters.tooltips.requiresDecision')} arrow>
+                  <Chip
+                    label={`${t('projects.filters.requiresDecision')} · ${pendingBudgetRequests.length}`}
+                    clickable
+                    onClick={() => setFilters((currentFilters) => ({ ...currentFilters, requiresDecision: !currentFilters.requiresDecision }))}
+                    sx={{
+                      ...pageFilterChipSx,
+                      flexShrink: 0,
+                      ...(filters.requiresDecision
+                        ? { background: '#FCF0EB', color: '#C95425', border: '1px solid #E77142' }
+                        : { background: '#F5F7FA', color: '#90A0B7', border: 'none' }),
+                    }}
+                  />
+                </Tooltip>
+              ) : null}
             </Box>
 
             <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', md: 'block' }, mx: 0.25 }} />
@@ -596,7 +914,7 @@ function Projects() {
                   },
                 }}
               >
-                {isRussian ? 'Сбросить' : 'Reset'}
+                {t('projects.filters.reset')}
               </Button>
             </Box>
 
@@ -694,11 +1012,17 @@ function Projects() {
           {error}
         </Alert>
       )}
-      {notice && (
-        <Alert severity="warning" onClose={() => setNotice(null)} sx={{ mb: 2 }}>
+      <Snackbar
+        open={Boolean(notice)}
+        autoHideDuration={8000}
+        onClose={(_event, reason) => { if (reason !== 'clickaway') setNotice(null); }}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+        sx={{ top: { xs: '72px !important', sm: editOpen || open ? '204px !important' : '88px !important' }, maxWidth: 'calc(100vw - 32px)' }}
+      >
+        <Alert severity="warning" variant="filled" onClose={() => setNotice(null)} sx={{ width: '100%', maxWidth: 900, boxShadow: '0 10px 28px rgba(31,58,95,.18)' }}>
           {notice}
         </Alert>
-      )}
+      </Snackbar>
 
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
         {filteredProjects.length === 0 && (
@@ -730,97 +1054,67 @@ function Projects() {
             </Box>
             <Grid container spacing={3}>
               {group.projects.map((project) => {
-                const expanded = expandedProjectIds.includes(project.id);
                 const categoryMeta = getProjectCategoryMeta(project.category);
+                const hasPendingBudgetRequest = Boolean(
+                  project.has_pending_budget_request
+                  || pendingBudgetProjectIds.has(Number(project.id))
+                );
+                const managerName = project.manager_user_id
+                  ? [project.manager_surname, project.manager_name].filter(Boolean).join(' ')
+                  : t('projects.manager.unassigned');
+                const projectClient = clients.find((client) => client.id === project.client_id);
+                const clientName = `${getClientName(project.client_id)}${
+                  projectClient?.type ? ` (${projectClient.type.charAt(0).toUpperCase() + projectClient.type.slice(1)})` : ''
+                }`;
+                const description = project.description?.trim() || t('projects.noDescription');
                 return (
-                  <Grid item xs={12} sm={6} md={4} key={project.id}>
+                  <Grid item xs={12} sm={6} md={4} key={project.id} sx={{ display: 'flex' }}>
                     <Card
+                      role="button"
+                      tabIndex={0}
+                      aria-label={t('projects.dialog.openProject', { name: project.name })}
+                      onClick={() => handleEditOpen(project, hasPendingBudgetRequest ? 'budget' : 'project')}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          handleEditOpen(project, hasPendingBudgetRequest ? 'budget' : 'project');
+                        }
+                      }}
                       sx={{
-                        background: 'rgba(255, 255, 255, 0.9)',
-                        border: '1px solid rgba(214, 222, 240, 0.95)',
-                        borderRadius: '14px',
-                        boxShadow: '0 8px 24px rgba(90, 112, 184, 0.08)',
-                        minHeight: 150,
-                        transition: 'transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease',
-                        '&:hover': {
-                          transform: 'translateY(-1px)',
-                          boxShadow: '0 12px 28px rgba(90, 112, 184, 0.12)',
-                          borderColor: 'rgba(173, 188, 228, 0.95)',
-                        },
+                        ...projectCardSurfaceSx,
+                        width: '100%',
+                        height: 190,
+                        cursor: 'pointer',
                       }}
                     >
-                      <CardContent sx={{ p: 1.5, pb: '12px !important', minHeight: 110, display: 'flex', flexDirection: 'column', justifyContent: 'flex-start' }}>
+                      <CardContent sx={{ p: 1.5, pb: '12px !important', height: '100%', minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
                           <Tooltip title={project.name} placement="top" arrow>
-                            <Typography variant="subtitle1" component="div" sx={{ fontWeight: 600, fontSize: 17, pr: 1, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            <Typography variant="subtitle1" component="div" sx={{ fontWeight: 600, fontSize: 17, pr: 1, flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                               {project.name}
                             </Typography>
                           </Tooltip>
-                          <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 0, gap: 0.3 }}>
-                            <IconButton
-                              size="small"
-                              onClick={() => {
-                                if (expanded) {
-                                  setExpandedProjectIds(expandedProjectIds.filter(id => id !== project.id));
-                                } else {
-                                  setExpandedProjectIds([...expandedProjectIds, project.id]);
-                                }
-                              }}
-                              aria-label={expanded ? t('projects.collapse') : t('projects.expand')}
-                              sx={{
-                                height: 28,
-                                width: 28,
-                                color: '#5673DC',
-                                backgroundColor: 'rgba(86,115,220,0.08)',
-                                mr: 0.25,
-                                '&:hover': {
-                                  backgroundColor: 'rgba(86,115,220,0.14)',
-                                },
-                              }}
-                            >
-                              {expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
-                            </IconButton>
-                            <Typography sx={{ fontWeight: 500, fontSize: 13, color: project.active ? '#5673DC' : '#bdbdbd', lineHeight: 1, display: 'flex', alignItems: 'center', mr: 0.5 }}>
+                          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ flexShrink: 0 }}>
+                            {hasPendingBudgetRequest ? (
+                              <Tooltip title={t('projects.budget.pendingApprovalIndicator')} arrow>
+                                <Chip
+                                  size="small"
+                                  label="1"
+                                  aria-label={t('projects.budget.pendingApprovalIndicator')}
+                                  sx={{ minWidth: 24, height: 22, background: '#FCF0EB', color: '#C95425', fontWeight: 700 }}
+                                />
+                              </Tooltip>
+                            ) : null}
+                            <Typography sx={getProjectStatusLabelSx(project.active)}>
                               {project.active ? t('projects.activeStatus') : t('projects.closedStatus')}
                             </Typography>
-                            <Switch
-                              size="small"
-                              checked={!!project.active}
-                              onChange={async (e) => {
-                                if (!canEdit) return;
-                                try {
-                                  await axios.patch(`/api/projects/${project.id}/active`, { active: e.target.checked ? 1 : 0 });
-                                  fetchProjects();
-                                } catch (err) {
-                                  setError(t('projects.errors.updateStatus'));
-                                }
-                              }}
-                              disabled={!canEdit}
-                              sx={{
-                                '& .MuiSwitch-switchBase.Mui-checked': {
-                                  color: '#fff',
-                                },
-                                '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                                  backgroundColor: '#5673DC',
-                                  opacity: 1,
-                                },
-                                '& .MuiSwitch-thumb': {
-                                  backgroundColor: '#fff',
-                                  boxShadow: '1',
-                                },
-                                '& .MuiSwitch-track': {
-                                  backgroundColor: '#E2E4E9',
-                                  opacity: 1,
-                                },
-                              }}
-                            />
-                          </Box>
+                          </Stack>
                         </Box>
-                        {project.code !== undefined && (
-                          <Typography variant="caption" sx={{ color: '#5673DC', fontWeight: 500, fontSize: 13, mb: 0.25, display: 'block', textAlign: 'left', mt: 0.5 }}>
-                            {t('projects.code')}: {project.code ? project.code : t('projects.noCode')}
+                        <Tooltip title={project.code || t('projects.noCode')} placement="top" arrow>
+                          <Typography variant="caption" sx={{ color: '#5673DC', fontWeight: 500, fontSize: 13, mb: 0.25, display: 'block', textAlign: 'left', mt: 0.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {t('projects.code')}: {project.code || t('projects.noCode')}
                           </Typography>
-                        )}
+                        </Tooltip>
                         <Box sx={{ mb: 0.75, mt: 0.5 }}>
                           <Chip
                             size="small"
@@ -834,90 +1128,34 @@ function Projects() {
                             }}
                           />
                         </Box>
-                        <Typography color="text.secondary" variant="body2" sx={{ mb: 0.25, fontSize: 13, lineHeight: 1.3 }}>
-                          {t('projects.client')}: {getClientName(project.client_id)}{(() => {
-                            const client = clients.find((c) => c.id === project.client_id);
-                            return client && client.type ? ` (${client.type.charAt(0).toUpperCase() + client.type.slice(1)})` : '';
-                          })()}
-                        </Typography>
-                        {(project.manager_user_id || canEdit) && (
-                          <Typography color="text.secondary" variant="body2" sx={{ mb: 0.25, fontSize: 13, lineHeight: 1.3 }}>
-                            {t('projects.manager.label')}: {project.manager_user_id
-                              ? [project.manager_surname, project.manager_name].filter(Boolean).join(' ')
-                              : t('projects.manager.unassigned')}
+                        <Tooltip title={`${t('projects.client')}: ${clientName}`} placement="top" arrow>
+                          <Typography color="text.secondary" variant="body2" sx={{ mb: 0.25, fontSize: 13, lineHeight: 1.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {t('projects.client')}: {clientName}
                           </Typography>
-                        )}
-                        {!expanded && project.description && (
-                          <Typography color="text.secondary" variant="body2" sx={{ fontSize: 13, lineHeight: 1.3, mb: 0.25, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {project.description}
+                        </Tooltip>
+                        <Tooltip title={`${t('projects.manager.label')}: ${managerName}`} placement="top" arrow>
+                          <Typography color="text.secondary" variant="body2" sx={{ mb: 0.25, fontSize: 13, lineHeight: 1.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {t('projects.manager.label')}: {managerName}
                           </Typography>
-                        )}
-                        {expanded && (
-                          <>
-                            <Typography color="text.secondary" variant="body2" sx={{ fontSize: 13, lineHeight: 1.3, mb: 0.5 }}>
-                              {project.description}
-                            </Typography>
-                            {canEdit && (
-                              <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', mt: 0.5, mb: 1 }}>
-                                <ProjectAnalyticsButton onClick={() => handleAnalyticsOpen(project)} />
-                                <Box sx={{ flex: 1 }} />
-                                <Button
-                                  size="small"
-                                  variant="outlined"
-                                  onClick={() => handleEditOpen(project)}
-                                  sx={{
-                                    minWidth: 70,
-                                    height: 32,
-                                    borderRadius: 2,
-                                    border: '1.5px solid #E2E4E9',
-                                    color: '#222',
-                                    background: '#f7f8fa',
-                                    fontWeight: 500,
-                                    fontSize: 12,
-                                    boxShadow: 'none',
-                                    textTransform: 'none',
-                                    px: 1.2,
-                                    ml: 1,
-                                    '&:hover': {
-                                      background: 'rgba(86,115,220,0.10)',
-                                      border: '1.5px solid #5673DC',
-                                      color: '#5673DC',
-                                    },
-                                  }}
-                                >
-                                  {t('users.editUser')}
-                                </Button>
-                                <Button
-                                  size="small"
-                                  color="error"
-                                  startIcon={<DeleteIcon />}
-                                  onClick={() => handleDeleteProject(project)}
-                                  sx={{
-                                    minWidth: 70,
-                                    height: 32,
-                                    borderRadius: 2,
-                                    border: '1.5px solid #E2E4E9',
-                                    color: '#d32f2f',
-                                    background: '#f7f8fa',
-                                    fontWeight: 500,
-                                    fontSize: 12,
-                                    boxShadow: 'none',
-                                    textTransform: 'none',
-                                    px: 1.2,
-                                    ml: 1,
-                                    '&:hover': {
-                                      background: 'rgba(211,47,47,0.10)',
-                                      border: '1.5px solid #d32f2f',
-                                      color: '#d32f2f',
-                                    },
-                                  }}
-                                >
-                                  {t('projects.deleteProject')}
-                                </Button>
-                              </Box>
-                            )}
-                          </>
-                        )}
+                        </Tooltip>
+                        <Tooltip title={description} placement="top" arrow>
+                          <Typography
+                            color="text.secondary"
+                            variant="body2"
+                            sx={{
+                              fontSize: 13,
+                              lineHeight: 1.3,
+                              mt: 'auto',
+                              minHeight: '2.6em',
+                              display: '-webkit-box',
+                              WebkitBoxOrient: 'vertical',
+                              WebkitLineClamp: 2,
+                              overflow: 'hidden',
+                            }}
+                          >
+                            {description}
+                          </Typography>
+                        </Tooltip>
                       </CardContent>
                     </Card>
                   </Grid>
@@ -928,261 +1166,392 @@ function Projects() {
         ))}
       </Box>
 
-      <Dialog open={open} onClose={handleClose}>
-        <DialogTitle>{t('projects.addProject')}</DialogTitle>
-        <DialogContent>
+      <ProjectDialogLayout
+        open={open}
+        onClose={handleClose}
+        title={t('projects.dialog.newTitle')}
+        subtitle={t('projects.dialog.newSubtitle')}
+        chips={newProject.category ? [{ key: 'category', label: PROJECT_CATEGORY_OPTIONS.find((item) => item.value === newProject.category)?.label, sx: getCategoryChipStyles(newProject.category) }] : []}
+        secondaryLabel={t('common.actions.cancel')}
+        onSecondary={handleClose}
+        primaryLabel={t('projects.dialog.create')}
+        onPrimary={handleSubmit}
+        primaryDisabled={saving}
+        primaryVisible
+        closeDisabled={saving}
+      >
           {error && (
             <Alert severity="error" sx={{ mb: 2 }}>
               {error}
             </Alert>
           )}
-          <TextField
-            select
-            fullWidth
-            margin="dense"
-            label={categoryFieldLabel}
-            value={newProject.category}
-            onChange={(e) => setNewProject({ ...newProject, category: e.target.value })}
-            error={!!error && !newProject.category}
-            helperText={!newProject.category ? categoryRequiredText : categoryHelpText}
-          >
-            {PROJECT_CATEGORY_OPTIONS.map((category) => (
-              <MenuItem key={category.value} value={category.value}>
-                {category.label}
-              </MenuItem>
-            ))}
-          </TextField>
-          <TextField
-            select
-            fullWidth
-            margin="dense"
-            label={t('projects.client')}
-            value={newProject.client_id}
-            onChange={(e) => setNewProject({ ...newProject, client_id: e.target.value })}
-            error={!!error && !newProject.client_id}
-            helperText={!newProject.client_id ? t('projects.validation.clientRequired') : ''}
-          >
-            {clients.map((client) => (
-              <MenuItem key={client.id} value={client.id}>
-                {client.name} ({client.type})
-              </MenuItem>
-            ))}
-          </TextField>
-          <Autocomplete
-            options={managerCandidates}
-            value={managerCandidates.find((candidate) => candidate.id === newProject.managerUserId) || null}
-            onChange={(_event, candidate) => setNewProject({ ...newProject, managerUserId: candidate?.id || null })}
-            isOptionEqualToValue={(option, value) => option.id === value.id}
-            getOptionLabel={(candidate) => `${[candidate.surname, candidate.name].filter(Boolean).join(' ')} · ${candidate.email} · ${candidate.role === 'admin' ? t('users.admin') : t('users.user')}`}
-            renderInput={(params) => <TextField {...params} margin="dense" label={t('projects.manager.label')} placeholder={t('projects.manager.unassigned')} />}
-          />
-          <TextField
-            autoFocus
-            margin="dense"
-            label={t('projects.projectName')}
-            fullWidth
-            value={newProject.name}
-            onChange={(e) => setNewProject({ ...newProject, name: e.target.value })}
-            error={!!error && !newProject.name.trim()}
-            helperText={!newProject.name.trim() ? t('projects.validation.nameRequired') : ''}
-          />
-          <TextField
-            margin="dense"
-            label={t('projects.projectCode')}
-            fullWidth
-            value={newProject.code}
-            onChange={(e) => setNewProject({ ...newProject, code: e.target.value })}
-          />
-          <TextField
-            margin="dense"
-            label={t('projects.description')}
-            fullWidth
-            multiline
-            rows={4}
-            value={newProject.description}
-            onChange={(e) => setNewProject({ ...newProject, description: e.target.value })}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleClose}
-            variant="outlined"
-            sx={{
-              minWidth: 70,
-              height: 32,
-              borderRadius: 2,
-              border: '1.5px solid #E2E4E9',
-              color: '#222',
-              background: '#f7f8fa',
-              fontWeight: 500,
-              fontSize: 12,
-              boxShadow: 'none',
-              textTransform: 'none',
-              px: 1.2,
-              '&:hover': {
-                background: 'rgba(86,115,220,0.10)',
-                border: '1.5px solid #5673DC',
-                color: '#5673DC',
-              },
-            }}
-          >
-            {t('common.actions.cancel')}
-          </Button>
-          <Button onClick={handleSubmit} variant="contained" color="primary"
-            sx={{
-              minWidth: 70,
-              height: 32,
-              borderRadius: 2,
-              fontWeight: 500,
-              fontSize: 12,
-              textTransform: 'none',
-              px: 1.2,
-              backgroundColor: '#8196E4',
-              color: '#FFFFFF',
-              boxShadow: 3,
-              '&:hover': {
-                backgroundColor: '#4A69D9',
-              },
-            }}
-          >
-            {t('projects.addProject')}
-          </Button>
-        </DialogActions>
-      </Dialog>
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: 'minmax(400px, 38%) minmax(0, 62%)' }, gap: 1.5, alignItems: 'stretch', minWidth: 0, height: { lg: '100%' } }}>
+              <ProjectDetailsForm
+                value={newProject}
+                onChange={setNewProject}
+                canEdit
+                clients={clients}
+                managerCandidates={managerCandidates}
+                categoryOptions={PROJECT_CATEGORY_OPTIONS}
+                errors={formErrors}
+                labels={{
+                  sectionTitle: t('projects.dialog.projectDataTitle'),
+                  category: categoryFieldLabel,
+                  client: t('projects.client'),
+                  name: t('projects.projectName'),
+                  code: t('projects.projectCode'),
+                  manager: t('projects.manager.label'),
+                  unassigned: t('projects.manager.unassigned'),
+                  description: t('projects.description'),
+                }}
+              />
+              <ProjectBudgetOverview
+                previewDraft={newProjectBudgetPreview}
+                previewKind={createBudgetEditing ? 'preview' : null}
+                previewError={createBudgetEditing && Object.keys(validateBudgetDraft(newProjectBudget, true)).length > 0}
+                editing={createBudgetEditing}
+                onSettings={() => setCreateBudgetEditing(true)}
+                onCancel={() => setCreateBudgetEditing(false)}
+                cancelLabel={t('projects.budget.overview.backToOverview')}
+                applyVisible={false}
+                settingsContent={(
+                  <ProjectBudgetSection
+                    isAdmin
+                    creationDraft={newProjectBudget}
+                    onCreationDraftChange={handleCreateBudgetChange}
+                    creationReason={newProjectBudgetReason}
+                    onCreationReasonChange={setNewProjectBudgetReason}
+                    validationVisible={Boolean(error)}
+                  />
+                )}
+              />
+            </Box>
+      </ProjectDialogLayout>
 
-      <ProjectAnalyticsDialog
-        open={analyticsOpen}
-        project={selectedProject}
-        onClose={handleAnalyticsClose}
-      />
-
-      <Dialog open={editOpen} onClose={handleEditClose}>
-        <DialogTitle>{t('projects.editProject')}</DialogTitle>
-        <DialogContent>
+      <ProjectDialogLayout
+        open={editOpen}
+        onClose={handleEditClose}
+        title={editProject?.name || t('projects.editProject')}
+        subtitle={[
+          editProject?.code ? `${t('projects.code')}: ${editProject.code}` : null,
+          editProject?.client_id ? getClientName(editProject.client_id) : null,
+          editProject?.manager_user_id ? [editProject.manager_surname, editProject.manager_name].filter(Boolean).join(' ') : t('projects.manager.unassigned'),
+        ].filter(Boolean).join(' · ')}
+        chips={[
+          editProject?.category ? { key: 'category', label: getProjectCategoryMeta(editProject.category).label, sx: getCategoryChipStyles(editProject.category) } : null,
+          { key: 'active', label: editProject?.active ? t('projects.activeStatus') : t('projects.closedStatus'), sx: editProject?.active ? { background: '#EEF3FF', color: '#3F5FC8' } : { background: '#F0F1F3', color: '#6F7784' } },
+          canViewEditProjectFinance
+            ? editBudgetLoading && !editBudgetStatus
+              ? null
+              : editBudgetStatus?.budget
+                ? { key: 'budget', label: t('projects.budget.version', { version: editBudgetStatus.budget.version }), sx: { background: '#EAF6F0', color: '#287A52' } }
+                : { key: 'budget-none', label: t('projects.budget.modes.none'), sx: { background: '#F0F1F3', color: '#6F7784' } }
+            : null,
+          canViewEditProjectFinance && editBudgetStatus?.activeRequest ? {
+            key: 'request',
+            label: `${t('projects.budget.version', { version: editBudgetStatus.activeRequest.proposedVersionNumber })} · ${t('projects.budget.statuses.pending')}`,
+            sx: { background: '#FCF0EB', color: '#E77142' },
+          } : null,
+        ].filter(Boolean)}
+        headerAction={(
+          <Stack direction="row" alignItems="center" spacing={0.75}>
+            <Box
+              role="tablist"
+              aria-label={t('projects.hoursOverview.viewSelector')}
+              sx={{
+                width: { xs: 178, sm: 196 },
+                height: 36,
+                p: '3px',
+                display: 'flex',
+                alignItems: 'stretch',
+                borderRadius: 999,
+                background: '#F1F2F4',
+              }}
+            >
+              {['budget', 'hours'].map((mode) => (
+                <ToggleButton
+                  key={mode}
+                  ref={(node) => { editViewButtonRefs.current[mode] = node; }}
+                  value={mode}
+                  selected={editViewMode === mode}
+                  role="tab"
+                  aria-selected={editViewMode === mode}
+                  aria-controls={`project-${mode}-panel`}
+                  onClick={() => switchEditView(mode)}
+                  onKeyDown={(event) => handleEditViewKeyDown(event, mode)}
+                  sx={{
+                    flex: 1,
+                    minWidth: 0,
+                    height: 30,
+                    px: 1,
+                    border: '0 !important',
+                    borderRadius: '999px !important',
+                    color: '#566071',
+                    fontSize: { xs: 11.5, sm: 12 },
+                    fontWeight: 500,
+                    lineHeight: 1,
+                    textTransform: 'none',
+                    whiteSpace: 'nowrap',
+                    '&.Mui-selected': {
+                      color: '#1D2433',
+                      background: '#FFFFFF',
+                      boxShadow: '0 2px 8px rgba(31,42,68,.12)',
+                      fontWeight: 700,
+                    },
+                    '&.Mui-selected:hover': { background: '#FFFFFF' },
+                    '&:hover': { background: 'rgba(255,255,255,.55)' },
+                    '&.Mui-focusVisible': { outline: '3px solid rgba(86,115,220,.20)', outlineOffset: 1 },
+                  }}
+                >
+                  {mode === 'budget' ? t('projects.budget.title') : t('projects.hoursOverview.modeHours')}
+                </ToggleButton>
+              ))}
+            </Box>
+            {canEdit || isEditProjectManager ? (
+              <Tooltip title={t('projects.moreActions')} arrow>
+                <span>
+                  <IconButton
+                    aria-label={t('projects.moreActions')}
+                    disabled={activeSaving || deletingProject}
+                    onClick={(event) => setProjectActionsAnchorEl(event.currentTarget)}
+                    sx={{ color: '#7D8797', background: '#F5F7FA', '&:hover': { background: '#E9EDF5' } }}
+                  >
+                    {activeSaving ? <CircularProgress size={20} /> : <MoreVertIcon />}
+                  </IconButton>
+                </span>
+              </Tooltip>
+            ) : null}
+          </Stack>
+        )}
+        secondaryLabel={t('common.actions.cancel')}
+        onSecondary={handleEditClose}
+        primaryLabel={t('projects.dialog.saveProject')}
+        onPrimary={() => {}}
+        actionsVisible={false}
+        closeDisabled={activeSaving || deletingProject || editBudgetMeta.loading}
+      >
           {error && (
             <Alert severity="error" sx={{ mb: 2 }}>
               {error}
             </Alert>
           )}
-          <TextField
-            select
-            fullWidth
-            margin="dense"
-            label={categoryFieldLabel}
-            value={editProject?.category || ''}
-            onChange={(e) => setEditProject({ ...editProject, category: e.target.value })}
-            error={!!error && !editProject?.category}
-            helperText={!editProject?.category ? categoryRequiredText : categoryHelpText}
+          {editProject ? (
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: 'minmax(400px, 38%) minmax(0, 62%)' }, gap: 1.5, alignItems: 'stretch', minWidth: 0, height: { lg: '100%' } }}>
+              <ProjectDetailsForm
+                ref={detailsFormRef}
+                value={editProject}
+                onChange={setEditProject}
+                canEdit={canEdit || isEditProjectManager}
+                canEditManager={canEdit}
+                inline
+                onSaveField={handleInlineProjectSave}
+                clients={clients}
+                managerCandidates={managerCandidates}
+                categoryOptions={PROJECT_CATEGORY_OPTIONS}
+                errors={formErrors}
+                currentManagerName={[editProject.manager_surname, editProject.manager_name].filter(Boolean).join(' ')}
+                labels={{
+                  sectionTitle: t('projects.dialog.projectDataTitle'),
+                  category: categoryFieldLabel,
+                  client: t('projects.client'),
+                  name: t('projects.projectName'),
+                  code: t('projects.projectCode'),
+                  manager: t('projects.manager.label'),
+                  unassigned: t('projects.manager.unassigned'),
+                  description: t('projects.description'),
+                  retry: t('common.actions.retry'),
+                  revert: t('common.actions.revert'),
+                  saving: t('projects.inline.saving'),
+                  saved: t('projects.inline.saved'),
+                }}
+              />
+              <Box sx={{ minWidth: 0, minHeight: 0, height: { lg: '100%' } }}>
+                {editViewMode === 'budget' ? (
+                  <Box id="project-budget-panel" role="tabpanel" sx={{ height: '100%', minWidth: 0 }}>
+                    {canViewEditProjectFinance ? <ProjectBudgetOverview
+                      status={editBudgetStatus}
+                      loading={editBudgetLoading}
+                      error={editBudgetLoadError}
+                      previewDraft={editBudgetEditing ? editBudgetPreviewDraft : null}
+                      previewKind={editBudgetEditing ? (editBudgetStatus?.activeRequest ? 'proposal' : 'preview') : null}
+                      previewError={editBudgetEditing && Boolean(editBudgetMeta.hasErrors)}
+                      editing={editBudgetEditing}
+                      onSettings={() => {
+                        setEditBudgetPreviewDraft(null);
+                        setEditBudgetEditing(true);
+                      }}
+                      onCancel={cancelEditBudgetSettings}
+                      onApply={saveEditBudgetAndReturn}
+                      cancelLabel={editBudgetStatus?.activeRequest ? t('projects.budget.overview.backToOverview') : t('common.actions.cancel')}
+                      applyLabel={
+                        editBudgetMeta.action === 'updateRequest'
+                          ? t('projects.budget.updateRequest')
+                          : editBudgetMeta.action === 'request'
+                            ? t('projects.budget.request')
+                            : t('projects.budget.saveParameters')
+                      }
+                      applyDisabled={editBudgetMeta.primaryDisabled || !editBudgetMeta.primaryVisible}
+                      applyVisible={editBudgetMeta.primaryVisible}
+                      isAdmin={canEdit}
+                      isManager={!canEdit && isEditProjectManager}
+                      settingsContent={(
+                        <ProjectBudgetSection
+                          ref={budgetSectionRef}
+                          projectId={editProject.id}
+                          isAdmin={canEdit}
+                          isManager={!canEdit && isEditProjectManager}
+                          onDirtyChange={setEditBudgetDirty}
+                          onMetaChange={setEditBudgetMeta}
+                          onPreviewDraftChange={setEditBudgetPreviewDraft}
+                          status={editBudgetStatus}
+                          history={editBudgetHistory}
+                          loading={editBudgetLoading}
+                          loadError={editBudgetLoadError}
+                          reload={loadEditBudgetData}
+                          focusedRequestId={deepLinkTargetsEditProject ? focusedBudgetRequestId : null}
+                          focusedNotificationId={deepLinkTargetsEditProject ? focusedBudgetNotificationId : null}
+                          initialView={deepLinkTargetsEditProject ? initialBudgetView : null}
+                          onResultAcknowledged={() => navigate('/projects', { replace: true })}
+                          onCompleted={() => {
+                            setEditBudgetPreviewDraft(null);
+                            setEditBudgetMeta((current) => ({ ...current, loading: false }));
+                            setEditBudgetEditing(false);
+                          }}
+                        />
+                      )}
+                    /> : <ProjectBudgetOverview restricted />}
+                  </Box>
+                ) : null}
+                {editHoursActivated ? (
+                  <Box
+                    id="project-hours-panel"
+                    role="tabpanel"
+                    hidden={editViewMode !== 'hours'}
+                    sx={{ height: '100%', minWidth: 0, display: editViewMode === 'hours' ? 'block' : 'none' }}
+                  >
+                    <ProjectHoursOverview project={editProject} active={editViewMode === 'hours'} />
+                  </Box>
+                ) : null}
+              </Box>
+            </Box>
+          ) : null}
+      </ProjectDialogLayout>
+
+      <Menu
+        anchorEl={projectActionsAnchorEl}
+        open={Boolean(projectActionsAnchorEl)}
+        onClose={() => setProjectActionsAnchorEl(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        PaperProps={{
+          elevation: 0,
+          sx: {
+            mt: 0.75,
+            minWidth: 188,
+            maxWidth: 240,
+            p: 0.5,
+            overflow: 'visible',
+            background: 'rgba(255,255,255,0.98)',
+            border: '1px solid rgba(214,222,240,0.95)',
+            borderRadius: '14px',
+            boxShadow: '0 12px 28px rgba(90,112,184,0.14)',
+          },
+        }}
+        MenuListProps={{
+          dense: true,
+          sx: { p: 0 },
+        }}
+      >
+        {canEdit || isEditProjectManager ? (
+          <MenuItem
+            disabled={!editProject || activeSaving || deletingProject}
+            onClick={() => {
+              setProjectActionsAnchorEl(null);
+              handleInlineActiveChange(!editProject?.active);
+            }}
+            sx={{
+              minHeight: 34,
+              px: 1,
+              py: 0.5,
+              gap: 0.75,
+              borderRadius: '9px',
+              fontSize: 13.5,
+              color: '#2D3748',
+              '&:hover': { background: '#F4F6FC' },
+              '&:focus-visible': {
+                background: '#F4F6FC',
+                outline: '2px solid rgba(86,115,220,0.28)',
+                outlineOffset: '-2px',
+              },
+            }}
           >
-            {PROJECT_CATEGORY_OPTIONS.map((category) => (
-              <MenuItem key={category.value} value={category.value}>
-                {category.label}
-              </MenuItem>
-            ))}
-          </TextField>
-          <TextField
-            select
-            fullWidth
-            margin="dense"
-            label={t('projects.client')}
-            value={editProject?.client_id || ''}
-            onChange={(e) => setEditProject({ ...editProject, client_id: e.target.value })}
-            error={!!error && !editProject?.client_id}
-            helperText={!editProject?.client_id ? t('projects.validation.clientRequired') : ''}
-          >
-            {clients.map((client) => (
-              <MenuItem key={client.id} value={client.id}>
-                {client.name} ({client.type})
-              </MenuItem>
-            ))}
-          </TextField>
-          <Autocomplete
-            options={managerCandidates}
-            value={managerCandidates.find((candidate) => candidate.id === editProject?.managerUserId) || null}
-            onChange={(_event, candidate) => setEditProject({ ...editProject, managerUserId: candidate?.id || null })}
-            isOptionEqualToValue={(option, value) => option.id === value.id}
-            getOptionLabel={(candidate) => `${[candidate.surname, candidate.name].filter(Boolean).join(' ')} · ${candidate.email} · ${candidate.role === 'admin' ? t('users.admin') : t('users.user')}`}
-            renderInput={(params) => <TextField {...params} margin="dense" label={t('projects.manager.label')} placeholder={t('projects.manager.unassigned')} />}
-          />
-          <TextField
-            autoFocus
-            margin="dense"
-            label={t('projects.projectName')}
-            fullWidth
-            value={editProject?.name || ''}
-            onChange={(e) => setEditProject({ ...editProject, name: e.target.value })}
-            error={!!error && !editProject?.name?.trim()}
-            helperText={!editProject?.name?.trim() ? t('projects.validation.nameRequired') : ''}
-          />
-          <TextField
-            margin="dense"
-            label={t('projects.projectCode')}
-            fullWidth
-            value={editProject?.code || ''}
-            onChange={(e) => setEditProject({ ...editProject, code: e.target.value })}
-          />
-          <TextField
-            margin="dense"
-            label={t('projects.description')}
-            fullWidth
-            multiline
-            rows={4}
-            value={editProject?.description || ''}
-            onChange={(e) => setEditProject({ ...editProject, description: e.target.value })}
-          />
+            {editProject?.active
+              ? <PauseCircleOutlineIcon sx={{ color: '#657083', fontSize: 18 }} />
+              : <PlayCircleOutlineIcon sx={{ color: '#287A52', fontSize: 18 }} />}
+            {editProject?.active ? t('projects.closeProject') : t('projects.activateProject')}
+          </MenuItem>
+        ) : null}
+        {canEdit ? <Divider sx={{ my: 0.5, borderColor: 'rgba(214,222,240,0.8)' }} /> : null}
+        {canEdit ? <MenuItem
+          disabled={!canEdit || deletingProject}
+          onClick={() => handleDeleteProject(editProject)}
+          sx={{
+            minHeight: 34,
+            px: 1,
+            py: 0.5,
+            gap: 0.75,
+            borderRadius: '9px',
+            fontSize: 13.5,
+            color: '#C43D36',
+            '&:hover': { background: '#FFF3F1' },
+            '&:focus-visible': {
+              background: '#FFF3F1',
+              outline: '2px solid rgba(196,61,54,0.24)',
+              outlineOffset: '-2px',
+            },
+          }}
+        >
+          <DeleteIcon sx={{ fontSize: 18 }} />
+          {t('projects.deleteProject')}
+        </MenuItem> : null}
+      </Menu>
+
+      <Dialog open={Boolean(confirmNavigation)} onClose={() => setConfirmNavigation(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>{confirmNavigation?.dialog === 'edit' ? t('projects.dialog.unsavedBudgetTitle') : t('projects.dialog.unsavedTitle')}</DialogTitle>
+        <DialogContent>
+          <Typography color="text.secondary">
+            {confirmNavigation?.kind === 'switch-hours'
+              ? t('projects.hoursOverview.unsavedSwitchMessage')
+              : confirmNavigation?.dialog === 'edit'
+                ? t('projects.dialog.unsavedBudgetMessage')
+                : t('projects.dialog.unsavedMessage')}
+          </Typography>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={handleEditClose}
-            variant="outlined"
-            sx={{
-              minWidth: 70,
-              height: 32,
-              borderRadius: 2,
-              border: '1.5px solid #E2E4E9',
-              color: '#222',
-              background: '#f7f8fa',
-              fontWeight: 500,
-              fontSize: 12,
-              boxShadow: 'none',
-              textTransform: 'none',
-              px: 1.2,
-              '&:hover': {
-                background: 'rgba(86,115,220,0.10)',
-                border: '1.5px solid #5673DC',
-                color: '#5673DC',
-              },
-            }}
-          >
-            {t('common.actions.cancel')}
+        <DialogActions sx={{ p: 2, gap: 1, flexWrap: 'wrap' }}>
+          <Button onClick={() => setConfirmNavigation(null)} sx={{ textTransform: 'none' }}>{t('projects.dialog.stay')}</Button>
+          <Button onClick={discardAndContinueNavigation} color="inherit" variant="outlined" sx={{ textTransform: 'none' }}>
+            {confirmNavigation?.kind === 'switch-hours'
+              ? t('projects.hoursOverview.discardAndSwitch')
+              : confirmNavigation?.kind === 'close-budget'
+                ? t('projects.dialog.closeWithoutSaving')
+                : confirmNavigation?.dialog === 'edit'
+                  ? t('projects.dialog.discardBudget')
+                  : t('projects.dialog.discard')}
           </Button>
-          <Button onClick={handleEditSave} variant="contained" color="primary"
-            sx={{
-              minWidth: 70,
-              height: 32,
-              borderRadius: 2,
-              fontWeight: 500,
-              fontSize: 12,
-              textTransform: 'none',
-              px: 1.2,
-              backgroundColor: '#8196E4',
-              color: '#FFFFFF',
-              boxShadow: 3,
-              '&:hover': {
-                backgroundColor: '#4A69D9',
-              },
-            }}
-          >
-            {t('common.actions.save')}
-          </Button>
+          {confirmNavigation?.dialog === 'create' ? (
+            <Button onClick={saveAndContinueNavigation} variant="contained" disabled={saving || editBudgetMeta.loading} sx={{ background: '#5673DC', textTransform: 'none' }}>{t('projects.dialog.saveAndContinue')}</Button>
+          ) : null}
         </DialogActions>
       </Dialog>
 
-      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
+      <Dialog open={deleteDialogOpen} onClose={deletingProject ? undefined : closeDeleteDialog}>
         <DialogTitle>{t('projects.deleteProject')}</DialogTitle>
         <DialogContent>
           <Typography>{t('projects.confirmDelete', { name: projectToDelete?.name })}</Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDeleteDialogOpen(false)}
+          <Button onClick={closeDeleteDialog}
+            disabled={deletingProject}
             variant="outlined"
             sx={{
               minWidth: 70,
@@ -1206,6 +1575,7 @@ function Projects() {
             {t('common.actions.cancel')}
           </Button>
           <Button onClick={confirmDeleteProject} color="error" variant="contained"
+            disabled={deletingProject}
             sx={{
               minWidth: 70,
               height: 32,
@@ -1222,7 +1592,7 @@ function Projects() {
               },
             }}
           >
-            {t('projects.deleteProject')}
+            {deletingProject ? <CircularProgress size={18} color="inherit" /> : t('projects.deleteProject')}
           </Button>
         </DialogActions>
       </Dialog>

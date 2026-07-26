@@ -19,7 +19,7 @@ import axios from 'axios';
 
 export default function Navbar() {
   const { user, logout, sessionStatus } = useAuth();
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const isAdmin = user?.role === 'admin';
   const navigate = useNavigate();
 
@@ -59,10 +59,13 @@ export default function Navbar() {
     fetchNotifications();
     const intervalId = window.setInterval(fetchNotifications, 60000);
     const handleFocus = () => fetchNotifications();
+    const handleNotificationsRefresh = () => fetchNotifications();
     window.addEventListener('focus', handleFocus);
+    window.addEventListener('notifications:refresh', handleNotificationsRefresh);
     return () => {
       window.clearInterval(intervalId);
       window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('notifications:refresh', handleNotificationsRefresh);
     };
   }, [user, fetchNotifications]);
 
@@ -72,7 +75,8 @@ export default function Navbar() {
   };
 
   const handleNotificationClick = async (notification) => {
-    if (!notification.readAt) {
+    const isBudgetDecision = ['project_budget_change_approved', 'project_budget_change_rejected'].includes(notification.type);
+    if (!notification.readAt && !isBudgetDecision) {
       try {
         const response = await axios.patch(`/api/notifications/${notification.id}/read`);
         setNotifications((items) => items.map((item) => item.id === notification.id ? response.data : item));
@@ -82,7 +86,23 @@ export default function Navbar() {
       }
     }
     setNotificationsAnchor(null);
-    navigate('/projects');
+    const financialNotification = notification.type?.startsWith('project_payroll_') || notification.type?.startsWith('project_budget_');
+    if (financialNotification && notification.project?.id) {
+      const params = new URLSearchParams({ projectId: notification.project.id, budget: '1' });
+      if (notification.budgetChangeRequestId) {
+        params.set('requestId', notification.budgetChangeRequestId);
+        params.set(
+          'view',
+          ['project_budget_change_approved', 'project_budget_change_rejected'].includes(notification.type)
+            ? 'result'
+            : 'review'
+        );
+      }
+      if (isBudgetDecision) params.set('notificationId', notification.id);
+      navigate(`/projects?${params.toString()}`);
+    } else {
+      navigate('/projects');
+    }
   };
 
   const handleReadAll = async () => {
@@ -96,12 +116,25 @@ export default function Navbar() {
     }
   };
 
-  const getNotificationText = (notification) => t(
-    notification.type === 'project_manager_assigned'
-      ? 'notifications.projectManagerAssigned'
-      : 'notifications.projectManagerRemoved',
-    { project: notification.project?.name || '' }
-  );
+  const getNotificationText = (notification) => {
+    const keys = {
+      project_manager_assigned: 'notifications.projectManagerAssigned',
+      project_manager_removed: 'notifications.projectManagerRemoved',
+      project_payroll_warning: 'notifications.projectPayrollWarning',
+      project_payroll_limit_reached: 'notifications.projectPayrollLimitReached',
+      project_budget_change_requested: 'notifications.projectBudgetChangeRequested',
+      project_budget_change_updated: 'notifications.projectBudgetChangeUpdated',
+      project_budget_change_approved: 'notifications.projectBudgetChangeApproved',
+      project_budget_change_rejected: 'notifications.projectBudgetChangeRejected',
+      project_budget_request_transferred: 'notifications.projectBudgetRequestTransferred',
+    };
+    return t(keys[notification.type] || 'notifications.unknown', {
+      project: notification.project?.name || '',
+      threshold: notification.thresholdPercent ?? '',
+      revision: notification.metadata?.revision ?? '',
+      version: notification.metadata?.version ?? '',
+    });
+  };
 
   const avatarUrl = user?.avatar_url || '';
   const initials = user ? ((user.name?.[0] || '') + (user.surname?.[0] || '')).toUpperCase() : '';
@@ -218,7 +251,7 @@ export default function Navbar() {
                       {getNotificationText(notification)}
                     </Typography>
                     <Typography color="text.secondary" sx={{ mt: 0.4, fontSize: 11 }}>
-                      {new Date(notification.createdAt).toLocaleString()}
+                      {new Date(notification.createdAt).toLocaleString(locale === 'ru' ? 'ru-RU' : 'en-US')}
                     </Typography>
                   </Box>
                 </MenuItem>

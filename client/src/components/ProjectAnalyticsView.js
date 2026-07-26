@@ -340,21 +340,20 @@ export default function ProjectAnalyticsView({ project, open }) {
   const nextPeriodDisabled = isNextPeriodInFuture(anchorDate, range);
   const compactMembersSummary = analyticsData
     ? analyticsData.members.length <= 5
-      ? locale === 'ru'
-        ? 'Показаны все участники'
-        : 'All members visible'
-      : locale === 'ru'
-        ? `${t('projects.analytics.totalSeries')} + ${t('projects.analytics.topMembers')}`
-        : `${t('projects.analytics.totalSeries')} + ${t('projects.analytics.topMembers')}`
+      ? t('projects.analytics.allMembersShown')
+      : t('projects.analytics.membersSummary', {
+        total: t('projects.analytics.totalSeries'),
+        top: t('projects.analytics.topMembers'),
+      })
     : '';
   const chartSummaryLabel = analyticsData
     ? displayMode === 'cumulative'
-      ? locale === 'ru'
-        ? `Накоплено: ${formatHours(chartData[chartData.length - 1]?.total || 0)}`
-        : `Accumulated: ${formatHours(chartData[chartData.length - 1]?.total || 0)}`
-      : locale === 'ru'
-        ? `За период: ${formatHours(analyticsData.summary.totalHours)}`
-        : `In period: ${formatHours(analyticsData.summary.totalHours)}`
+      ? t('projects.analytics.accumulatedSummary', {
+        hours: formatHours(chartData[chartData.length - 1]?.total || 0),
+      })
+      : t('projects.analytics.periodSummary', {
+        hours: formatHours(analyticsData.summary.totalHours),
+      })
     : '';
   const toolbarButtonSx = (selected, isWide = false, isCompact = false) => ({
     minWidth: isWide ? (isCompact ? 98 : 112) : (isCompact ? 72 : 84),
@@ -380,6 +379,8 @@ export default function ProjectAnalyticsView({ project, open }) {
     title: t('projects.analytics.chart'),
     total: t('projects.analytics.totalSeries'),
     noData: t('projects.analytics.noData'),
+    cumulativeSuffix: t('projects.analytics.tooltip.cumulativeSuffix'),
+    dailySuffix: t('projects.analytics.tooltip.dailySuffix'),
   };
 
   return (
@@ -597,8 +598,8 @@ export default function ProjectAnalyticsView({ project, open }) {
                     totalHours={analyticsData.summary.totalHours}
                     totalColor="#1F3A5F"
                     actions={{
-                      showAll: locale === 'ru' ? 'Все' : 'All',
-                      hideAll: locale === 'ru' ? 'Скрыть' : 'Hide',
+                      showAll: t('projects.analytics.actions.showAll'),
+                      hideAll: t('projects.analytics.actions.hideAll'),
                       showTop: t('projects.analytics.topMembers'),
                       hidden: (count) => t('projects.analytics.hiddenMembers', { count }),
                     }}
@@ -615,7 +616,6 @@ export default function ProjectAnalyticsView({ project, open }) {
                     formatAxisDate={(dateValue) => format(parseISO(dateValue), 'd MMM', { locale: dateLocale })}
                     formatTooltipDate={(dateValue) => format(parseISO(dateValue), 'd MMMM yyyy', { locale: dateLocale })}
                     labels={chartLabels}
-                    locale={locale}
                     summaryLabel={chartSummaryLabel}
                   />
                 </Box>

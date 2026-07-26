@@ -21,7 +21,7 @@ import {
   Tooltip
 } from '@mui/material';
 import { format } from 'date-fns';
-import { ru } from 'date-fns/locale';
+import { enUS, ru } from 'date-fns/locale';
 import axios from 'axios';
 import { Add, Delete, Remove, Edit as EditIcon, Save as SaveIcon, Search as SearchIcon } from '@mui/icons-material';
 import CloseIcon from '@mui/icons-material/Close';
@@ -179,11 +179,13 @@ const matchesProjectSearch = (project, searchValue) => {
 
 function TimeEntries() {
   const { t, locale } = useTranslation();
+  const dateLocale = locale === 'ru' ? ru : enUS;
   const daysOfWeek = dayKeys.map((key) => ({ key, label: t(`timeEntries.weekdays.${key}`) }));
   const [timeEntries, setTimeEntries] = useState([]);
   const [projects, setProjects] = useState([]);
   const [users, setUsers] = useState([]);
   const [error, setError] = useState(null);
+  const [payrollNotice, setPayrollNotice] = useState(null);
   const [weekStart, setWeekStart] = useState(getMonday(new Date()));
   const [selectedUser, setSelectedUser] = useState('');
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -397,6 +399,7 @@ function TimeEntries() {
 
   const handleWeeklySubmit = async () => {
     setError(null);
+    setPayrollNotice(null);
     if (!selectedUser) {
       setError(t('timeEntries.validation.selectUserBeforeSubmit')); 
       return;
@@ -478,11 +481,14 @@ function TimeEntries() {
       });
     });
     try {
+      let hasPayrollWarning = false;
       if (updateRequests.length > 0) {
-        await Promise.all(updateRequests);
+        const responses = await Promise.all(updateRequests);
+        hasPayrollWarning = responses.some((response) => response.data?.payrollWarning);
       }
       if (batchEntries.length > 0) {
-        await axios.post('/api/time-entries/batch', { entries: batchEntries });
+        const response = await axios.post('/api/time-entries/batch', { entries: batchEntries });
+        hasPayrollWarning = hasPayrollWarning || (response.data?.payrollWarnings?.length > 0);
       }
       if (deleteRequests.length > 0) {
         await Promise.all(deleteRequests);
@@ -500,6 +506,7 @@ function TimeEntries() {
         submitted: true,
         editing: false
       })));
+      if (hasPayrollWarning) setPayrollNotice(t('timeEntries.payrollLimitWarning'));
     } catch (err) {
       setError(getApiErrorMessage(err, t, 'timeEntries.errors.submit')); 
     }
@@ -583,7 +590,7 @@ function TimeEntries() {
           try {
             if (hours && hours > 0) {
               if (dayEntry) {
-                await axios.patch(`/api/time-entries/${dayEntry.id}`, {
+                const response = await axios.patch(`/api/time-entries/${dayEntry.id}`, {
                   project_id: editWeekEntry.project_id,
                   date: date.toISOString(),
                   hours: {
@@ -591,9 +598,9 @@ function TimeEntries() {
                     [day.key]: hours,
                   },
                 });
-                return null;
+                return response.data?.payrollWarning || null;
               } else {
-                await axios.post('/api/time-entries', {
+                const response = await axios.post('/api/time-entries', {
                   project_id: editWeekEntry.project_id,
                   user_id: editWeekEntry.user_id,
                   date: date.toISOString(),
@@ -603,7 +610,7 @@ function TimeEntries() {
                   },
                   description: '',
                 });
-                return null;
+                return response.data?.payrollWarning || null;
               }
             } else if (dayEntry) {
               await axios.delete(`/api/time-entries/${dayEntry.id}`);
@@ -621,6 +628,7 @@ function TimeEntries() {
           }
         })
       );
+      if (results.some(Boolean)) setPayrollNotice(t('timeEntries.payrollLimitWarning'));
       const failedDays = results.filter(Boolean);
       if (failedDays.length === daysOfWeek.length) {
         setEditError(t('timeEntries.errors.update')); 
@@ -822,7 +830,10 @@ function TimeEntries() {
   return (
     <PageLayout
       title={t('timeEntries.title')}
-      subtitle={`${totalLogged}/${requiredHoursTotal} ${locale === 'ru' ? 'часов за выбранную неделю' : 'hours this week'}`}
+      subtitle={t('timeEntries.weekHoursSummary', {
+        logged: totalLogged,
+        required: requiredHoursTotal,
+      })}
       headerCenter={<WeekSelector weekStart={weekStart} onChange={setWeekStart} />}
       actions={
         currentUser?.role === 'admin' ? (
@@ -974,7 +985,7 @@ function TimeEntries() {
               <TableCell sx={{ width: 550, minWidth: 550, maxWidth: 550, textAlign: 'left', fontWeight: 'bold', p: 1, pt: 1 }}>{t('timeEntries.project')}</TableCell>
               {daysOfWeek.map((day, i) => (
                 <TableCell key={day.key} align="center" sx={{ backgroundColor: (day.key === 'sat' || day.key === 'sun') ? '#f5f5f5' : undefined, minWidth: 63, maxWidth: 73, width: 67, px: 0.5, py: 0.5, fontWeight: 'normal', fontSize: 13 }}>
-                  {format(new Date(weekStart.getTime() + i * 86400000), 'dd.MM', { locale: ru })}
+                  {format(new Date(weekStart.getTime() + i * 86400000), 'dd.MM', { locale: dateLocale })}
                 </TableCell>
               ))}
               <TableCell align="center" sx={{ width: 60, minWidth: 40, maxWidth: 80 }}>{t('timeEntries.total')}</TableCell>
@@ -1355,6 +1366,9 @@ function TimeEntries() {
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>
       )}
+      {payrollNotice && (
+        <Alert severity="warning" sx={{ mb: 2 }}>{payrollNotice}</Alert>
+      )}
       <Dialog open={editDialogOpen} onClose={handleEditClose} maxWidth="lg" fullWidth>
         <DialogTitle>{t('timeEntries.editTitle')}</DialogTitle>
         <SingleProjectWeekEditor
@@ -1373,7 +1387,7 @@ function TimeEntries() {
       <ConfirmationDialog
         open={confirmDialogOpen}
         title={t('timeEntries.deleteTitle')}
-        content={entryToDelete ? t('timeEntries.deleteConfirm', { project: entryToDelete.project_name, date: entryToDelete.date ? format(new Date(entryToDelete.date), 'PP', { locale: ru }) : '' }) : ''}
+        content={entryToDelete ? t('timeEntries.deleteConfirm', { project: entryToDelete.project_name, date: entryToDelete.date ? format(new Date(entryToDelete.date), 'PP', { locale: dateLocale }) : '' }) : ''}
         onConfirm={handleConfirmDelete}
         onCancel={() => { setConfirmDialogOpen(false); setEntryToDelete(null); }}
         confirmLabel={t('common.actions.delete')}

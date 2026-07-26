@@ -19,12 +19,8 @@ export default function ProjectAnalyticsChart({
   formatAxisDate,
   formatTooltipDate,
   labels,
-  locale,
   summaryLabel,
 }) {
-  const isRu = locale === 'ru';
-  const totalTooltipLabel = isRu ? `${labels.total} (накопленно)` : `${labels.total} (cumulative)`;
-
   const CustomTooltip = ({ active, payload, label }) => {
     if (!active || !payload?.length) {
       return null;
@@ -72,7 +68,9 @@ export default function ProjectAnalyticsChart({
                   textOverflow: 'ellipsis',
                 }}
               >
-                {entry.dataKey === 'total' ? totalTooltipLabel : `${entry.name}${isRu ? ' (за день)' : ' (daily)'}`}
+                {entry.dataKey === 'total'
+                  ? `${labels.total} ${labels.cumulativeSuffix}`
+                  : `${entry.name} ${labels.dailySuffix}`}
               </Typography>
             </Box>
             <Typography sx={{ color: '#1D2433', fontSize: 12, fontWeight: 600, flexShrink: 0 }}>
