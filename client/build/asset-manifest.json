@@ -1,11 +1,11 @@
 {
   "files": {
-    "main.js": "/static/js/main.0ce71f0b.js",
+    "main.js": "/static/js/main.ef54393d.js",
     "static/media/announcement-project-budget-overview.jpg": "/static/media/announcement-project-budget-overview.30de1d3f6a2f68e1b26a.jpg",
     "index.html": "/index.html",
-    "main.0ce71f0b.js.map": "/static/js/main.0ce71f0b.js.map"
+    "main.ef54393d.js.map": "/static/js/main.ef54393d.js.map"
   },
   "entrypoints": [
-    "static/js/main.0ce71f0b.js"
+    "static/js/main.ef54393d.js"
   ]
 }

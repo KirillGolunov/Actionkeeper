@@ -511,13 +511,25 @@ function Projects() {
     setActiveSaving(false);
   };
 
+  const finishEditBudgetEditing = () => {
+    setEditBudgetDirty(false);
+    setEditBudgetPreviewDraft(null);
+    setEditBudgetMeta((current) => ({
+      ...current,
+      primaryVisible: false,
+      primaryDisabled: true,
+      loading: false,
+      hasErrors: false,
+    }));
+    setEditBudgetEditing(false);
+  };
+
   const cancelEditBudgetSettings = () => {
     if (editBudgetDirty) {
       setConfirmNavigation({ dialog: 'edit', kind: 'cancel-budget' });
       return;
     }
-    setEditBudgetPreviewDraft(null);
-    setEditBudgetEditing(false);
+    finishEditBudgetEditing();
   };
 
   const switchEditView = (nextMode) => {
@@ -544,7 +556,7 @@ function Projects() {
     if (navigation.dialog === 'edit') {
       if (navigation.kind === 'close-budget') forceEditClose();
       else {
-        setEditBudgetEditing(false);
+        finishEditBudgetEditing();
         if (navigation.kind === 'switch-hours') {
           setEditViewMode('hours');
           setEditHoursActivated(true);
@@ -582,9 +594,7 @@ function Projects() {
   const saveEditBudgetAndReturn = async () => {
     const saved = await budgetSectionRef.current?.save();
     if (saved) {
-      setEditBudgetPreviewDraft(null);
-      setEditBudgetMeta((current) => ({ ...current, loading: false }));
-      setEditBudgetEditing(false);
+      finishEditBudgetEditing();
     }
     return saved;
   };
@@ -1413,9 +1423,7 @@ function Projects() {
                           initialView={deepLinkTargetsEditProject ? initialBudgetView : null}
                           onResultAcknowledged={() => navigate('/projects', { replace: true })}
                           onCompleted={() => {
-                            setEditBudgetPreviewDraft(null);
-                            setEditBudgetMeta((current) => ({ ...current, loading: false }));
-                            setEditBudgetEditing(false);
+                            finishEditBudgetEditing();
                           }}
                         />
                       )}

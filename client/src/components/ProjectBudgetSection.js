@@ -889,6 +889,9 @@ const ProjectBudgetSection = React.forwardRef(function ProjectBudgetSection({
   const primaryDisabled = busy || !valid || !dirty || !reason.trim() || (managerMode && draft.budgetMode === 'none');
 
   React.useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
+  React.useEffect(() => () => {
+    onDirtyChange?.(false);
+  }, [onDirtyChange]);
   React.useEffect(() => {
     if (valid) onPreviewDraftChange?.(draft);
   }, [draft, valid, onPreviewDraftChange]);
@@ -937,14 +940,26 @@ const ProjectBudgetSection = React.forwardRef(function ProjectBudgetSection({
         await axios.patch(`/api/admin/projects/${projectId}/budget`, { reason, budget: draft });
         setNotice(t('projects.budget.saved'));
       }
-      await reload?.();
+      const refreshedStatus = await reload?.();
+      const savedDraft = refreshedStatus
+        ? budgetToDraft(refreshedStatus.activeRequest?.proposedBudget || refreshedStatus.budget)
+        : draft;
+      const savedReason = refreshedStatus?.activeRequest?.reason
+        ?? (managerMode ? reason : '');
+      setDraft(savedDraft);
+      setBaseline(savedDraft);
+      setReason(savedReason);
+      setBaselineReason(savedReason);
+      setRequestEditing(false);
+      setShowErrors(false);
+      onDirtyChange?.(false);
       return true;
     } catch (saveError) {
       if (saveError?.response?.status === 409) await reload?.();
       setError(getApiErrorMessage(saveError, t, managerMode ? 'projects.budget.errors.request' : 'projects.budget.errors.save'));
       return false;
     } finally { setSubmitting(false); }
-  }, [valid, managerMode, reason, draft, projectId, status?.activeRequest, t, reload]);
+  }, [valid, managerMode, reason, draft, projectId, status?.activeRequest, t, reload, onDirtyChange]);
 
   const discard = React.useCallback(() => {
     setDraft(baseline);
@@ -952,7 +967,8 @@ const ProjectBudgetSection = React.forwardRef(function ProjectBudgetSection({
     setRequestEditing(false);
     setShowErrors(false);
     setError(null);
-  }, [baseline, baselineReason]);
+    onDirtyChange?.(false);
+  }, [baseline, baselineReason, onDirtyChange]);
 
   React.useImperativeHandle(ref, () => ({ save: savePrimary, discard, isDirty: () => dirty }), [savePrimary, discard, dirty]);
 
@@ -972,6 +988,7 @@ const ProjectBudgetSection = React.forwardRef(function ProjectBudgetSection({
       });
       setReviewComment(''); setNotice(t('projects.budget.reviewSaved'));
       await reload?.();
+      onDirtyChange?.(false);
       onCompleted?.();
     } catch (reviewError) {
       if (reviewError?.response?.status === 409) await reload?.();
