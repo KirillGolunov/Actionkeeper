@@ -38,24 +38,24 @@ function TimeEntryForm({ entry, projects, users, error, onChange, onSubmit, onCa
         <TextField
           fullWidth
           margin="dense"
-          label={t('timeEntries.startTime') || 'Start Time'}
+          label={t('timeEntries.startTime')}
           type="datetime-local"
           value={entry.start_time}
           onChange={e => onChange({ ...entry, start_time: e.target.value })}
           InputLabelProps={{ shrink: true }}
           error={!!error && !entry.start_time}
-          helperText={!entry.start_time ? (t('timeEntries.startTimeRequired') || 'Start time is required') : ''}
+          helperText={!entry.start_time ? t('timeEntries.startTimeRequired') : ''}
         />
         <TextField
           fullWidth
           margin="dense"
-          label={t('timeEntries.endTime') || 'End Time'}
+          label={t('timeEntries.endTime')}
           type="datetime-local"
           value={entry.end_time}
           onChange={e => onChange({ ...entry, end_time: e.target.value })}
           InputLabelProps={{ shrink: true }}
           error={!!error && !entry.end_time}
-          helperText={!entry.end_time ? (t('timeEntries.endTimeRequired') || 'End time is required') : ''}
+          helperText={!entry.end_time ? t('timeEntries.endTimeRequired') : ''}
         />
         <TextField
           fullWidth
@@ -77,4 +77,4 @@ function TimeEntryForm({ entry, projects, users, error, onChange, onSubmit, onCa
   );
 }
 
-export default TimeEntryForm; 
+export default TimeEntryForm;

@@ -3,15 +3,16 @@ import { IconButton, Tooltip } from '@mui/material';
 import QueryStatsRoundedIcon from '@mui/icons-material/QueryStatsRounded';
 import { useTranslation } from '../i18n/I18nProvider';
 
-export default function ProjectAnalyticsButton({ onClick, size = 'small' }) {
+export default function ProjectAnalyticsButton({ onClick, size = 'small', disabled = false }) {
   const { t } = useTranslation();
 
   return (
-    <Tooltip title={t('projects.viewTimeEntries')} placement="top" arrow>
+    <Tooltip title={t('projects.analytics.title')} placement="top" arrow>
       <IconButton
         size={size}
-        aria-label={t('projects.viewTimeEntries')}
+        aria-label={t('projects.analytics.title')}
         onClick={onClick}
+        disabled={disabled}
         sx={{
           width: 34,
           height: 34,

@@ -105,7 +105,7 @@ export default function Profile() {
             <Box display="flex" flexDirection="column" alignItems="center" gap={2}>
               <Avatar
                 src={avatarPreview || ''}
-                alt={profile.name || 'Avatar'}
+                alt={profile.name || t('profile.avatarAlt')}
                 sx={{ width: 110, height: 110, bgcolor: '#e0e0e0', fontSize: 40, border: '2px solid #8196E4' }}
               >
                 {(!avatarPreview && profile.name) ? profile.name[0] : ''}
@@ -115,7 +115,7 @@ export default function Profile() {
                 component="label"
                 sx={{ fontWeight: 500, borderRadius: 2, color: '#5673DC', borderColor: '#8196E4', background: '#F5F7FE', '&:hover': { background: '#E2E4E9' } }}
               >
-                Upload Avatar
+                {t('profile.uploadAvatar')}
                 <input
                   type="file"
                   accept="image/*"
@@ -131,7 +131,7 @@ export default function Profile() {
             <Grid container spacing={2}>
               <Grid item xs={12} sm={6}>
                 <TextField
-                  label="Name"
+                  label={t('profile.name')}
                   name="name"
                   value={profile.name || ''}
                   onChange={handleChange}
@@ -142,7 +142,7 @@ export default function Profile() {
               </Grid>
               <Grid item xs={12} sm={6}>
                 <TextField
-                  label="Surname"
+                  label={t('profile.surname')}
                   name="surname"
                   value={profile.surname || ''}
                   onChange={handleChange}
@@ -153,7 +153,7 @@ export default function Profile() {
               </Grid>
               <Grid item xs={12} sm={6}>
                 <TextField
-                  label="Email"
+                  label={t('profile.email')}
                   name="email"
                   value={profile.email || ''}
                   InputProps={{ readOnly: true }}
@@ -163,7 +163,7 @@ export default function Profile() {
               </Grid>
               <Grid item xs={12} sm={6}>
                 <TextField
-                  label="Phone"
+                  label={t('profile.phone')}
                   name="phone"
                   value={profile.phone || ''}
                   onChange={handleChange}
@@ -173,7 +173,7 @@ export default function Profile() {
               </Grid>
               <Grid item xs={12} sm={6}>
                 <TextField
-                  label="Department"
+                  label={t('profile.department')}
                   name="department"
                   value={profile.department || ''}
                   onChange={handleChange}
@@ -183,7 +183,7 @@ export default function Profile() {
               </Grid>
               <Grid item xs={12} sm={6}>
                 <TextField
-                  label="Job Title"
+                  label={t('profile.jobTitle')}
                   name="job_title"
                   value={profile.job_title || ''}
                   onChange={handleChange}
@@ -199,7 +199,7 @@ export default function Profile() {
                   disabled={saving}
                   fullWidth
                 >
-                  {saving ? 'Saving...' : 'Save Changes'}
+                  {saving ? t('profile.saving') : t('profile.saveChanges')}
                 </Button>
               </Grid>
             </Grid>
@@ -208,4 +208,4 @@ export default function Profile() {
       </Paper>
     </Box>
   );
-} 
+}
