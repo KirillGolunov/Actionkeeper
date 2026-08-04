@@ -25,6 +25,9 @@ import {
   Menu,
   MenuItem,
   ToggleButton,
+  ThemeProvider,
+  createTheme,
+  useTheme,
 } from '@mui/material';
 import axios from 'axios';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -42,6 +45,7 @@ import ProjectBudgetOverview from '../components/ProjectBudgetOverview';
 import ProjectHoursOverview from '../components/ProjectHoursOverview';
 import ProjectDialogLayout from '../components/ProjectDialogLayout';
 import ProjectDetailsForm from '../components/ProjectDetailsForm';
+import OverflowTooltip from '../components/OverflowTooltip';
 import {
   getProjectStatusLabelSx,
   projectCardSurfaceSx,
@@ -57,6 +61,31 @@ import {
   PROJECT_CATEGORY_TRANSITION,
   getProjectCategoryMeta,
 } from '../utils/projectCategories';
+
+function ProjectTooltipsTheme({ children }) {
+  const outerTheme = useTheme();
+  const theme = useMemo(() => createTheme(outerTheme, {
+    components: {
+      MuiTooltip: {
+        styleOverrides: {
+          tooltip: {
+            color: '#1D2433',
+            backgroundColor: '#FFFFFF',
+            border: '1px solid #DDE3EC',
+            borderRadius: 8,
+            boxShadow: '0 8px 20px rgba(31,58,95,.12)',
+          },
+          arrow: {
+            color: '#FFFFFF',
+            filter: 'drop-shadow(0 1px 1px rgba(31,58,95,.16))',
+          },
+        },
+      },
+    },
+  }), [outerTheme]);
+
+  return <ThemeProvider theme={theme}>{children}</ThemeProvider>;
+}
 
 function Projects() {
   const { t, locale } = useTranslation();
@@ -775,7 +804,8 @@ function Projects() {
   };
 
   return (
-    <PageLayout
+    <ProjectTooltipsTheme>
+      <PageLayout
       title={t('projects.title')}
       subtitle={t('projects.catalogCount', { count: projects.length })}
       actions={
@@ -1099,11 +1129,11 @@ function Projects() {
                     >
                       <CardContent sx={{ p: 1.5, pb: '12px !important', height: '100%', minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
-                          <Tooltip title={project.name} placement="top" arrow>
+                          <OverflowTooltip title={project.name} overflowAxis="horizontal" placement="top" arrow>
                             <Typography variant="subtitle1" component="div" sx={{ fontWeight: 600, fontSize: 17, pr: 1, flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                               {project.name}
                             </Typography>
-                          </Tooltip>
+                          </OverflowTooltip>
                           <Stack direction="row" spacing={0.5} alignItems="center" sx={{ flexShrink: 0 }}>
                             {hasPendingBudgetRequest ? (
                               <Tooltip title={t('projects.budget.pendingApprovalIndicator')} arrow>
@@ -1120,11 +1150,11 @@ function Projects() {
                             </Typography>
                           </Stack>
                         </Box>
-                        <Tooltip title={project.code || t('projects.noCode')} placement="top" arrow>
+                        <OverflowTooltip title={project.code || t('projects.noCode')} overflowAxis="horizontal" placement="top" arrow>
                           <Typography variant="caption" sx={{ color: '#5673DC', fontWeight: 500, fontSize: 13, mb: 0.25, display: 'block', textAlign: 'left', mt: 0.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {t('projects.code')}: {project.code || t('projects.noCode')}
                           </Typography>
-                        </Tooltip>
+                        </OverflowTooltip>
                         <Box sx={{ mb: 0.75, mt: 0.5 }}>
                           <Chip
                             size="small"
@@ -1138,17 +1168,17 @@ function Projects() {
                             }}
                           />
                         </Box>
-                        <Tooltip title={`${t('projects.client')}: ${clientName}`} placement="top" arrow>
+                        <OverflowTooltip title={`${t('projects.client')}: ${clientName}`} overflowAxis="horizontal" placement="top" arrow>
                           <Typography color="text.secondary" variant="body2" sx={{ mb: 0.25, fontSize: 13, lineHeight: 1.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {t('projects.client')}: {clientName}
                           </Typography>
-                        </Tooltip>
-                        <Tooltip title={`${t('projects.manager.label')}: ${managerName}`} placement="top" arrow>
+                        </OverflowTooltip>
+                        <OverflowTooltip title={`${t('projects.manager.label')}: ${managerName}`} overflowAxis="horizontal" placement="top" arrow>
                           <Typography color="text.secondary" variant="body2" sx={{ mb: 0.25, fontSize: 13, lineHeight: 1.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {t('projects.manager.label')}: {managerName}
                           </Typography>
-                        </Tooltip>
-                        <Tooltip title={description} placement="top" arrow>
+                        </OverflowTooltip>
+                        <OverflowTooltip title={description} overflowAxis="vertical" placement="top" arrow>
                           <Typography
                             color="text.secondary"
                             variant="body2"
@@ -1165,7 +1195,7 @@ function Projects() {
                           >
                             {description}
                           </Typography>
-                        </Tooltip>
+                        </OverflowTooltip>
                       </CardContent>
                     </Card>
                   </Grid>
@@ -1604,7 +1634,8 @@ function Projects() {
           </Button>
         </DialogActions>
       </Dialog>
-    </PageLayout>
+      </PageLayout>
+    </ProjectTooltipsTheme>
   );
 }
 
