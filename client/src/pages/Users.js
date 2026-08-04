@@ -525,10 +525,6 @@ function Users() {
     whiteSpace: 'nowrap',
   };
 
-  const stableDialogProps = {
-    disableScrollLock: true,
-  };
-
   return (
     <PageLayout
       title={t('users.title')}
@@ -873,7 +869,7 @@ function Users() {
         </Table>
       </TableContainer>
 
-      <Dialog open={open} onClose={handleClose} {...stableDialogProps}>
+      <Dialog open={open} onClose={handleClose}>
         <DialogTitle>{t('users.addUser')}</DialogTitle>
         <DialogContent>
           <TextField
@@ -969,7 +965,7 @@ function Users() {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={editOpen} onClose={handleEditClose} {...stableDialogProps}>
+      <Dialog open={editOpen} onClose={handleEditClose}>
         <DialogTitle>{t('users.editUser')}</DialogTitle>
         <DialogContent>
           <TextField
@@ -1065,7 +1061,7 @@ function Users() {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={ratesOpen} onClose={handleRatesClose} maxWidth="md" fullWidth {...stableDialogProps}>
+      <Dialog open={ratesOpen} onClose={handleRatesClose} maxWidth="md" fullWidth>
         <DialogTitle>{rateText('title', { name: formatUserName(ratesUser) })}</DialogTitle>
         <DialogContent sx={{ pt: 2.5 }}>
           {rateError && <Alert severity="error" sx={{ mb: 2 }}>{rateError}</Alert>}
@@ -1190,7 +1186,7 @@ function Users() {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={editRateOpen} onClose={handleEditRateCancel} maxWidth="xs" fullWidth {...stableDialogProps}>
+      <Dialog open={editRateOpen} onClose={handleEditRateCancel} maxWidth="xs" fullWidth>
         <DialogTitle>{rateText('edit')}</DialogTitle>
         <DialogContent sx={{ pt: 2.5 }}>
           {rateError && <Alert severity="error" sx={{ mb: 2 }}>{rateError}</Alert>}
@@ -1245,7 +1241,7 @@ function Users() {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)} {...stableDialogProps}>
+      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
         <DialogTitle>{t('common.actions.delete')}</DialogTitle>
         <DialogContent>
           <Typography>{t('users.confirmDelete', { name: `${userToDelete?.surname || ""} ${userToDelete?.name || ""}`.trim() })}</Typography>
@@ -1309,7 +1305,6 @@ function Users() {
       </Dialog>
 
       <Dialog open={inviteDialogOpen} onClose={() => setInviteDialogOpen(false)}
-        {...stableDialogProps}
         PaperProps={{
           sx: { borderRadius: 3, p: 0, minWidth: 380, background: '#F7F8FA' }
         }}
@@ -1360,7 +1355,6 @@ function Users() {
       </Dialog>
 
       <Dialog open={resendDialogOpen} onClose={() => setResendDialogOpen(false)}
-        {...stableDialogProps}
         PaperProps={{
           sx: { borderRadius: 3, p: 0, minWidth: 380, background: '#F7F8FA' }
         }}

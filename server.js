@@ -21,6 +21,7 @@ const {
   kopecksToRubles,
 } = require('./budgetUtils');
 const { getProjectEditRole, canEditProjectField } = require('./projectUtils');
+const { activateVerifiedUser, migratePreviouslyAuthenticatedInvitedUsers } = require('./userActivation');
 
 const app = express();
 app.set('trust proxy', true);
@@ -394,6 +395,10 @@ async function loadFixtures() {
   await createInvitationsTable();
   await createMagicLinksTable();
   await createAuthSessionsTable();
+  const invitedUserMigration = await migratePreviouslyAuthenticatedInvitedUsers(db);
+  if (invitedUserMigration.applied) {
+    console.log(`[Migration] Activated ${invitedUserMigration.activatedCount} previously authenticated invited user(s)`);
+  }
   await createNotificationsTable();
   console.log('Tables verified');
 }
@@ -4019,14 +4024,16 @@ app.get('/api/auth/magic-link/:token', (req, res) => {
     db.get('SELECT * FROM users WHERE id = ? AND deleted = 0', [link.user_id], (err2, user) => {
       if (err2) return res.status(500).json({ error: err2.message });
       if (!user) return sendApiError(res, 404, 'authUserNotFound');
-      db.run('UPDATE magic_links SET used = 1 WHERE id = ?', [link.id], err3 => {
+      db.run('UPDATE magic_links SET used = 1 WHERE id = ?', [link.id], async err3 => {
         if (err3) return res.status(500).json({ error: err3.message });
-        issueSessionForUser(user)
-          .then(({ token: jwtToken, payload }) => res.json({ token: jwtToken, user: payload }))
-          .catch((issueError) => {
-            console.error('[Magic Link] Failed to issue session:', issueError);
-            res.status(500).json({ errorCode: apiErrors.authSessionCreateFailed.errorCode, error: apiErrors.authSessionCreateFailed.error });
-          });
+        try {
+          await activateVerifiedUser(db, user.id);
+          const { token: jwtToken, payload } = await issueSessionForUser(user);
+          res.json({ token: jwtToken, user: payload });
+        } catch (issueError) {
+          console.error('[Magic Link] Failed to activate user or issue session:', issueError);
+          res.status(500).json({ errorCode: apiErrors.authSessionCreateFailed.errorCode, error: apiErrors.authSessionCreateFailed.error });
+        }
       });
     });
   });

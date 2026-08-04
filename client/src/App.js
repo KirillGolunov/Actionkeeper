@@ -16,10 +16,12 @@ import SignIn from './pages/SignIn';
 import MagicLinkCallback from './pages/MagicLinkCallback';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
+import ProtectedAppLayout from './components/ProtectedAppLayout';
 import Profile from './pages/Profile';
 import Setup from './pages/Setup';
 import axios from 'axios';
 import { useTranslation } from './i18n/I18nProvider';
+import { modalScrollStabilityStyles } from './utils/modalScrollStability';
 
 const theme = createTheme({
   palette: {
@@ -33,14 +35,7 @@ const theme = createTheme({
   },
   components: {
     MuiCssBaseline: {
-      styleOverrides: {
-        html: {
-          scrollbarGutter: 'stable',
-        },
-        body: {
-          overflowY: 'scroll',
-        },
-      },
+      styleOverrides: modalScrollStabilityStyles,
     },
   },
 });
@@ -102,22 +97,24 @@ function App() {
             <Route path="/setup" element={<Setup />} />
           </Routes>
         ) : (
-          <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-            <Navbar />
-            <AutoLoginInfoDialog />
-            <Box component="main" sx={{ mt: 4, mb: 4, flex: 1, width: '100%', px: 4 }}>
-              <Routes>
-                <Route path="/" element={<ProtectedRoute><DashboardsNew /></ProtectedRoute>} />
-                <Route path="/projects" element={<ProtectedRoute><Projects /></ProtectedRoute>} />
-                <Route path="/time-entries" element={<ProtectedRoute><TimeEntries /></ProtectedRoute>} />
-                <Route path="/clients" element={<ProtectedRoute><Clients /></ProtectedRoute>} />
-                <Route path="/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />
-                <Route path="/settings/smtp" element={<ProtectedRoute><AdminRoute><SMTPSettings /></AdminRoute></ProtectedRoute>} />
-                <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
-                <Route path="/setup" element={<Setup />} />
-              </Routes>
+          <ProtectedAppLayout>
+            <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+              <Navbar />
+              <AutoLoginInfoDialog />
+              <Box component="main" sx={{ mt: 4, mb: 4, flex: 1, width: '100%', px: 4 }}>
+                <Routes>
+                  <Route path="/" element={<ProtectedRoute><DashboardsNew /></ProtectedRoute>} />
+                  <Route path="/projects" element={<ProtectedRoute><Projects /></ProtectedRoute>} />
+                  <Route path="/time-entries" element={<ProtectedRoute><TimeEntries /></ProtectedRoute>} />
+                  <Route path="/clients" element={<ProtectedRoute><Clients /></ProtectedRoute>} />
+                  <Route path="/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />
+                  <Route path="/settings/smtp" element={<ProtectedRoute><AdminRoute><SMTPSettings /></AdminRoute></ProtectedRoute>} />
+                  <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+                  <Route path="/setup" element={<Setup />} />
+                </Routes>
+              </Box>
             </Box>
-          </Box>
+          </ProtectedAppLayout>
         )}
       </AuthProvider>
     </ThemeProvider>

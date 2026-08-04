@@ -29,52 +29,81 @@ export function AuthProvider({ children }) {
   };
 
   useEffect(() => {
-    const token = localStorage.getItem('jwt');
-    if (token) {
-      try {
-        const decoded = jwtDecode(token);
-        if (decoded.exp && decoded.exp * 1000 < Date.now()) {
-          localStorage.removeItem('jwt');
-          setUser(null);
-          setIsAuthenticated(false);
-          setSessionStatus(null);
-          setAuthError(getLocaleAuthText('sessionExpired'));
-          delete axios.defaults.headers.common.Authorization;
-        } else {
-          setUser(decoded);
-          setIsAuthenticated(true);
-          setAuthError(null);
-          axios.defaults.headers.common.Authorization = `Bearer ${token}`;
-          refreshSessionStatus().catch(() => {});
-        }
-      } catch (e) {
-        setUser(null);
-        setIsAuthenticated(false);
-        setSessionStatus(null);
-        setAuthError(getLocaleAuthText('invalidSession'));
-        delete axios.defaults.headers.common.Authorization;
-      }
-    } else {
+    let cancelled = false;
+
+    const clearLocalSession = (message = null) => {
+      localStorage.removeItem('jwt');
+      localStorage.removeItem('user');
+      delete axios.defaults.headers.common.Authorization;
+      if (cancelled) return;
       setUser(null);
       setIsAuthenticated(false);
       setSessionStatus(null);
-      setAuthError(null);
-      delete axios.defaults.headers.common.Authorization;
-    }
-    setLoading(false);
+      setAuthError(message);
+    };
+
+    const bootstrapSession = async () => {
+      const token = localStorage.getItem('jwt');
+      if (!token) {
+        clearLocalSession();
+        if (!cancelled) setLoading(false);
+        return;
+      }
+
+      try {
+        const decoded = jwtDecode(token);
+        if (decoded.exp && decoded.exp * 1000 < Date.now()) {
+          clearLocalSession(getLocaleAuthText('sessionExpired'));
+          return;
+        }
+
+        axios.defaults.headers.common.Authorization = `Bearer ${token}`;
+        const response = await axios.get('/api/auth/session-status');
+        if (cancelled) return;
+
+        setSessionStatus(response.data);
+        setUser(decoded);
+        setIsAuthenticated(true);
+        setAuthError(null);
+      } catch (error) {
+        const errorCode = error.response?.data?.errorCode;
+        const message = errorCode === 'auth.session_expired'
+          ? getLocaleAuthText('sessionExpired')
+          : getLocaleAuthText('invalidSession');
+        clearLocalSession(message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    bootstrapSession();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const login = async (token) => {
     setLoading(true);
     localStorage.setItem('jwt', token);
-    const decoded = jwtDecode(token);
-    setUser(decoded);
-    setIsAuthenticated(true);
-    setAuthError(null);
     axios.defaults.headers.common.Authorization = `Bearer ${token}`;
     try {
-      await refreshSessionStatus();
+      const decoded = jwtDecode(token);
+      if (decoded.exp && decoded.exp * 1000 < Date.now()) {
+        throw new Error('Expired token');
+      }
+      const response = await axios.get('/api/auth/session-status');
+      setSessionStatus(response.data);
+      setUser(decoded);
+      setIsAuthenticated(true);
+      setAuthError(null);
     } catch (error) {
+      localStorage.removeItem('jwt');
+      localStorage.removeItem('user');
+      delete axios.defaults.headers.common.Authorization;
+      setUser(null);
+      setIsAuthenticated(false);
+      setSessionStatus(null);
+      setAuthError(getLocaleAuthText('invalidSession'));
       throw error;
     } finally {
       setLoading(false);
