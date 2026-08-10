@@ -19,9 +19,11 @@ const {
   calculateLaborSummary,
   buildLaborCostSeries,
   kopecksToRubles,
+  getProjectFinancialRisk,
 } = require('./budgetUtils');
 const { getProjectEditRole, canEditProjectField } = require('./projectUtils');
 const { activateVerifiedUser, migratePreviouslyAuthenticatedInvitedUsers } = require('./userActivation');
+const { buildDashboardTimeSeries } = require('./dashboardAnalytics');
 
 const app = express();
 app.set('trust proxy', true);
@@ -1418,6 +1420,19 @@ function requireFinancialAdmin(req, res, next) {
   next();
 }
 
+function canActForUser(requestUser, targetUserId) {
+  return Boolean(
+    requestUser
+    && (requestUser.role === 'admin' || Number(requestUser.id) === Number(targetUserId))
+  );
+}
+
+function rejectForeignUser(req, res, targetUserId) {
+  if (canActForUser(req.user, targetUserId)) return false;
+  sendApiError(res, 403, 'adminForbidden');
+  return true;
+}
+
 let projectsManagerColumnAvailable = null;
 
 async function hasProjectManagerColumn() {
@@ -2506,7 +2521,12 @@ function mapNotificationRow(row) {
     id: row.id,
     type: row.type,
     project: { id: row.project_id, name: row.project_name },
-    actor: row.actor_user_id ? { id: row.actor_user_id, name: row.actor_name, surname: row.actor_surname || '' } : null,
+    actor: row.actor_user_id ? {
+      id: row.actor_user_id,
+      name: row.actor_name,
+      surname: row.actor_surname || '',
+      avatarUrl: row.actor_avatar_url || null,
+    } : null,
     budgetVersionId: row.budget_version_id || null,
     budgetChangeRequestId: row.budget_change_request_id || null,
     thresholdPercent: row.threshold_bps === null || row.threshold_bps === undefined ? null : Number((row.threshold_bps / 100).toFixed(2)),
@@ -2529,7 +2549,8 @@ app.get('/api/notifications', authenticateJWT, async (req, res) => {
   params.push(limit + 1);
   try {
     const rows = await allDb(
-      `SELECT n.*, actor.name AS actor_name, actor.surname AS actor_surname
+      `SELECT n.*, actor.name AS actor_name, actor.surname AS actor_surname,
+         actor.avatar_url AS actor_avatar_url
        FROM notifications n
        LEFT JOIN users actor ON actor.id = n.actor_user_id
        WHERE n.user_id = ? ${beforeClause}
@@ -2561,7 +2582,8 @@ app.patch('/api/notifications/:id/read', authenticateJWT, async (req, res) => {
     );
     if (!result.changes) return sendApiError(res, 404, 'notificationsNotFound');
     const row = await getDb(
-      `SELECT n.*, actor.name AS actor_name, actor.surname AS actor_surname
+      `SELECT n.*, actor.name AS actor_name, actor.surname AS actor_surname,
+         actor.avatar_url AS actor_avatar_url
        FROM notifications n LEFT JOIN users actor ON actor.id = n.actor_user_id
        WHERE n.id = ? AND n.user_id = ?`,
       [notificationId, req.user.id]
@@ -2772,7 +2794,7 @@ app.patch('/api/admin/users/:userId/rates/:rateId', authenticateJWT, requireFina
 });
 
 // Users routes
-app.get('/api/users', authenticateJWT, (req, res) => {
+app.get('/api/users', authenticateJWT, requireAdmin, (req, res) => {
   console.log('GET /api/users called');
   db.all(
     `SELECT
@@ -2810,6 +2832,7 @@ app.post('/api/users', authenticateJWT, requireAdmin, (req, res) => {
 
 app.get('/api/users/:id', authenticateJWT, (req, res) => {
   const { id } = req.params;
+  if (!canActForUser(req.user, id)) return sendApiError(res, 403, 'adminForbidden');
   db.get('SELECT id, name, surname, email, role, deleted, phone, department, job_title, avatar_url, language, timezone FROM users WHERE id = ?', [id], (err, user) => {
     if (err) {
       res.status(500).json({ error: err.message });
@@ -2924,7 +2947,7 @@ app.get('/api/clients', authenticateJWT, (req, res) => {
   });
 });
 
-app.post('/api/clients', authenticateJWT, (req, res) => {
+app.post('/api/clients', authenticateJWT, requireAdmin, (req, res) => {
   const { name, type, itn } = req.body;
   // Check for duplicate by name or ITN (case-insensitive)
   db.get('SELECT * FROM clients WHERE LOWER(name) = LOWER(?) OR (itn IS NOT NULL AND LOWER(itn) = LOWER(?))', [name, itn], (err, row) => {
@@ -2947,7 +2970,7 @@ app.post('/api/clients', authenticateJWT, (req, res) => {
 });
 
 // PATCH endpoint to update a client by id
-app.patch('/api/clients/:id', authenticateJWT, (req, res) => {
+app.patch('/api/clients/:id', authenticateJWT, requireAdmin, (req, res) => {
   const { id } = req.params;
   const { name, type, itn } = req.body;
   db.run(
@@ -2968,7 +2991,7 @@ app.patch('/api/clients/:id', authenticateJWT, (req, res) => {
 });
 
 // DELETE client and all their projects and time entries
-app.delete('/api/clients/:id/full', authenticateJWT, (req, res) => {
+app.delete('/api/clients/:id/full', authenticateJWT, requireAdmin, (req, res) => {
   const clientId = req.params.id;
   db.serialize(() => {
     db.run('BEGIN TRANSACTION');
@@ -3210,6 +3233,7 @@ app.delete('/api/projects/:id', authenticateJWT, requireAdmin, (req, res) => {
 // Time entries routes
 app.post('/api/time-entries', authenticateJWT, async (req, res) => {
   const { project_id, user_id, date, hours, description, submission_time } = req.body;
+  if (rejectForeignUser(req, res, user_id)) return;
   console.log('Received submission_time:', submission_time);
   try {
     const result = await runDb(
@@ -3246,9 +3270,10 @@ app.get('/api/time-entries', authenticateJWT, (req, res) => {
     conditions.push('t.project_id = ?');
     params.push(project_id);
   }
-  if (user_id) {
+  const effectiveUserId = req.user.role === 'admin' ? user_id : req.user.id;
+  if (effectiveUserId) {
     conditions.push('t.user_id = ?');
-    params.push(user_id);
+    params.push(effectiveUserId);
   }
   if (start_date && end_date) {
     conditions.push('t.date >= ? AND t.date <= ?');
@@ -3295,6 +3320,7 @@ app.patch('/api/time-entries/:id', authenticateJWT, async (req, res) => {
   try {
     const existingEntry = await getDb('SELECT user_id, project_id FROM time_entries WHERE id = ?', [id]);
     if (!existingEntry) return sendApiError(res, 404, 'timeEntriesNotFound');
+    if (rejectForeignUser(req, res, existingEntry.user_id)) return;
     values.push(id);
     const result = await runDb(
       `UPDATE time_entries SET ${fields.join(', ')} WHERE id = ?`,
@@ -3324,6 +3350,8 @@ app.delete('/api/time-entries/:id', authenticateJWT, (req, res) => {
     if (lookupErr) {
       return res.status(500).json({ error: lookupErr.message });
     }
+    if (!entry) return sendApiError(res, 404, 'timeEntriesNotFound');
+    if (rejectForeignUser(req, res, entry.user_id)) return;
     db.run('DELETE FROM time_entries WHERE id = ?', [id], function(err) {
       if (err) {
         res.status(500).json({ error: err.message });
@@ -3345,6 +3373,7 @@ app.post('/api/time-entries/bulk-delete', authenticateJWT, (req, res) => {
   if (!user_id || !project_id || !week_start) {
     return sendApiError(res, 400, 'timeEntriesWeekRequired');
   }
+  if (rejectForeignUser(req, res, user_id)) return;
   const start = new Date(week_start);
   start.setHours(0, 0, 0, 0);
   const end = new Date(start);
@@ -3366,112 +3395,255 @@ app.post('/api/time-entries/bulk-delete', authenticateJWT, (req, res) => {
   );
 });
 
-// Analytics routes
-app.get('/api/analytics/time-by-user', authenticateJWT, (req, res) => {
-  const { startDate, endDate } = req.query;
-  let query = `
-    SELECT 
-      t.user_id,
-      (u.surname || ' ' || u.name) as user_name,
-      t.project_id,
-      p.name as project_name,
-      p.code as project_code,
-      p.category as project_category,
-      c.name as client_name,
-      c.type as client_type,
-      SUM(t.hours) as total_hours
-    FROM time_entries t
-    LEFT JOIN users u ON t.user_id = u.id
-    LEFT JOIN projects p ON t.project_id = p.id
-    LEFT JOIN clients c ON p.client_id = c.id
-  `;
-  let params = [];
-  const conditions = [];
-  if (startDate && endDate) {
-    conditions.push('t.date >= ? AND t.date <= ?');
-    params.push(startDate, endDate);
-  }
-  if (conditions.length > 0) {
-    query += ' WHERE ' + conditions.join(' AND ');
-  }
-  query += ' GROUP BY t.user_id, t.project_id';
-  db.all(query, params, (err, rows) => {
-    if (err) {
-      res.status(500).json({ error: err.message });
-      return;
-    }
-    res.json(rows);
-  });
-});
+function getDefaultDashboardPeriod() {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), 1);
+  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  const toKey = (value) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
+  return { startDate: toKey(start), endDate: toKey(end) };
+}
 
-app.get('/api/analytics/time-by-project', authenticateJWT, (req, res) => {
-  const { startDate, endDate } = req.query;
-  let query = `
-    SELECT 
-      t.project_id,
-      p.name as project_name,
-      p.code as project_code,
-      p.category as project_category,
-      c.name as client_name,
-      c.type as client_type,
-      t.user_id,
-      (u.surname || ' ' || u.name) as user_name,
-      SUM(t.hours) as total_hours
-    FROM time_entries t
-    LEFT JOIN projects p ON t.project_id = p.id
-    LEFT JOIN clients c ON p.client_id = c.id
-    LEFT JOIN users u ON t.user_id = u.id
-  `;
-  let params = [];
-  const conditions = [];
-  if (startDate && endDate) {
-    conditions.push('t.date >= ? AND t.date <= ?');
-    params.push(startDate, endDate);
-  }
-  if (conditions.length > 0) {
-    query += ' WHERE ' + conditions.join(' AND ');
-  }
-  query += ' GROUP BY t.project_id, t.user_id';
-  db.all(query, params, (err, rows) => {
-    if (err) {
-      res.status(500).json({ error: err.message });
-      return;
-    }
-    res.json(rows);
-  });
-});
+async function getDashboardScopes(user) {
+  const managed = await getDb('SELECT COUNT(*) AS count FROM projects WHERE manager_user_id = ?', [user.id]);
+  const scopes = ['mine'];
+  if (Number(managed?.count || 0) > 0) scopes.push('managed');
+  scopes.push('company');
+  if (user.role === 'admin') scopes.push('portfolio');
+  return scopes;
+}
 
-app.get('/api/analytics/time-by-client-type', authenticateJWT, (req, res) => {
-  const { startDate, endDate } = req.query;
-  let query = `
-    SELECT 
-      c.type as client_type,
-      t.user_id,
-      (u.surname || ' ' || u.name) as user_name,
-      t.project_id,
-      SUM(t.hours) as total_hours
-    FROM time_entries t
-    LEFT JOIN projects p ON t.project_id = p.id
-    LEFT JOIN clients c ON p.client_id = c.id
-    LEFT JOIN users u ON t.user_id = u.id
-  `;
-  let params = [];
-  const conditions = [];
-  if (startDate && endDate) {
-    conditions.push('t.date >= ? AND t.date <= ?');
-    params.push(startDate, endDate);
-  }
-  if (conditions.length > 0) {
-    query += ' WHERE ' + conditions.join(' AND ');
-  }
-  query += ' GROUP BY c.type, t.user_id, t.project_id';
-  db.all(query, params, (err, rows) => {
-    if (err) {
-      res.status(500).json({ error: err.message });
-      return;
+function summarizeDashboardBreakdowns(rows) {
+  const categoryMap = new Map();
+  const clientMap = new Map();
+  for (const row of rows) {
+    const hours = Number(row.period_hours || 0);
+    const category = row.category || 'unclassified';
+    const client = row.client_name || '';
+    const clientType = row.client_type || '';
+    categoryMap.set(category, (categoryMap.get(category) || 0) + hours);
+    if (client) {
+      const clientKey = `${clientType}\u0000${client}`;
+      const current = clientMap.get(clientKey) || { key: clientKey, label: client, clientType, hours: 0 };
+      current.hours += hours;
+      clientMap.set(clientKey, current);
     }
-    res.json(rows);
-  });
+  }
+  const byHours = (a, b) => b.hours - a.hours || a.label.localeCompare(b.label);
+  return {
+    categories: [...categoryMap].map(([key, hours]) => ({ key, label: key, hours })).sort(byHours),
+    clients: [...clientMap.values()].sort(byHours),
+  };
+}
+
+app.get('/api/dashboard', authenticateJWT, async (req, res) => {
+  try {
+    const availableScopes = await getDashboardScopes(req.user);
+    const requestedScope = typeof req.query.scope === 'string' ? req.query.scope : 'mine';
+    const scope = availableScopes.includes(requestedScope) ? requestedScope : 'mine';
+    const defaults = getDefaultDashboardPeriod();
+    const startDate = normalizeDateOnlyValue(req.query.startDate) || defaults.startDate;
+    const endDate = normalizeDateOnlyValue(req.query.endDate) || defaults.endDate;
+    if (endDate < startDate) return sendApiError(res, 400, 'budgetValidationFailed', { message: 'Invalid dashboard period.' });
+    const bucket = ['day', 'week', 'month', 'quarter', 'year'].includes(req.query.bucket) ? req.query.bucket : 'week';
+    const clientType = req.query.clientType === 'internal' || req.query.clientType === 'external'
+      ? req.query.clientType
+      : null;
+
+    let targetUserId = req.user.id;
+    if (scope === 'mine' && req.query.userId !== undefined) {
+      if (req.user.role !== 'admin') return sendApiError(res, 403, 'adminForbidden');
+      targetUserId = Number(req.query.userId);
+      if (!Number.isInteger(targetUserId)) return sendApiError(res, 400, 'ratesValidationFailed', { message: 'User id is invalid.' });
+      const target = await getDb('SELECT id FROM users WHERE id = ? AND deleted = 0', [targetUserId]);
+      if (!target) return sendApiError(res, 404, 'usersNotFound');
+    }
+
+    const joinConditions = ['t.project_id = p.id', 'substr(t.date, 1, 10) >= ?', 'substr(t.date, 1, 10) <= ?'];
+    const params = [startDate, endDate];
+    if (scope === 'mine') {
+      joinConditions.push('t.user_id = ?');
+      params.push(targetUserId);
+    }
+    const where = [];
+    if (scope === 'managed') {
+      where.push('p.manager_user_id = ?');
+      params.push(req.user.id);
+    }
+    if (scope === 'mine' || scope === 'company') where.push('t.id IS NOT NULL');
+    if (clientType) {
+      where.push('c.type = ?');
+      params.push(clientType);
+    }
+
+    const rows = await allDb(
+      `SELECT p.id, p.name, p.code, p.category, p.active, p.manager_user_id,
+         c.name AS client_name, c.type AS client_type,
+         TRIM(COALESCE(manager.surname, '') || ' ' || COALESCE(manager.name, '')) AS manager_name,
+         COALESCE(SUM(t.hours), 0) AS period_hours,
+         MAX(substr(t.date, 1, 10)) AS last_entry_date
+       FROM projects p
+       LEFT JOIN clients c ON c.id = p.client_id
+       LEFT JOIN users manager ON manager.id = p.manager_user_id
+       LEFT JOIN time_entries t ON ${joinConditions.join(' AND ')}
+       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+       GROUP BY p.id
+       ORDER BY period_hours DESC, p.name ASC`,
+      params
+    );
+
+    const includeFinance = scope === 'managed' || scope === 'portfolio';
+    const projects = await Promise.all(rows.map(async (row) => {
+      const project = {
+        id: row.id,
+        name: row.name,
+        code: row.code || '',
+        category: row.category || 'unclassified',
+        clientName: row.client_name || '',
+        clientType: row.client_type || '',
+        managerName: row.manager_name || '',
+        active: Boolean(row.active),
+      };
+      const item = {
+        project,
+        periodHours: Number(row.period_hours || 0),
+        lastEntryDate: row.last_entry_date || null,
+      };
+      if (!includeFinance) return item;
+
+      const status = await getBudgetStatus(row.id);
+      const risk = getProjectFinancialRisk(status);
+      item.finance = {
+        budgetMode: status.budget?.budgetMode || null,
+        knownLaborCostRub: Number(status.summary?.totalLaborCostRub || 0),
+        payrollLimitRub: status.budget?.payrollLimitRub ?? null,
+        remainingRub: status.summary?.payrollRemainingRub ?? null,
+        exceededRub: status.summary?.payrollExceededRub ?? null,
+        usedPercent: status.summary?.payrollUsedPercent ?? null,
+        warningThresholdPercent: status.budget?.payrollWarningThresholdPercent ?? null,
+        missingRateEntriesCount: risk.missingRateEntriesCount,
+        isComplete: risk.isComplete,
+        riskStatus: risk.riskStatus,
+        hasPendingBudgetRequest: Boolean(status.activeRequest),
+      };
+      return item;
+    }));
+
+    const financialProjects = projects.filter((item) => item.finance);
+    let timeSeries;
+    if (scope === 'mine' || scope === 'company') {
+      const timeSeriesConditions = [
+        'substr(t.date, 1, 10) >= ?',
+        'substr(t.date, 1, 10) <= ?',
+      ];
+      const timeSeriesParams = [startDate, endDate];
+      if (scope === 'mine') {
+        timeSeriesConditions.push('t.user_id = ?');
+        timeSeriesParams.push(targetUserId);
+      }
+      if (clientType) {
+        timeSeriesConditions.push('c.type = ?');
+        timeSeriesParams.push(clientType);
+      }
+      const timeSeriesRows = await allDb(
+        `SELECT substr(t.date, 1, 10) AS date,
+           t.hours,
+           COALESCE(p.category, ?) AS category
+         FROM time_entries t
+         INNER JOIN projects p ON p.id = t.project_id
+         LEFT JOIN clients c ON c.id = p.client_id
+         WHERE ${timeSeriesConditions.join(' AND ')}
+         ORDER BY date ASC`,
+        [PROJECT_CATEGORY_TRANSITION, ...timeSeriesParams]
+      );
+      const timeSeriesStartDate = (bucket === 'year' || bucket === 'quarter') && timeSeriesRows.length
+        ? String(timeSeriesRows[0].date).slice(0, 10)
+        : startDate;
+      timeSeries = buildDashboardTimeSeries({
+        rows: timeSeriesRows,
+        startDate: timeSeriesStartDate,
+        endDate,
+        bucket,
+        categoryKeys: PROJECT_CATEGORY_VALUES,
+      });
+    }
+    const userConditions = [
+      'substr(t.date, 1, 10) >= ?',
+      'substr(t.date, 1, 10) <= ?',
+    ];
+    const userParams = [startDate, endDate];
+    if (scope === 'mine') {
+      userConditions.push('t.user_id = ?');
+      userParams.push(targetUserId);
+    }
+    if (scope === 'managed') {
+      userConditions.push('p.manager_user_id = ?');
+      userParams.push(req.user.id);
+    }
+    if (clientType) {
+      userConditions.push('c.type = ?');
+      userParams.push(clientType);
+    }
+    const userRows = await allDb(
+      `SELECT t.user_id AS id,
+         TRIM(COALESCE(u.surname, '') || ' ' || COALESCE(u.name, '')) AS label,
+         COALESCE(SUM(t.hours), 0) AS hours
+       FROM time_entries t
+       INNER JOIN projects p ON p.id = t.project_id
+       LEFT JOIN clients c ON c.id = p.client_id
+       LEFT JOIN users u ON u.id = t.user_id
+       WHERE ${userConditions.join(' AND ')}
+       GROUP BY t.user_id
+       ORDER BY hours DESC, label ASC`,
+      userParams
+    );
+    const projectUserRows = await allDb(
+      `SELECT t.project_id AS project_id,
+         t.user_id AS user_id,
+         TRIM(COALESCE(u.surname, '') || ' ' || COALESCE(u.name, '')) AS user_label,
+         COALESCE(SUM(t.hours), 0) AS hours
+       FROM time_entries t
+       INNER JOIN projects p ON p.id = t.project_id
+       LEFT JOIN clients c ON c.id = p.client_id
+       LEFT JOIN users u ON u.id = t.user_id
+       WHERE ${userConditions.join(' AND ')}
+       GROUP BY t.project_id, t.user_id
+       ORDER BY hours DESC, user_label ASC`,
+      userParams
+    );
+    const summary = {
+      totalHours: Number(projects.reduce((sum, item) => sum + item.periodHours, 0).toFixed(2)),
+      projectCount: projects.length,
+      clientCount: new Set(projects.map((item) => item.project.clientName).filter(Boolean)).size,
+      warningCount: financialProjects.filter((item) => item.finance.riskStatus === 'warning').length,
+      limitReachedCount: financialProjects.filter((item) => item.finance.riskStatus === 'limit_reached').length,
+      exceededCount: financialProjects.filter((item) => item.finance.riskStatus === 'exceeded').length,
+      incompleteCount: financialProjects.filter((item) => !item.finance.isComplete).length,
+      pendingRequestCount: financialProjects.filter((item) => item.finance.hasPendingBudgetRequest).length,
+      knownLaborCostRub: Number(financialProjects.reduce((sum, item) => sum + item.finance.knownLaborCostRub, 0).toFixed(2)),
+    };
+
+    res.json({
+      scope,
+      availableScopes,
+      period: { startDate, endDate },
+      summary,
+      breakdowns: {
+        ...summarizeDashboardBreakdowns(rows),
+        users: userRows.map((row) => ({ key: row.id, label: row.label || `#${row.id}`, hours: Number(row.hours || 0) })),
+        projectUsers: projectUserRows.map((row) => ({
+          projectId: row.project_id,
+          userId: row.user_id,
+          userLabel: row.user_label || `#${row.user_id}`,
+          hours: Number(row.hours || 0),
+        })),
+      },
+      projects,
+      ...(timeSeries ? { timeSeries } : {}),
+    });
+  } catch (err) {
+    console.error('[Dashboard] Failed to load:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get('/api/projects/:id/analytics', authenticateJWT, (req, res) => {
@@ -3492,7 +3664,7 @@ app.get('/api/projects/:id/analytics', authenticateJWT, (req, res) => {
   const whereClause = `WHERE ${conditions.join(' AND ')}`;
 
   db.get(
-    `SELECT p.id, p.name, p.code, c.name as client_name
+    `SELECT p.id, p.name, p.code, p.manager_user_id, c.name as client_name
      FROM projects p
      LEFT JOIN clients c ON c.id = p.client_id
      WHERE p.id = ?`,
@@ -3562,6 +3734,8 @@ app.get('/api/projects/:id/analytics', authenticateJWT, (req, res) => {
                   }
 
                   const buildResponse = (baseline = { totalHours: 0, byUser: {} }) => {
+                    const canSeeNamedAnalytics = req.user.role === 'admin'
+                      || Number(project.manager_user_id) === Number(req.user.id);
                     const dailyMap = new Map();
                     dailyRows.forEach((row) => {
                       if (!dailyMap.has(row.entry_date)) {
@@ -3600,13 +3774,13 @@ app.get('/api/projects/:id/analytics', authenticateJWT, (req, res) => {
                         firstEntryDate: summaryRow?.first_entry_date || null,
                         lastEntryDate: projectActivityRow?.last_entry_date || null,
                       },
-                      members: membersRows.map((row) => ({
+                      members: canSeeNamedAnalytics ? membersRows.map((row) => ({
                         userId: row.user_id,
                         userName: row.user_name || 'Unknown User',
                         totalHours: Number(row.total_hours) || 0,
-                      })),
-                      cumulativeBaseline: baseline,
-                      daily,
+                      })) : [],
+                      cumulativeBaseline: canSeeNamedAnalytics ? baseline : { totalHours: baseline.totalHours, byUser: {} },
+                      daily: canSeeNamedAnalytics ? daily : daily.map((point) => ({ ...point, users: [] })),
                     });
                   };
 
@@ -3667,6 +3841,9 @@ app.post('/api/time-entries/batch', authenticateJWT, async (req, res) => {
   const { entries } = req.body;
   if (!Array.isArray(entries) || entries.length === 0) {
     return sendApiError(res, 400, 'timeEntriesNoEntries');
+  }
+  if (entries.some((entry) => !canActForUser(req.user, entry.user_id))) {
+    return sendApiError(res, 403, 'adminForbidden');
   }
   try {
     await runDb('BEGIN IMMEDIATE TRANSACTION');
@@ -4057,116 +4234,6 @@ app.post('/api/auth/logout', authenticateJWT, async (req, res) => {
     console.error('[Logout] Failed to revoke session:', err);
     res.status(500).json({ errorCode: apiErrors.authLogoutFailed.errorCode, error: apiErrors.authLogoutFailed.error });
   }
-});
-
-// --- NEW ANALYTICS ENDPOINTS: TRUE TOTALS ---
-// One row per project
-app.get('/api/analytics/time-by-project-total', authenticateJWT, (req, res) => {
-  console.log('[ANALYTICS] Handler entered');
-  let { startDate, endDate } = req.query;
-  const start = startDate ? startDate.slice(0, 10) : null;
-  const end = endDate ? endDate.slice(0, 10) : null;
-  let query = `
-    SELECT 
-      t.project_id,
-      p.name as project_name,
-      p.code as project_code,
-      p.category as project_category,
-      c.name as client_name,
-      c.type as client_type,
-      SUM(t.hours) as total_hours
-    FROM time_entries t
-    LEFT JOIN projects p ON t.project_id = p.id
-    LEFT JOIN clients c ON p.client_id = c.id
-  `;
-  let params = [];
-  const conditions = [];
-  if (start && end) {
-    conditions.push('substr(t.date, 1, 10) >= ? AND substr(t.date, 1, 10) <= ?');
-    params.push(start, end);
-  }
-  if (conditions.length > 0) {
-    query += ' WHERE ' + conditions.join(' AND ');
-  }
-  query += ' GROUP BY t.project_id';
-  console.log('[ANALYTICS] SQL:', query);
-  console.log('[ANALYTICS] Params:', params);
-  db.all(query, params, (err, rows) => {
-    if (err) {
-      res.status(500).json({ error: err.message });
-      return;
-    }
-    console.log('[ANALYTICS] Result rows:', rows);
-    res.json(rows);
-  });
-});
-// One row per user
-app.get('/api/analytics/time-by-user-total', authenticateJWT, (req, res) => {
-  let { startDate, endDate } = req.query;
-  const start = startDate ? startDate.slice(0, 10) : null;
-  const end = endDate ? endDate.slice(0, 10) : null;
-  let query = `
-    SELECT 
-      t.user_id,
-      (u.surname || ' ' || u.name) as user_name,
-      SUM(t.hours) as total_hours
-    FROM time_entries t
-    LEFT JOIN users u ON t.user_id = u.id
-  `;
-  let params = [];
-  const conditions = [];
-  if (start && end) {
-    conditions.push('substr(t.date, 1, 10) >= ? AND substr(t.date, 1, 10) <= ?');
-    params.push(start, end);
-  }
-  if (conditions.length > 0) {
-    query += ' WHERE ' + conditions.join(' AND ');
-  }
-  query += ' GROUP BY t.user_id';
-  db.all(query, params, (err, rows) => {
-    if (err) {
-      res.status(500).json({ error: err.message });
-      return;
-    }
-    res.json(rows);
-  });
-});
-// One row per client type
-app.get('/api/analytics/time-by-client-type-total', authenticateJWT, (req, res) => {
-  let { startDate, endDate } = req.query;
-  const start = startDate ? startDate.slice(0, 10) : null;
-  const end = endDate ? endDate.slice(0, 10) : null;
-  let query = `
-    SELECT 
-      t.user_id,
-      c.type as client_type,
-      SUM(t.hours) as total_hours
-    FROM time_entries t
-    LEFT JOIN projects p ON t.project_id = p.id
-    LEFT JOIN clients c ON p.client_id = c.id
-  `;
-  let params = [];
-  const conditions = [];
-  if (start && end) {
-    conditions.push('substr(t.date, 1, 10) >= ? AND substr(t.date, 1, 10) <= ?');
-    params.push(start, end);
-  }
-  if (conditions.length > 0) {
-    query += ' WHERE ' + conditions.join(' AND ');
-  }
-  query += ' GROUP BY c.type, t.user_id';
-  db.all(query, params, (err, rows) => {
-    if (err) {
-      res.status(500).json({ error: err.message });
-      return;
-    }
-    res.json(rows);
-  });
-});
-
-app.get('/api/analytics/test', (req, res) => {
-  console.log('[ANALYTICS] Test endpoint hit');
-  res.json({ ok: true });
 });
 
 // Endpoint to get current NODE_ENV for frontend

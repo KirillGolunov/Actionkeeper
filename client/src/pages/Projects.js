@@ -24,7 +24,6 @@ import {
   Stack,
   Menu,
   MenuItem,
-  ToggleButton,
   ThemeProvider,
   createTheme,
   useTheme,
@@ -43,6 +42,7 @@ import { getApiErrorMessage } from '../utils/apiErrorMessage';
 import ProjectBudgetSection, { emptyBudgetDraft, validateBudgetDraft } from '../components/ProjectBudgetSection';
 import ProjectBudgetOverview from '../components/ProjectBudgetOverview';
 import ProjectHoursOverview from '../components/ProjectHoursOverview';
+import SegmentedCapsule from '../components/SegmentedCapsule';
 import ProjectDialogLayout from '../components/ProjectDialogLayout';
 import ProjectDetailsForm from '../components/ProjectDetailsForm';
 import OverflowTooltip from '../components/OverflowTooltip';
@@ -59,6 +59,7 @@ import {
   PROJECT_CATEGORY_OPTIONS,
   PROJECT_CATEGORY_ORDER,
   PROJECT_CATEGORY_TRANSITION,
+  getProjectCategoryChipStyles,
   getProjectCategoryMeta,
 } from '../utils/projectCategories';
 
@@ -130,7 +131,6 @@ function Projects() {
   const [activeSaving, setActiveSaving] = useState(false);
   const budgetSectionRef = useRef(null);
   const detailsFormRef = useRef(null);
-  const editViewButtonRefs = useRef({});
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [projectToDelete, setProjectToDelete] = useState(null);
   const [projectActionsAnchorEl, setProjectActionsAnchorEl] = useState(null);
@@ -571,14 +571,6 @@ function Projects() {
     if (nextMode === 'hours') setEditHoursActivated(true);
   };
 
-  const handleEditViewKeyDown = (event, currentMode) => {
-    if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
-    event.preventDefault();
-    const nextMode = currentMode === 'budget' ? 'hours' : 'budget';
-    editViewButtonRefs.current[nextMode]?.focus();
-    switchEditView(nextMode);
-  };
-
   const completePendingNavigation = (navigation) => {
     setConfirmNavigation(null);
     if (!navigation) return;
@@ -696,18 +688,6 @@ function Projects() {
       projects: sortedProjects.filter((project) => (project.category || PROJECT_CATEGORY_TRANSITION.value) === categoryValue),
     }))
     .filter((group) => group.projects.length > 0);
-
-  const getCategoryChipStyles = (categoryValue) => {
-    const palette = {
-      external_delivery: { background: '#EAF4EC', color: '#245C34', border: '1px solid #7FB48F' },
-      internal_project: { background: '#EEF1FF', color: '#4256B2', border: '1px solid #93A2E8' },
-      operations: { background: '#FFF4E8', color: '#9A5B10', border: '1px solid #E5B16D' },
-      people_development: { background: '#F7ECFF', color: '#7A3FA0', border: '1px solid #C59BDF' },
-      time_off: { background: '#FBECEC', color: '#A23D3D', border: '1px solid #E0A0A0' },
-      unclassified: { background: '#F3F4F6', color: '#5F6B7A', border: '1px dashed #AAB3BE' },
-    };
-    return palette[categoryValue] || palette.unclassified;
-  };
 
   const scopeTagStyles = {
     mine: {
@@ -1088,7 +1068,7 @@ function Projects() {
                   fontSize: 12,
                   fontWeight: 600,
                   borderRadius: '999px',
-                  ...getCategoryChipStyles(group.categoryValue),
+                  ...getProjectCategoryChipStyles(group.categoryValue),
                 }}
               />
             </Box>
@@ -1164,7 +1144,7 @@ function Projects() {
                               fontSize: 12,
                               fontWeight: 500,
                               borderRadius: '6px',
-                              ...getCategoryChipStyles(project.category),
+                              ...getProjectCategoryChipStyles(project.category),
                             }}
                           />
                         </Box>
@@ -1211,7 +1191,7 @@ function Projects() {
         onClose={handleClose}
         title={t('projects.dialog.newTitle')}
         subtitle={t('projects.dialog.newSubtitle')}
-        chips={newProject.category ? [{ key: 'category', label: PROJECT_CATEGORY_OPTIONS.find((item) => item.value === newProject.category)?.label, sx: getCategoryChipStyles(newProject.category) }] : []}
+        chips={newProject.category ? [{ key: 'category', label: PROJECT_CATEGORY_OPTIONS.find((item) => item.value === newProject.category)?.label, sx: getProjectCategoryChipStyles(newProject.category) }] : []}
         secondaryLabel={t('common.actions.cancel')}
         onSecondary={handleClose}
         primaryLabel={t('projects.dialog.create')}
@@ -1278,7 +1258,7 @@ function Projects() {
           editProject?.manager_user_id ? [editProject.manager_surname, editProject.manager_name].filter(Boolean).join(' ') : t('projects.manager.unassigned'),
         ].filter(Boolean).join(' · ')}
         chips={[
-          editProject?.category ? { key: 'category', label: getProjectCategoryMeta(editProject.category).label, sx: getCategoryChipStyles(editProject.category) } : null,
+          editProject?.category ? { key: 'category', label: getProjectCategoryMeta(editProject.category).label, sx: getProjectCategoryChipStyles(editProject.category) } : null,
           { key: 'active', label: editProject?.active ? t('projects.activeStatus') : t('projects.closedStatus'), sx: editProject?.active ? { background: '#EEF3FF', color: '#3F5FC8' } : { background: '#F0F1F3', color: '#6F7784' } },
           canViewEditProjectFinance
             ? editBudgetLoading && !editBudgetStatus
@@ -1295,58 +1275,17 @@ function Projects() {
         ].filter(Boolean)}
         headerAction={(
           <Stack direction="row" alignItems="center" spacing={0.75}>
-            <Box
-              role="tablist"
-              aria-label={t('projects.hoursOverview.viewSelector')}
-              sx={{
-                width: { xs: 178, sm: 196 },
-                height: 36,
-                p: '3px',
-                display: 'flex',
-                alignItems: 'stretch',
-                borderRadius: 999,
-                background: '#F1F2F4',
-              }}
-            >
-              {['budget', 'hours'].map((mode) => (
-                <ToggleButton
-                  key={mode}
-                  ref={(node) => { editViewButtonRefs.current[mode] = node; }}
-                  value={mode}
-                  selected={editViewMode === mode}
-                  role="tab"
-                  aria-selected={editViewMode === mode}
-                  aria-controls={`project-${mode}-panel`}
-                  onClick={() => switchEditView(mode)}
-                  onKeyDown={(event) => handleEditViewKeyDown(event, mode)}
-                  sx={{
-                    flex: 1,
-                    minWidth: 0,
-                    height: 30,
-                    px: 1,
-                    border: '0 !important',
-                    borderRadius: '999px !important',
-                    color: '#566071',
-                    fontSize: { xs: 11.5, sm: 12 },
-                    fontWeight: 500,
-                    lineHeight: 1,
-                    textTransform: 'none',
-                    whiteSpace: 'nowrap',
-                    '&.Mui-selected': {
-                      color: '#1D2433',
-                      background: '#FFFFFF',
-                      boxShadow: '0 2px 8px rgba(31,42,68,.12)',
-                      fontWeight: 700,
-                    },
-                    '&.Mui-selected:hover': { background: '#FFFFFF' },
-                    '&:hover': { background: 'rgba(255,255,255,.55)' },
-                    '&.Mui-focusVisible': { outline: '3px solid rgba(86,115,220,.20)', outlineOffset: 1 },
-                  }}
-                >
-                  {mode === 'budget' ? t('projects.budget.title') : t('projects.hoursOverview.modeHours')}
-                </ToggleButton>
-              ))}
-            </Box>
+            <SegmentedCapsule
+              value={editViewMode}
+              options={[
+                { value: 'budget', label: t('projects.budget.title') },
+                { value: 'hours', label: t('projects.hoursOverview.modeHours') },
+              ]}
+              onChange={switchEditView}
+              ariaLabel={t('projects.hoursOverview.viewSelector')}
+              idPrefix="project"
+              sx={{ width: { xs: 178, sm: 196 } }}
+            />
             {canEdit || isEditProjectManager ? (
               <Tooltip title={t('projects.moreActions')} arrow>
                 <span>

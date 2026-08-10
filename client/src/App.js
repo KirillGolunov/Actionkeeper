@@ -1,15 +1,13 @@
 import React, { useEffect } from 'react';
-import { Routes, Route, useLocation } from 'react-router-dom';
+import { Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import { Box } from '@mui/material';
-import Navbar from './components/Navbar';
 import AutoLoginInfoDialog from './components/AutoLoginInfoDialog';
 import Projects from './pages/Projects';
-import TimeEntries from './pages/TimeEntries';
 import Clients from './pages/Clients';
 import Users from './pages/Users';
-import DashboardsNew from './pages/Dashboards_new';
+import Home from './pages/Home';
 import SMTPSettings from './pages/SMTPSettings';
 import AcceptInvitation from './pages/AcceptInvitation';
 import SignIn from './pages/SignIn';
@@ -22,6 +20,7 @@ import Setup from './pages/Setup';
 import axios from 'axios';
 import { useTranslation } from './i18n/I18nProvider';
 import { modalScrollStabilityStyles } from './utils/modalScrollStability';
+import AppShell from './components/AppShell';
 
 const theme = createTheme({
   palette: {
@@ -61,7 +60,9 @@ function SetupCheck() {
 
   useEffect(() => {
     if (isAuthPage || loading || !isAuthenticated) return;
-    axios.get('/api/users').catch(err => {
+    axios.get('/api/setup-required').then((response) => {
+      if (response.data?.setupRequired) window.location.href = '/setup';
+    }).catch(err => {
       if (
         err.response &&
         err.response.status === 403 &&
@@ -98,22 +99,21 @@ function App() {
           </Routes>
         ) : (
           <ProtectedAppLayout>
-            <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-              <Navbar />
+            <AppShell>
               <AutoLoginInfoDialog />
-              <Box component="main" sx={{ mt: 4, mb: 4, flex: 1, width: '100%', px: 4 }}>
+              <Box component="main" sx={{ height: '100%', minHeight: 0, width: '100%', overflow: 'hidden' }}>
                 <Routes>
-                  <Route path="/" element={<ProtectedRoute><DashboardsNew /></ProtectedRoute>} />
+                  <Route path="/" element={<ProtectedRoute><Home /></ProtectedRoute>} />
                   <Route path="/projects" element={<ProtectedRoute><Projects /></ProtectedRoute>} />
-                  <Route path="/time-entries" element={<ProtectedRoute><TimeEntries /></ProtectedRoute>} />
-                  <Route path="/clients" element={<ProtectedRoute><Clients /></ProtectedRoute>} />
-                  <Route path="/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />
+                  <Route path="/time-entries" element={<Navigate to="/?mode=mine" replace />} />
+                  <Route path="/clients" element={<ProtectedRoute><AdminRoute><Clients /></AdminRoute></ProtectedRoute>} />
+                  <Route path="/users" element={<ProtectedRoute><AdminRoute><Users /></AdminRoute></ProtectedRoute>} />
                   <Route path="/settings/smtp" element={<ProtectedRoute><AdminRoute><SMTPSettings /></AdminRoute></ProtectedRoute>} />
                   <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
                   <Route path="/setup" element={<Setup />} />
                 </Routes>
               </Box>
-            </Box>
+            </AppShell>
           </ProtectedAppLayout>
         )}
       </AuthProvider>

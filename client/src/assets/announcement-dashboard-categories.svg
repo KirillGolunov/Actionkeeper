@@ -2,16 +2,16 @@
   <rect width="720" height="360" rx="24" fill="#F6F8FD"/>
   <rect x="34" y="36" width="312" height="254" rx="20" fill="white" stroke="#E3E9F4"/>
   <circle cx="145" cy="170" r="76" fill="none" stroke="#F0F3FA" stroke-width="30"/>
-  <path d="M145 94 A76 76 0 0 1 212 133" stroke="#7FB48F" stroke-width="30" fill="none"/>
-  <path d="M211 134 A76 76 0 0 1 211 207" stroke="#E0A0A0" stroke-width="30" fill="none"/>
-  <path d="M210 208 A76 76 0 0 1 116 240" stroke="#E5B16D" stroke-width="30" fill="none"/>
-  <path d="M115 240 A76 76 0 0 1 77 124" stroke="#93A2E8" stroke-width="30" fill="none"/>
-  <path d="M77 124 A76 76 0 0 1 84 114" stroke="#C59BDF" stroke-width="30" fill="none"/>
-  <rect x="238" y="118" width="72" height="10" rx="5" fill="#7FB48F"/>
-  <rect x="238" y="145" width="72" height="10" rx="5" fill="#93A2E8"/>
-  <rect x="238" y="172" width="72" height="10" rx="5" fill="#E5B16D"/>
-  <rect x="238" y="199" width="72" height="10" rx="5" fill="#C59BDF"/>
-  <rect x="238" y="226" width="72" height="10" rx="5" fill="#E0A0A0"/>
+  <path d="M145 94 A76 76 0 0 1 212 133" stroke="#6F86D8" stroke-width="30" fill="none"/>
+  <path d="M211 134 A76 76 0 0 1 211 207" stroke="#C9CFD9" stroke-width="30" fill="none"/>
+  <path d="M210 208 A76 76 0 0 1 116 240" stroke="#6FA7A1" stroke-width="30" fill="none"/>
+  <path d="M115 240 A76 76 0 0 1 77 124" stroke="#8F7CC8" stroke-width="30" fill="none"/>
+  <path d="M77 124 A76 76 0 0 1 84 114" stroke="#C9A36F" stroke-width="30" fill="none"/>
+  <rect x="238" y="118" width="72" height="10" rx="5" fill="#6F86D8"/>
+  <rect x="238" y="145" width="72" height="10" rx="5" fill="#8F7CC8"/>
+  <rect x="238" y="172" width="72" height="10" rx="5" fill="#6FA7A1"/>
+  <rect x="238" y="199" width="72" height="10" rx="5" fill="#C9A36F"/>
+  <rect x="238" y="226" width="72" height="10" rx="5" fill="#C9CFD9"/>
   <rect x="372" y="36" width="314" height="254" rx="20" fill="white" stroke="#E3E9F4"/>
   <rect x="404" y="94" width="98" height="10" rx="5" fill="#273041" fill-opacity="0.18"/>
   <rect x="404" y="124" width="190" height="12" rx="6" fill="#5673DC"/>

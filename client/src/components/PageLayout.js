@@ -191,12 +191,13 @@ export default function PageLayout({
     <Box
       sx={{
         background: pageBackground,
-        minHeight: '100%',
-        mx: -3,
-        mt: -3,
-        px: 3,
-        pt: 3,
-        pb: 4,
+        height: '100%',
+        minHeight: 0,
+        px: { xs: 2, md: 3 },
+        pt: { xs: 2, md: 3 },
+        pb: { xs: 2, md: 3 },
+        overflowY: 'auto',
+        overflowX: 'hidden',
         ...sx,
       }}
     >
