@@ -156,6 +156,29 @@ function buildLaborCostSeries(rows = []) {
   });
 }
 
+function getProjectFinancialRisk({ budget = null, summary = null } = {}) {
+  const missingRateEntriesCount = Number(summary?.missingRateEntriesCount || 0);
+  const isComplete = missingRateEntriesCount === 0;
+
+  if (!budget) {
+    return { riskStatus: 'not_configured', isComplete, missingRateEntriesCount };
+  }
+  if (budget.budgetMode === 'none') {
+    return { riskStatus: 'no_limit', isComplete, missingRateEntriesCount };
+  }
+
+  const exceeded = Number(summary?.payrollExceededRub || 0);
+  const used = Number(summary?.payrollUsedPercent || 0);
+  const threshold = Number(budget.payrollWarningThresholdPercent || 80);
+  let riskStatus = 'normal';
+  if (exceeded > 0 || used > 100) riskStatus = 'exceeded';
+  else if (used >= 100) riskStatus = 'limit_reached';
+  else if (used >= threshold) riskStatus = 'warning';
+  else if (!isComplete) riskStatus = 'incomplete';
+
+  return { riskStatus, isComplete, missingRateEntriesCount };
+}
+
 module.exports = {
   BPS_SCALE,
   rublesToKopecks,
@@ -166,4 +189,5 @@ module.exports = {
   mapBudgetRow,
   calculateLaborSummary,
   buildLaborCostSeries,
+  getProjectFinancialRisk,
 };

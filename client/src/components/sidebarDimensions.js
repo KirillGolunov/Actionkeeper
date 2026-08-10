@@ -1,0 +1,5 @@
+export const SIDEBAR_EXPANDED_WIDTH = 210;
+export const SIDEBAR_COLLAPSED_WIDTH = 62;
+export const SIDEBAR_PADDING = 12;
+export const SIDEBAR_INNER_WIDTH = 185;
+export const SIDEBAR_COLLAPSED_INNER_WIDTH = 37;

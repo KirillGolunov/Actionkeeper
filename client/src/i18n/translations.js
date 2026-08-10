@@ -13,11 +13,12 @@ export const translations = {
       },
     },
     nav: {
-      dashboard: 'Дашборд',
+      home: 'Главная',
+      collapseSidebar: 'Свернуть навигацию',
+      expandSidebar: 'Развернуть навигацию',
       projects: 'Проекты',
       clients: 'Клиенты',
       users: 'Пользователи',
-      timeEntries: 'Учёт времени',
       profile: 'Профиль',
       settings: 'Настройки',
       logout: 'Выйти',
@@ -257,38 +258,13 @@ export const translations = {
       title: 'Настройки SMTP', host: 'SMTP Host', port: 'SMTP Port', username: 'Имя пользователя', password: 'Пароль', passwordPlaceholder: 'Пароль сохранен', passwordHint: 'Оставьте пустым, чтобы не менять текущий пароль.', fromAddress: 'Адрес отправителя', useSecure: 'Использовать SSL/TLS (безопасно)', testEmailTo: 'Кому отправить тест', testConnection: 'Проверить соединение', settingsSaved: 'Настройки сохранены.', saveFailed: 'Не удалось сохранить настройки.', testSent: 'Тестовое письмо успешно отправлено.', testFailed: 'Не удалось отправить тестовое письмо.',
     },
     dashboard: {
-      title: 'Дашборд',
-      periods: { week: 'Неделя', month: 'Месяц', quarter: 'Квартал', year: 'Год', all: 'Весь период' },
-      filters: { all: 'Все', myProjects: 'Мои проекты', internal: 'Внутренние', external: 'Внешние' },
-      widgets: {
-        clientTypeHours: 'Внутренние и внешние часы',
-        hoursByClient: 'Часы по клиентам',
-        hoursByProject: 'Часы по проектам',
-        total: 'Итого: {{hours}} ч',
-        noClientTypeData: 'Нет данных по типам клиентов',
-        noClientData: 'Нет данных по клиентам',
-        noProjectData: 'Нет данных по проектам',
-        noUserDataForProject: 'Нет данных по пользователям для этого проекта',
-        noProjectDataForUser: 'Нет данных по проектам для этого пользователя'
-      },
-      table: { user: 'Пользователь', project: 'Проект', totalHours: 'Всего часов', load: 'Загрузка', unknownUser: 'Неизвестный пользователь', unassigned: 'Без клиента' },
-      options: {
-        viewByUser: 'По пользователям',
-        viewByProject: 'По проектам',
-        showPercent: 'Показать: % от системы',
-        showHours: 'Показать: часы',
-        enableXAxisRotation: 'Включить поворот подписей оси X',
-        disableXAxisRotation: 'Выключить поворот подписей оси X',
-        widgetSettingsSoon: 'Настройки виджетов скоро появятся'
-      },
       quarterLabel: '\u041a\u0432 {{quarter}} {{year}}',
-      hoursSuffix: '{{value}} ч',
-      errors: { fetch: 'Не удалось загрузить данные аналитики. Попробуйте ещё раз.' }
+      hoursSuffix: '{{value}} ч'
     },
   },
   en: {
     common: { appName: 'Time Tracker', notAuthorized: 'Not authorized', actions: { save: 'Save', apply: 'Apply', retry: 'Retry', revert: 'Revert', cancel: 'Cancel', close: 'Close', delete: 'Delete' } },
-    nav: { dashboard: 'Dashboard', projects: 'Projects', clients: 'Clients', users: 'Users', timeEntries: 'Time Entries', profile: 'Profile', settings: 'Settings', logout: 'Logout' },
+    nav: { home: 'Home', collapseSidebar: 'Collapse navigation', expandSidebar: 'Expand navigation', projects: 'Projects', clients: 'Clients', users: 'Users', profile: 'Profile', settings: 'Settings', logout: 'Logout' },
     notifications: { title: 'Notifications', readAll: 'Mark all as read', empty: 'No notifications yet', projectManagerAssigned: 'You are now managing “{{project}}”', projectManagerRemoved: 'You are no longer managing “{{project}}”', projectPayrollWarning: '“{{project}}” reached {{threshold}}% of its payroll limit', projectPayrollLimitReached: '“{{project}}” reached or exceeded its payroll limit', projectBudgetChangeRequested: 'A budget request was submitted for “{{project}}”', projectBudgetChangeApproved: 'The budget request for “{{project}}” was approved', projectBudgetChangeRejected: 'The budget request for “{{project}}” was rejected', projectBudgetRequestTransferred: 'An active budget request for “{{project}}” was transferred to you', unknown: 'New project notification for “{{project}}”' },
     auth: {
       sessionExpired: 'Session expired. Please sign in again.', invalidSession: 'Invalid session. Please sign in again.',
@@ -304,33 +280,8 @@ export const translations = {
     timeEntries: { payrollLimitWarning: 'The project payroll limit has been reached or exceeded. Time entries were saved.' },
     clients: { title: 'Clients', internal: 'Internal', external: 'External', name: 'Name', clientName: 'Client Name', itn: 'ITN', type: 'Type', projects: 'Projects', actions: 'Actions', add: 'Add', edit: 'Edit', delete: 'Delete', activeCount: 'Active: {{count}}', totalCount: 'Total: {{count}}', deleteTitle: 'Delete Client', confirmDelete: 'Are you sure you want to delete the client "{{name}}" and all its projects and time entries?', validation: { nameRequired: 'Client name is required', duplicateName: 'A client with this name already exists.', duplicateItn: 'A client with this ITN already exists.' }, errors: { fetch: 'Failed to fetch clients. Please try again.', fetchProjects: 'Failed to fetch projects.', create: 'Failed to create client. Please try again.', createDuplicate: 'A client with this name or ITN already exists.', update: 'Failed to update client. Please try again.', delete: 'Failed to delete client and its data.' } },
     dashboard: {
-      title: 'Dashboard',
-      periods: { week: 'Week', month: 'Month', quarter: 'Quarter', year: 'Year', all: 'All Time' },
-      filters: { all: 'All', myProjects: 'My Projects', internal: 'Internal', external: 'External' },
-      widgets: {
-        clientTypeHours: 'Internal vs External Hours',
-        hoursByClient: 'Hours by Client',
-        hoursByProject: 'Hours by Project',
-        total: 'Total: {{hours}}h',
-        noClientTypeData: 'No client type data available',
-        noClientData: 'No client data available',
-        noProjectData: 'No project data available',
-        noUserDataForProject: 'No user data for this project',
-        noProjectDataForUser: 'No project data for this user'
-      },
-      table: { user: 'User', project: 'Project', totalHours: 'Total Hours', load: 'Load', unknownUser: 'Unknown User', unassigned: 'Unassigned' },
-      options: {
-        viewByUser: 'View by User',
-        viewByProject: 'View by Project',
-        showPercent: 'Show: % of System Total',
-        showHours: 'Show: Hours',
-        enableXAxisRotation: 'Enable X Axis Label Rotation',
-        disableXAxisRotation: 'Disable X Axis Label Rotation',
-        widgetSettingsSoon: 'Widget settings coming soon'
-      },
       quarterLabel: 'Q{{quarter}} {{year}}',
-      hoursSuffix: '{{value}}h',
-      errors: { fetch: 'Failed to fetch analytics data. Please try again.' }
+      hoursSuffix: '{{value}}h'
     },
     smtp: { title: 'SMTP Settings', host: 'SMTP Host', port: 'SMTP Port', username: 'Username', password: 'Password', passwordPlaceholder: 'Password saved', passwordHint: 'Leave blank to keep the current password.', fromAddress: 'From Address', useSecure: 'Use SSL/TLS (secure)', testEmailTo: 'Test Email To', testConnection: 'Test Connection', settingsSaved: 'Settings saved.', saveFailed: 'Failed to save settings.', testSent: 'Test email sent successfully.', testFailed: 'Failed to send test email.' },
   },
@@ -645,6 +596,7 @@ translations.en.projects.hoursOverview = {
 translations.ru.common.actions.delete = 'Удалить';
 
 Object.assign(translations.ru.timeEntries, {
+  addEntry: '\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0437\u0430\u043f\u0438\u0441\u044c',
   startTime: 'Время начала',
   startTimeRequired: 'Укажите время начала',
   endTime: 'Время окончания',
@@ -659,6 +611,7 @@ Object.assign(translations.en.timeEntries, {
   total: 'Total',
   actions: 'Actions',
   addProject: 'Add project',
+  addEntry: 'Add entry',
   submitWeek: 'Submit week',
   earlierWeeks: 'Earlier weeks',
   editTitle: 'Edit time entry',

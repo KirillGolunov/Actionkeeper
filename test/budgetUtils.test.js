@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { parseBudgetPayload, mapBudgetRow, calculateLaborSummary, buildLaborCostSeries } = require('../budgetUtils');
+const { parseBudgetPayload, mapBudgetRow, calculateLaborSummary, buildLaborCostSeries, getProjectFinancialRisk } = require('../budgetUtils');
 
 test('calculates contract reserve, total limit and percent payroll limit', () => {
   const result = parseBudgetPayload({
@@ -111,4 +111,45 @@ test('maps a no-limit budget as a numbered version without financial limits', ()
   assert.equal(mapped.payrollLimitRub, null);
   assert.equal(mapped.payrollWarningThresholdPercent, null);
   assert.equal(mapped.changeReason, 'Limit removed');
+});
+
+test('classifies every dashboard financial risk in priority order', () => {
+  assert.equal(getProjectFinancialRisk({}).riskStatus, 'not_configured');
+  assert.equal(getProjectFinancialRisk({ budget: { budgetMode: 'none' } }).riskStatus, 'no_limit');
+  assert.equal(getProjectFinancialRisk({
+    budget: { budgetMode: 'manual', payrollWarningThresholdPercent: 80 },
+    summary: { payrollUsedPercent: 110, payrollExceededRub: 10 },
+  }).riskStatus, 'exceeded');
+  assert.equal(getProjectFinancialRisk({
+    budget: { budgetMode: 'manual', payrollWarningThresholdPercent: 80 },
+    summary: { payrollUsedPercent: 100 },
+  }).riskStatus, 'limit_reached');
+  assert.equal(getProjectFinancialRisk({
+    budget: { budgetMode: 'manual', payrollWarningThresholdPercent: 80 },
+    summary: { payrollUsedPercent: 80 },
+  }).riskStatus, 'warning');
+  assert.equal(getProjectFinancialRisk({
+    budget: { budgetMode: 'manual', payrollWarningThresholdPercent: 80 },
+    summary: { payrollUsedPercent: 20, missingRateEntriesCount: 1 },
+  }).riskStatus, 'incomplete');
+  assert.equal(getProjectFinancialRisk({
+    budget: { budgetMode: 'manual', payrollWarningThresholdPercent: 80 },
+    summary: { payrollUsedPercent: 20 },
+  }).riskStatus, 'normal');
+});
+
+test('keeps the primary financial risk and exposes incomplete calculations separately', () => {
+  const result = getProjectFinancialRisk({
+    budget: { budgetMode: 'manual', payrollWarningThresholdPercent: 80 },
+    summary: { payrollUsedPercent: 120, payrollExceededRub: 200, missingRateEntriesCount: 3 },
+  });
+  assert.deepEqual(result, { riskStatus: 'exceeded', isComplete: false, missingRateEntriesCount: 3 });
+});
+
+test('treats a configured zero payroll limit as reached when cost is zero', () => {
+  const result = getProjectFinancialRisk({
+    budget: { budgetMode: 'manual', payrollLimitRub: 0, payrollWarningThresholdPercent: 80 },
+    summary: { payrollUsedPercent: 100, payrollExceededRub: 0 },
+  });
+  assert.equal(result.riskStatus, 'limit_reached');
 });

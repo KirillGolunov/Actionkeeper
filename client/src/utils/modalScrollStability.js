@@ -1,9 +1,16 @@
 export const modalScrollStabilityStyles = {
   html: {
-    scrollbarGutter: 'stable',
+    height: '100%',
+    overflow: 'hidden',
   },
   body: {
-    overflowY: 'scroll',
+    height: '100%',
+    overflow: 'hidden',
+    margin: 0,
+  },
+  '#root': {
+    height: '100%',
+    overflow: 'hidden',
   },
   '@supports (scrollbar-gutter: stable)': {
     'body[style*="overflow: hidden"]': {
