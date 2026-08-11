@@ -91,16 +91,42 @@ test('reports focus interaction, removes separators and uses light highlight opa
 
   expect(host.querySelectorAll('[data-flow-segment]')).toHaveLength(4);
   expect(host.querySelectorAll('[data-flow-ribbon]')).toHaveLength(2);
+  const activeRibbon = host.querySelector('[data-flow-ribbon="external_delivery"]');
+  expect(activeRibbon.getAttribute('fill-opacity')).toBe('0.31');
   const activeSegment = host.querySelector('[data-flow-segment="external_delivery"]');
   act(() => Simulate.focus(activeSegment));
   const inactiveSegment = host.querySelector('[data-flow-segment="operations"]');
   expect(inactiveSegment.getAttribute('fill-opacity')).toBe('0.12');
   expect(activeSegment.getAttribute('fill-opacity')).toBe('0.95');
+  expect(activeRibbon.getAttribute('fill-opacity')).toBe('0.45');
   expect(onInteractionChange).toHaveBeenLastCalledWith(expect.objectContaining({
     type: 'segment', category: 'external_delivery', hours: 24, percent: 60,
   }));
   expect(host.querySelectorAll('line[stroke*="255,255,255"]')).toHaveLength(0);
   expect(host.textContent).not.toContain('Внешние проекты:');
+
+  act(() => root.unmount());
+  host.remove();
+  delete window.IS_REACT_ACT_ENVIRONMENT;
+});
+
+test('uses a slightly stronger base opacity for partial ribbons', () => {
+  window.IS_REACT_ACT_ENVIRONMENT = true;
+  const host = document.createElement('div');
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  act(() => {
+    root.render(
+      <ConnectedCategoryFlowChart
+        periods={[period('2026-07-01', 40, 60, 40), period('2026-08-01', 40, 30, 70, true)]}
+        categories={categories}
+        colors={colors}
+        labels={labels}
+      />
+    );
+  });
+
+  expect(host.querySelector('[data-flow-ribbon="external_delivery"]').getAttribute('fill-opacity')).toBe('0.23');
 
   act(() => root.unmount());
   host.remove();

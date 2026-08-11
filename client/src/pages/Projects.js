@@ -24,9 +24,6 @@ import {
   Stack,
   Menu,
   MenuItem,
-  ThemeProvider,
-  createTheme,
-  useTheme,
 } from '@mui/material';
 import axios from 'axios';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -62,31 +59,6 @@ import {
   getProjectCategoryChipStyles,
   getProjectCategoryMeta,
 } from '../utils/projectCategories';
-
-function ProjectTooltipsTheme({ children }) {
-  const outerTheme = useTheme();
-  const theme = useMemo(() => createTheme(outerTheme, {
-    components: {
-      MuiTooltip: {
-        styleOverrides: {
-          tooltip: {
-            color: '#1D2433',
-            backgroundColor: '#FFFFFF',
-            border: '1px solid #DDE3EC',
-            borderRadius: 8,
-            boxShadow: '0 8px 20px rgba(31,58,95,.12)',
-          },
-          arrow: {
-            color: '#FFFFFF',
-            filter: 'drop-shadow(0 1px 1px rgba(31,58,95,.16))',
-          },
-        },
-      },
-    },
-  }), [outerTheme]);
-
-  return <ThemeProvider theme={theme}>{children}</ThemeProvider>;
-}
 
 function Projects() {
   const { t, locale } = useTranslation();
@@ -784,7 +756,6 @@ function Projects() {
   };
 
   return (
-    <ProjectTooltipsTheme>
       <PageLayout
       title={t('projects.title')}
       subtitle={t('projects.catalogCount', { count: projects.length })}
@@ -1574,7 +1545,6 @@ function Projects() {
         </DialogActions>
       </Dialog>
       </PageLayout>
-    </ProjectTooltipsTheme>
   );
 }
 
