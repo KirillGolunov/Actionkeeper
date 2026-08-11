@@ -312,15 +312,6 @@ export default function ProjectBudgetOverview({
                   boxSizing: 'border-box',
                   pr: { xs: 1, sm: 1.5 },
                   scrollbarGutter: 'stable',
-                  scrollbarWidth: 'thin',
-                  scrollbarColor: '#A7A7A7 transparent',
-                  '&::-webkit-scrollbar': { width: 10 },
-                  '&::-webkit-scrollbar-track': { background: 'transparent' },
-                  '&::-webkit-scrollbar-thumb': {
-                    background: '#A7A7A7',
-                    borderRadius: 999,
-                    border: '2px solid #FFFFFF',
-                  },
                 }}
               >
                 {settingsContent}

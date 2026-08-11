@@ -213,7 +213,7 @@ export default function ConnectedCategoryFlowChart({ periods, categories, colors
               data-flow-ribbon={ribbon.category}
               d={ribbon.path}
               fill={colors[ribbon.category]}
-              fillOpacity={selected ? (activeCategory ? 0.45 : ribbon.partial ? 0.14 : 0.2) : 0.05}
+              fillOpacity={selected ? (activeCategory ? 0.45 : ribbon.partial ? 0.23 : 0.31) : 0.05}
               tabIndex="0"
               role="button"
               aria-label={label}

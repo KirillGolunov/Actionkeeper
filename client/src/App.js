@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { Routes, Route, useLocation, Navigate } from 'react-router-dom';
-import { ThemeProvider, createTheme } from '@mui/material/styles';
+import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import { Box } from '@mui/material';
 import AutoLoginInfoDialog from './components/AutoLoginInfoDialog';
@@ -19,25 +19,8 @@ import Profile from './pages/Profile';
 import Setup from './pages/Setup';
 import axios from 'axios';
 import { useTranslation } from './i18n/I18nProvider';
-import { modalScrollStabilityStyles } from './utils/modalScrollStability';
 import AppShell from './components/AppShell';
-
-const theme = createTheme({
-  palette: {
-    mode: 'light',
-    primary: {
-      main: '#1976d2',
-    },
-    secondary: {
-      main: '#dc004e',
-    },
-  },
-  components: {
-    MuiCssBaseline: {
-      styleOverrides: modalScrollStabilityStyles,
-    },
-  },
-});
+import { appTheme } from './appTheme';
 
 function AdminRoute({ children }) {
   const { user, loading } = useAuth();
@@ -86,7 +69,7 @@ function App() {
     location.pathname === '/setup';
 
   return (
-    <ThemeProvider theme={theme}>
+    <ThemeProvider theme={appTheme}>
       <CssBaseline />
       <AuthProvider>
         <SetupCheck />

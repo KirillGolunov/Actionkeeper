@@ -258,7 +258,7 @@ function TeamTable({ data, viewByUser, onViewByUserChange, showPercent, onShowPe
   return <Box sx={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', border: '1px solid #E2E4E9', borderRadius: 3, bgcolor: '#FFF', overflow: 'hidden' }}>
     <Box sx={{ minHeight: 52, px: 1.5, display: 'flex', alignItems: 'center', gap: 1, borderBottom: '1px solid #E8EBF2' }}>
       <Typography sx={{ mr: 'auto', fontSize: 13, fontWeight: 600, color: '#1D2433' }}>Часы по проектам</Typography>
-      <SegmentedCapsule value={viewByUser ? 'users' : 'projects'} onChange={(value) => onViewByUserChange(value === 'users')} options={[{ value: 'projects', label: 'По проектам' }, { value: 'users', label: 'По пользователям' }]} ariaLabel="Группировка таблицы" idPrefix="team-table-group" sx={{ width: 210, height: 30, p: '2px', '& .MuiToggleButton-root': { height: 26, fontSize: 10.5 } }} />
+      <SegmentedCapsule value={viewByUser ? 'users' : 'projects'} onChange={(value) => onViewByUserChange(value === 'users')} options={[{ value: 'projects', label: 'По проектам' }, { value: 'users', label: 'По пользователям' }]} ariaLabel="Группировка таблицы" idPrefix="team-table-group" sx={{ width: 240, height: 30, p: '2px', '& .MuiToggleButton-root': { height: 26, fontSize: 10.5 } }} />
       <SegmentedCapsule value={showPercent ? 'percent' : 'hours'} onChange={(value) => onShowPercentChange(value === 'percent')} options={[{ value: 'hours', label: 'Часы' }, { value: 'percent', label: 'Доля часов' }]} ariaLabel="Значения таблицы" idPrefix="team-table-values" sx={{ width: 148, height: 30, p: '2px', '& .MuiToggleButton-root': { height: 26, fontSize: 10.5 } }} />
     </Box>
     <TableContainer sx={{ flex: 1, minHeight: 0 }}>
