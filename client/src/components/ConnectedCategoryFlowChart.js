@@ -2,7 +2,7 @@ import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } f
 import { Box } from '@mui/material';
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
-const formatHours = (value) => Number(value || 0).toLocaleString('ru-RU', { maximumFractionDigits: 1 });
+const formatHours = (value, locale) => Number(value || 0).toLocaleString(locale === 'en' ? 'en-US' : 'ru-RU', { maximumFractionDigits: 1 });
 
 function ribbonPath(left, right) {
   const fromX = left.x + left.barWidth / 2;
@@ -122,14 +122,35 @@ function makeRibbonInteraction(ribbon) {
   };
 }
 
-export default function ConnectedCategoryFlowChart({ periods, categories, colors, labels, compact = false, onInteractionChange }) {
+export default function ConnectedCategoryFlowChart({
+  periods,
+  categories,
+  colors,
+  labels,
+  compact = false,
+  onInteractionChange,
+  selectedCategory,
+  onSelectedCategoryChange,
+  t = (key, params = {}) => (key === 'mineAnalytics.flowEmpty' ? `${params.period}: за период часы не зарегистрированы` : key === 'mineAnalytics.hoursSuffix' ? 'ч' : key === 'mineAnalytics.flowPartial' ? 'Неполный период' : key),
+  locale = 'ru',
+}) {
   const containerRef = useRef(null);
   const clipPrefix = useId().replace(/:/g, '');
   const [size, setSize] = useState({ width: compact ? 320 : 480, height: 120 });
   const [hoveredInteraction, setHoveredInteraction] = useState(null);
   const [lockedInteraction, setLockedInteraction] = useState(null);
+  const isCategorySelectionControlled = selectedCategory !== undefined;
   const activeInteraction = lockedInteraction || hoveredInteraction;
-  const activeCategory = activeInteraction?.category || null;
+  const activeCategory = isCategorySelectionControlled ? selectedCategory : activeInteraction?.category || null;
+  const previousSelectedCategory = useRef(selectedCategory);
+
+  useEffect(() => {
+    const wasSelectionClearedExternally = isCategorySelectionControlled && previousSelectedCategory.current && !selectedCategory;
+    previousSelectedCategory.current = selectedCategory;
+    if (wasSelectionClearedExternally) {
+      setLockedInteraction(null);
+    }
+  }, [isCategorySelectionControlled, selectedCategory]);
 
   useLayoutEffect(() => {
     const element = containerRef.current;
@@ -172,6 +193,10 @@ export default function ConnectedCategoryFlowChart({ periods, categories, colors
     onInteractionChange?.(activeInteraction);
   }, [activeInteraction, onInteractionChange]);
 
+  useEffect(() => {
+    onSelectedCategoryChange?.(lockedInteraction?.category || null);
+  }, [lockedInteraction, onSelectedCategoryChange]);
+
   const layout = useMemo(
     () => buildConnectedStackLayout({ periods, categories, width: size.width, height: size.height, compact }),
     [categories, compact, periods, size]
@@ -187,9 +212,9 @@ export default function ConnectedCategoryFlowChart({ periods, categories, colors
     <Box
       ref={containerRef}
       onPointerLeave={clearHover}
-      sx={{ width: '100%', height: '100%', minHeight: compact ? 80 : 105, position: 'relative', overflow: 'hidden', touchAction: 'manipulation' }}
+      sx={{ width: '100%', maxWidth: '100%', minWidth: 0, height: '100%', minHeight: compact ? 80 : 105, position: 'relative', overflow: 'hidden', touchAction: 'manipulation' }}
     >
-      <svg width={layout.width} height="100%" viewBox={`0 0 ${layout.width} ${layout.height}`} role="img" aria-label="Структура времени по категориям и периодам" style={{ display: 'block', maxWidth: '100%' }}>
+      <svg width="100%" height="100%" viewBox={`0 0 ${layout.width} ${layout.height}`} role="img" aria-label={t('mineAnalytics.flowAria')} style={{ display: 'block', width: '100%', maxWidth: '100%', minWidth: 0, height: '100%' }}>
         <defs>
           {layout.columns.filter((column) => !column.empty).map((column) => (
             <clipPath key={column.period.startDate} id={`${clipPrefix}-${column.periodIndex}`}>
@@ -206,7 +231,7 @@ export default function ConnectedCategoryFlowChart({ periods, categories, colors
         {layout.ribbons.map((ribbon) => {
           const selected = !activeCategory || activeCategory === ribbon.category;
           const interaction = makeRibbonInteraction(ribbon);
-          const label = `${labels[ribbon.category] || ribbon.category}: ${ribbon.fromColumn.period.label} ${formatHours(ribbon.from.hours)} ч, ${Math.round(ribbon.from.percent)}%; ${ribbon.toColumn.period.label} ${formatHours(ribbon.to.hours)} ч, ${Math.round(ribbon.to.percent)}%`;
+          const label = `${labels[ribbon.category] || ribbon.category}: ${ribbon.fromColumn.period.label} ${formatHours(ribbon.from.hours, locale)} ${t('mineAnalytics.hoursSuffix')}, ${Math.round(ribbon.from.percent)}%; ${ribbon.toColumn.period.label} ${formatHours(ribbon.to.hours, locale)} ${t('mineAnalytics.hoursSuffix')}, ${Math.round(ribbon.to.percent)}%`;
           return (
             <path
               key={ribbon.key}
@@ -233,22 +258,27 @@ export default function ConnectedCategoryFlowChart({ periods, categories, colors
         })}
 
         {layout.columns.map((column) => (
-          <g key={column.period.startDate}>
+          <g
+            key={column.period.startDate}
+            data-flow-column={column.empty ? undefined : 'true'}
+            data-flow-tour-column={column.periodIndex === layout.columns.find((item) => !item.empty)?.periodIndex ? 'true' : undefined}
+          >
             {column.empty ? (
-              <g tabIndex="0" role="button" aria-label={`${column.period.label}: за период часы не зарегистрированы`}>
-                <title>За период часы не зарегистрированы</title>
+              <g tabIndex="0" role="button" aria-label={t('mineAnalytics.flowEmpty', { period: column.period.label })}>
+                <title>{t('mineAnalytics.flowEmpty', { period: column.period.label })}</title>
                 <line x1={column.x - 4} x2={column.x + 4} y1={layout.plot.bottom - 4} y2={layout.plot.bottom - 4} stroke="#CDD2DC" strokeWidth="1.5" strokeLinecap="round" />
               </g>
             ) : (
               <g clipPath={`url(#${clipPrefix}-${column.periodIndex})`}>
-                {column.segments.filter((segment) => segment.percent > 0).map((segment) => {
+                {column.segments.filter((segment) => segment.percent > 0).map((segment, segmentIndex) => {
                   const selected = !activeCategory || activeCategory === segment.category;
                   const interaction = makeSegmentInteraction(column, segment);
-                  const label = `${column.period.label}, ${labels[segment.category] || segment.category}: ${formatHours(segment.hours)} ч, ${Math.round(segment.percent)}%`;
+                  const label = `${column.period.label}, ${labels[segment.category] || segment.category}: ${formatHours(segment.hours, locale)} ${t('mineAnalytics.hoursSuffix')}, ${Math.round(segment.percent)}%`;
                   return (
                     <rect
                       key={segment.category}
                       data-flow-segment={segment.category}
+                      data-flow-tour-segment={column.periodIndex === layout.columns.find((item) => !item.empty)?.periodIndex && segmentIndex === 0 ? 'true' : undefined}
                       x={column.x - column.barWidth / 2}
                       y={segment.yTop}
                       width={column.barWidth}
@@ -274,7 +304,7 @@ export default function ConnectedCategoryFlowChart({ periods, categories, colors
                 })}
               </g>
             )}
-            {column.partial && !column.empty && <circle cx={column.x} cy={layout.plot.top - 4} r="2" fill="#91A4E4"><title>Неполный период</title></circle>}
+            {column.partial && !column.empty && <circle cx={column.x} cy={layout.plot.top - 4} r="2" fill="#91A4E4"><title>{t('mineAnalytics.flowPartial')}</title></circle>}
             <text x={column.x} y={layout.height - 5} textAnchor="middle" fontSize={compact ? 8.5 : 9.5} fill="#7F899E">{column.period.label}</text>
           </g>
         ))}

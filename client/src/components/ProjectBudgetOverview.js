@@ -272,7 +272,7 @@ export default function ProjectBudgetOverview({
           </Stack>
         ) : (
           <Badge badgeContent={hasPendingRequest && isAdmin ? 1 : 0} invisible={!hasPendingRequest || !isAdmin} overlap="rectangular" sx={{ '& .MuiBadge-badge': { background: '#E77142', color: '#FFFFFF' } }}>
-            <Button startIcon={<SettingsOutlinedIcon />} variant="outlined" size="small" onClick={onSettings} sx={{ flexShrink: 0, alignSelf: { xs: 'flex-start', sm: 'auto' }, borderRadius: 2, borderColor: hasPendingRequest ? '#E77142' : '#CBD5EA', color: hasPendingRequest ? '#E77142' : '#4561C2', textTransform: 'none' }}>
+            <Button startIcon={<SettingsOutlinedIcon />} variant="outlined" size="small" onClick={onSettings} sx={{ flexShrink: 0, alignSelf: { xs: 'flex-start', sm: 'auto' }, borderRadius: 2, borderColor: hasPendingRequest ? '#E77142' : '#D0D5DD', color: hasPendingRequest ? '#E77142' : '#475467', textTransform: 'none', '&:hover': { borderColor: hasPendingRequest ? '#C95425' : '#98A2B3', background: hasPendingRequest ? '#FFF5F2' : '#F2F4F7' } }}>
               {isPreview && !previewActive ? t('projects.budget.overview.configure') : settingsLabel}
             </Button>
           </Badge>

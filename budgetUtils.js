@@ -179,6 +179,16 @@ function getProjectFinancialRisk({ budget = null, summary = null } = {}) {
   return { riskStatus, isComplete, missingRateEntriesCount };
 }
 
+function getProjectPayrollUsage({ budget = null, summary = null } = {}) {
+  const hasPayrollLimit = Boolean(budget && budget.budgetMode !== 'none');
+  return {
+    usedPercent: hasPayrollLimit ? Number(summary?.payrollUsedPercent || 0) : null,
+    warningThresholdPercent: hasPayrollLimit ? Number(budget.payrollWarningThresholdPercent || 80) : null,
+    hasPayrollLimit,
+    isComplete: summary?.isComplete !== false,
+  };
+}
+
 module.exports = {
   BPS_SCALE,
   rublesToKopecks,
@@ -190,4 +200,5 @@ module.exports = {
   calculateLaborSummary,
   buildLaborCostSeries,
   getProjectFinancialRisk,
+  getProjectPayrollUsage,
 };

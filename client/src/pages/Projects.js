@@ -60,7 +60,7 @@ import {
   getProjectCategoryMeta,
 } from '../utils/projectCategories';
 
-function Projects() {
+function Projects({ modalOnly = false, initialProjectId = null, onModalClose }) {
   const { t, locale } = useTranslation();
   const isRussian = locale === 'ru';
   const categoryFieldLabel = t('projects.category');
@@ -129,6 +129,7 @@ function Projects() {
   const focusedBudgetNotificationId = deepLinkParams.get('notificationId');
   const initialBudgetView = deepLinkParams.get('view');
   const deepLinkTargetsEditProject = Number(deepLinkParams.get('projectId')) === Number(editProject?.id);
+  const embeddedTargetsEditProject = modalOnly && Number(initialProjectId) === Number(editProject?.id);
   const isEditProjectManager = Number(editProject?.manager_user_id) === Number(currentUser?.id);
   const canViewEditProjectFinance = Boolean(canEdit || isEditProjectManager);
   const fetchPendingBudgetRequests = useCallback(async () => {
@@ -245,14 +246,17 @@ function Projects() {
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
-    if (params.get('budget') !== '1' || editOpen || projects.length === 0) return;
-    const project = projects.find((item) => Number(item.id) === Number(params.get('projectId')));
+    const opensProject = params.get('open') === '1';
+    const opensBudget = params.get('budget') === '1';
+    if ((!modalOnly && !opensProject && !opensBudget) || editOpen || projects.length === 0) return;
+    const projectId = modalOnly ? initialProjectId : params.get('projectId');
+    const project = projects.find((item) => Number(item.id) === Number(projectId));
     if (project) {
-      handleEditOpen(project, 'budget');
+      handleEditOpen(project, !modalOnly && opensBudget ? 'budget' : 'project');
     }
   // The URL is an entry trigger; form state changes must not reopen the dialog.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.search, projects, canEdit, currentUser?.id]);
+  }, [location.search, projects, canEdit, currentUser?.id, initialProjectId, modalOnly]);
 
   const handleOpen = () => {
     if (!canEdit) return;
@@ -441,7 +445,8 @@ function Projects() {
     setEditBudgetPreviewDraft(null);
     setEditBudgetMeta({ primaryVisible: false, primaryDisabled: true, loading: false, hasErrors: false });
     setConfirmNavigation(null);
-    if (deepLinkTargetsEditProject) navigate('/projects', { replace: true });
+    if (embeddedTargetsEditProject) onModalClose?.();
+    else if (deepLinkTargetsEditProject) navigate('/projects', { replace: true });
   };
 
   const handleEditClose = async () => {
@@ -757,6 +762,7 @@ function Projects() {
 
   return (
       <PageLayout
+      sx={modalOnly ? { display: 'none' } : undefined}
       title={t('projects.title')}
       subtitle={t('projects.catalogCount', { count: projects.length })}
       actions={
@@ -1250,7 +1256,7 @@ function Projects() {
               value={editViewMode}
               options={[
                 { value: 'budget', label: t('projects.budget.title') },
-                { value: 'hours', label: t('projects.hoursOverview.modeHours') },
+                { value: 'hours', label: t('projects.hoursOverview.modeHours'), tour: 'project-hours-tab' },
               ]}
               onChange={switchEditView}
               ariaLabel={t('projects.hoursOverview.viewSelector')}
@@ -1279,6 +1285,7 @@ function Projects() {
         onPrimary={() => {}}
         actionsVisible={false}
         closeDisabled={activeSaving || deletingProject || editBudgetMeta.loading}
+        tourTarget="project-dialog"
       >
           {error && (
             <Alert severity="error" sx={{ mb: 2 }}>
@@ -1373,6 +1380,7 @@ function Projects() {
                 {editHoursActivated ? (
                   <Box
                     id="project-hours-panel"
+                    data-product-tour="project-hours-panel"
                     role="tabpanel"
                     hidden={editViewMode !== 'hours'}
                     sx={{ height: '100%', minWidth: 0, display: editViewMode === 'hours' ? 'block' : 'none' }}

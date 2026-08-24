@@ -3,7 +3,7 @@ import {
   Avatar, Box, Drawer, Menu, MenuItem, Tooltip, Typography,
 } from '@mui/material';
 import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded';
-import { Home2, NotificationBing } from 'iconsax-react';
+import { Chart2, Home2, NotificationBing } from 'iconsax-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from '../i18n/I18nProvider';
@@ -68,6 +68,7 @@ function SidebarBody({ collapsed, mobile, unreadCount, notificationsOpen, onTogg
   const items = [
     { key: 'home', label: t('nav.home'), icon: <Home2 variant="Bold" size={20} color="currentColor" />, active: location.pathname === '/', action: () => go('/') },
     { key: 'notifications', label: t('notifications.title'), icon: <NotificationBing variant="Bold" size={20} color="currentColor" />, active: notificationsOpen, action: onNotifications, unread: unreadCount > 0 },
+    { key: 'analytics', label: t('nav.analytics'), icon: <Chart2 variant="Bold" size={20} color="currentColor" />, active: location.pathname.startsWith('/analytics'), action: () => go('/analytics') },
     { key: 'projects', label: t('nav.projects'), icon: <ProjectIcon />, active: location.pathname.startsWith('/projects'), action: () => go('/projects') },
   ];
 
@@ -102,6 +103,7 @@ function SidebarBody({ collapsed, mobile, unreadCount, notificationsOpen, onTogg
                 type="button"
                 onClick={item.action}
                 aria-current={item.active ? 'page' : undefined}
+                data-product-tour={item.key === 'home' ? 'home-nav' : item.key === 'analytics' ? 'analytics-nav' : undefined}
                 sx={{
                   width: itemWidth, height: 40, p: 1, gap: 1, mx: 0,
                   border: 0, borderRadius: '8px', display: 'flex', alignItems: 'center', cursor: 'pointer', font: 'inherit',
@@ -160,6 +162,7 @@ function SidebarBody({ collapsed, mobile, unreadCount, notificationsOpen, onTogg
         sx={{ '& .MuiMenuItem-root': { minHeight: 'auto', p: '8px', fontFamily: 'Inter, sans-serif', fontSize: 13, lineHeight: '19.5px', fontWeight: 500, color: '#0B0C0F', borderBottom: '1px solid #F0F2F4', '&:last-of-type': { borderBottom: 0 }, '&.Mui-focusVisible': { background: 'transparent' }, '&:hover': { background: '#F6F8FA' } } }}
       >
         <MenuItem onClick={() => { setProfileAnchor(null); go('/profile'); }}>{t('nav.profile')}</MenuItem>
+        <MenuItem onClick={() => { setProfileAnchor(null); window.dispatchEvent(new Event('product-tour:start')); }}>{t('productTour.replay')}</MenuItem>
         {isAdmin && <MenuItem onClick={() => { setProfileAnchor(null); go('/users'); }}>{t('nav.users')}</MenuItem>}
         {isAdmin && <MenuItem onClick={() => { setProfileAnchor(null); go('/clients'); }}>{t('nav.clients')}</MenuItem>}
         {isAdmin && <MenuItem onClick={() => { setProfileAnchor(null); go('/settings/smtp'); }}>{t('nav.settings')}</MenuItem>}

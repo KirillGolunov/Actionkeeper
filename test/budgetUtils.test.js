@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { parseBudgetPayload, mapBudgetRow, calculateLaborSummary, buildLaborCostSeries, getProjectFinancialRisk } = require('../budgetUtils');
+const { parseBudgetPayload, mapBudgetRow, calculateLaborSummary, buildLaborCostSeries, getProjectFinancialRisk, getProjectPayrollUsage } = require('../budgetUtils');
 
 test('calculates contract reserve, total limit and percent payroll limit', () => {
   const result = parseBudgetPayload({
@@ -152,4 +152,25 @@ test('treats a configured zero payroll limit as reached when cost is zero', () =
     summary: { payrollUsedPercent: 100, payrollExceededRub: 0 },
   });
   assert.equal(result.riskStatus, 'limit_reached');
+});
+
+test('exposes only the dashboard-safe payroll usage fields', () => {
+  assert.deepEqual(getProjectPayrollUsage({
+    budget: { budgetMode: 'manual', payrollWarningThresholdPercent: 75 },
+    summary: { payrollUsedPercent: 81.25, isComplete: false },
+  }), {
+    usedPercent: 81.25,
+    warningThresholdPercent: 75,
+    hasPayrollLimit: true,
+    isComplete: false,
+  });
+  assert.deepEqual(getProjectPayrollUsage({
+    budget: { budgetMode: 'none' },
+    summary: { payrollUsedPercent: 0, isComplete: true },
+  }), {
+    usedPercent: null,
+    warningThresholdPercent: null,
+    hasPayrollLimit: false,
+    isComplete: true,
+  });
 });

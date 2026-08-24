@@ -11,13 +11,15 @@ import {
   Typography,
 } from '@mui/material';
 import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded';
+import { useTranslation } from '../i18n/I18nProvider';
 
 export function getUserDisplayName(user) {
   if (!user) return '';
   return [user.surname, user.name].filter(Boolean).join(' ') || user.email || '';
 }
 
-export default function HomeUserControl({ currentUser, users = [], value, onChange, loading = false, error = '', forceDropdown = false }) {
+export default function HomeUserControl({ currentUser, users = [], value, onChange, loading = false, error = '', forceDropdown = false, disabled: disabledProp = false }) {
+  const { t } = useTranslation();
   const triggerRef = useRef(null);
   const menuId = `home-user-menu-${useId().replace(/:/g, '')}`;
   const [open, setOpen] = useState(false);
@@ -25,7 +27,7 @@ export default function HomeUserControl({ currentUser, users = [], value, onChan
   const options = users.length ? users : currentUser ? [currentUser] : [];
   const selectedUser = options.find((user) => String(user.id) === String(value)) || currentUser || options[0];
   const selectedName = getUserDisplayName(selectedUser);
-  const disabled = loading || Boolean(error) || options.length === 0;
+  const disabled = disabledProp || loading || Boolean(error) || options.length === 0;
 
   if (!isAdmin && !forceDropdown) {
     const name = getUserDisplayName(currentUser);
@@ -33,7 +35,7 @@ export default function HomeUserControl({ currentUser, users = [], value, onChan
       <Tooltip title={name} placement="bottom" arrow>
         <Typography
           noWrap
-          aria-label={`Текущий пользователь: ${name}`}
+          aria-label={t('homeUser.current', { name })}
           sx={{ minWidth: 0, maxWidth: { xs: '100%', sm: 320 }, fontSize: 14, lineHeight: '20px', fontWeight: 500, color: '#1D2433' }}
         >
           {name}
@@ -64,7 +66,7 @@ export default function HomeUserControl({ currentUser, users = [], value, onChan
       ref={triggerRef}
       id="home-user-trigger"
       role="combobox"
-      aria-label="Пользователь"
+      aria-label={t('homeUser.user')}
       aria-haspopup="listbox"
       aria-expanded={open}
       aria-controls={open ? menuId : undefined}
@@ -101,7 +103,7 @@ export default function HomeUserControl({ currentUser, users = [], value, onChan
   return (
     <>
       {error ? (
-        <Tooltip title="Не удалось загрузить список пользователей" placement="bottom" arrow>
+        <Tooltip title={t('homeUser.loadError')} placement="bottom" arrow>
           <Box component="span" sx={{ display: 'block', width: '100%', maxWidth: { xs: '100%', sm: 280 } }}>
             {field}
           </Box>
@@ -175,7 +177,7 @@ export default function HomeUserControl({ currentUser, users = [], value, onChan
                         {name}
                       </Typography>
                     </Tooltip>
-                    {user.deleted ? <Typography sx={{ flexShrink: 0, fontSize: 11, lineHeight: '16px', color: '#98A2B3' }}>Удалён</Typography> : null}
+                    {user.deleted ? <Typography sx={{ flexShrink: 0, fontSize: 11, lineHeight: '16px', color: '#98A2B3' }}>{t('homeUser.deleted')}</Typography> : null}
                   </MenuItem>
                 );
               })}

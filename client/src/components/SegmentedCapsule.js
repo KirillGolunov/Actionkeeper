@@ -1,18 +1,21 @@
 import React, { useRef } from 'react';
 import { Box, ToggleButton, Tooltip } from '@mui/material';
 
-export default function SegmentedCapsule({ value, options, onChange, ariaLabel, idPrefix = 'home', sx }) {
+export default function SegmentedCapsule({ value, options, onChange, ariaLabel, idPrefix = 'home', sx, disabled = false }) {
   const refs = useRef({});
 
   const move = (event, index) => {
-    let next = null;
-    if (event.key === 'ArrowLeft') next = (index - 1 + options.length) % options.length;
-    if (event.key === 'ArrowRight') next = (index + 1) % options.length;
+    if (disabled) return;
+    const available = options.map((option, optionIndex) => ({ option, optionIndex })).filter(({ option }) => !option.disabled);
+    if (!available.length || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    const current = available.findIndex(({ optionIndex }) => optionIndex === index);
+    let next = current;
+    if (event.key === 'ArrowLeft') next = (current - 1 + available.length) % available.length;
+    if (event.key === 'ArrowRight') next = (current + 1) % available.length;
     if (event.key === 'Home') next = 0;
-    if (event.key === 'End') next = options.length - 1;
-    if (next === null) return;
+    if (event.key === 'End') next = available.length - 1;
     event.preventDefault();
-    const option = options[next];
+    const option = available[next].option;
     refs.current[option.value]?.focus();
     onChange(option.value);
   };
@@ -37,6 +40,7 @@ export default function SegmentedCapsule({ value, options, onChange, ariaLabel, 
       }}
     >
       {options.map((option, index) => {
+        const optionDisabled = disabled || Boolean(option.disabled);
         const button = (
           <ToggleButton
             key={option.value}
@@ -47,8 +51,10 @@ export default function SegmentedCapsule({ value, options, onChange, ariaLabel, 
             id={`${idPrefix}-${option.value}-tab`}
             aria-selected={value === option.value}
             aria-controls={`${idPrefix}-${option.value}-panel`}
-            tabIndex={value === option.value ? 0 : -1}
-            onClick={() => onChange(option.value)}
+            data-product-tour={option.tour || undefined}
+            tabIndex={value === option.value && !optionDisabled ? 0 : -1}
+            disabled={optionDisabled}
+            onClick={() => { if (!optionDisabled) onChange(option.value); }}
             onKeyDown={(event) => move(event, index)}
             sx={{
               flex: 1,
@@ -71,13 +77,14 @@ export default function SegmentedCapsule({ value, options, onChange, ariaLabel, 
               },
               '&.Mui-selected:hover': { background: '#FFFFFF' },
               '&:hover': { background: 'rgba(255,255,255,.55)' },
+              '&.Mui-disabled': { cursor: 'not-allowed', pointerEvents: 'none' },
               '&.Mui-focusVisible': { outline: '3px solid rgba(86,115,220,.20)', outlineOffset: 1 },
             }}
           >
             {option.label}
           </ToggleButton>
         );
-        return option.tooltip ? <Tooltip key={option.value} title={option.tooltip} arrow>{button}</Tooltip> : button;
+        return option.tooltip ? <Tooltip key={option.value} title={option.tooltip} arrow><span data-option-tooltip={option.value} style={{ display: 'flex', flex: 1, cursor: optionDisabled ? 'not-allowed' : undefined }}>{button}</span></Tooltip> : button;
       })}
     </Box>
   );

@@ -161,3 +161,35 @@ test('locks and unlocks interaction by click and Escape', () => {
   host.remove();
   delete window.IS_REACT_ACT_ENVIRONMENT;
 });
+
+test('reports a category selection only when an interaction is locked', () => {
+  window.IS_REACT_ACT_ENVIRONMENT = true;
+  const host = document.createElement('div');
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  const onSelectedCategoryChange = jest.fn();
+  act(() => {
+    root.render(
+      <ConnectedCategoryFlowChart
+        periods={[period('2026-07-01', 40, 60, 40), period('2026-08-01', 40, 30, 70)]}
+        categories={categories}
+        colors={colors}
+        labels={labels}
+        onSelectedCategoryChange={onSelectedCategoryChange}
+      />
+    );
+  });
+
+  const external = host.querySelector('[data-flow-segment="external_delivery"]');
+  act(() => Simulate.focus(external));
+  expect(onSelectedCategoryChange).toHaveBeenLastCalledWith(null);
+
+  act(() => Simulate.click(external));
+  expect(onSelectedCategoryChange).toHaveBeenLastCalledWith('external_delivery');
+  act(() => Simulate.click(external));
+  expect(onSelectedCategoryChange).toHaveBeenLastCalledWith(null);
+
+  act(() => root.unmount());
+  host.remove();
+  delete window.IS_REACT_ACT_ENVIRONMENT;
+});
