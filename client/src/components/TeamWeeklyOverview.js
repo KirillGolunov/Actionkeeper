@@ -8,6 +8,7 @@ import { format, parseISO } from 'date-fns';
 import { enUS, ru } from 'date-fns/locale';
 import { useTranslation } from '../i18n/I18nProvider';
 import { PROJECT_CATEGORY_ORDER, getProjectCategoryChipStyles, getProjectCategoryLabel, getProjectCategoryVisual } from '../utils/projectCategories';
+import OverflowTooltip from './OverflowTooltip';
 import ProjectDialogLayout from './ProjectDialogLayout';
 
 export const WEEK_STATUS_COLORS = {
@@ -401,17 +402,17 @@ export default function TeamWeeklyOverview({ onOpenTimesheet, year: controlledYe
       compact
       tourTarget="week-detail-dialog"
     >
-      {detailError ? <Alert severity="error">{detailError}</Alert> : selectedCell && selectedWeek && detailWeek && <Box sx={{ display: 'grid', gap: 1.5 }}>
+      {detailError ? <Alert severity="error">{detailError}</Alert> : selectedCell && selectedWeek && detailWeek && <Box sx={{ minWidth: 0, display: 'grid', gap: 1.5 }}>
         {detailLoading ? <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}><CircularProgress size={18} /></Box> : null}
         <Box sx={{ px: 1.25, py: 1, borderRadius: 1.5, bgcolor: '#F5F7FA' }}>
           <Typography sx={{ color: '#344054', fontSize: 14, fontWeight: 500 }}>{t('teamWeekly.dialog.total', { hours: formatHours(detailWeek.hours), target: data.weeklyTargetHours, status: statusLabel(detailWeek.status) })}</Typography>
         </Box>
-        <Box sx={{ display: 'grid', gap: 1 }}>
+        <Box sx={{ minWidth: 0, display: 'grid', gap: 1 }}>
           <Typography sx={{ fontSize: 13, fontWeight: 600, color: '#344054' }}>{t('teamWeekly.dialog.categoryHours')}</Typography>
           {selectedCategoryHours.length ? selectedCategoryHours.map(({ category, hours }) => {
             const visual = getProjectCategoryVisual(category);
             const projects = selectedProjectsByCategory.get(category) || [];
-            return <Box key={category} sx={{ display: 'grid', gap: 0.65 }}>
+            return <Box key={category} sx={{ minWidth: 0, display: 'grid', gap: 0.65 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
                 <Box sx={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 0.75 }}>
                   <Box aria-hidden="true" sx={{ flexShrink: 0, width: 8, height: 8, borderRadius: '50%', bgcolor: visual.main }} />
@@ -419,9 +420,11 @@ export default function TeamWeeklyOverview({ onOpenTimesheet, year: controlledYe
                 </Box>
                 <Typography sx={{ flexShrink: 0, fontSize: 13, fontWeight: 500, color: '#344054' }}>{formatHours(hours)} {t('teamWeekly.hoursShort')}</Typography>
               </Box>
-              {projects.length > 0 && <Box sx={{ ml: 0.5, pl: 1.5, display: 'grid', gap: 0.45, borderLeft: `2px solid ${visual.main}` }}>
-                {projects.map((project) => <Box key={`${project.category}-${project.id ?? 'none'}`} sx={{ mx: -0.5, px: 0.5, py: 0.2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, borderRadius: 1, '&:hover': { bgcolor: '#F2F4F7' } }}>
-                  <Typography sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12.5, color: '#667085' }}>{project.code ? `${project.code}${project.name ? ` — ${project.name}` : ''}` : project.name || t('teamWeekly.dialog.noProject')}</Typography>
+              {projects.length > 0 && <Box sx={{ minWidth: 0, maxWidth: '100%', ml: 0.5, pl: 1.5, display: 'grid', gap: 0.45, overflow: 'hidden', borderLeft: `2px solid ${visual.main}` }}>
+                {projects.map((project) => <Box key={`${project.category}-${project.id ?? 'none'}`} sx={{ minWidth: 0, maxWidth: '100%', mx: -0.5, px: 0.5, py: 0.2, display: 'flex', alignItems: 'center', gap: 1, overflow: 'hidden', borderRadius: 1, '&:hover': { bgcolor: '#F2F4F7' } }}>
+                  <OverflowTooltip title={project.code ? `${project.code}${project.name ? ` — ${project.name}` : ''}` : project.name || t('teamWeekly.dialog.noProject')} overflowAxis="horizontal" placement="top" arrow>
+                    <Typography data-project-name sx={{ flex: '1 1 0%', minWidth: 0, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12.5, color: '#667085' }}>{project.code ? `${project.code}${project.name ? ` — ${project.name}` : ''}` : project.name || t('teamWeekly.dialog.noProject')}</Typography>
+                  </OverflowTooltip>
                   <Typography sx={{ flexShrink: 0, fontSize: 12.5, color: '#667085' }}>{formatHours(project.hours)} {t('teamWeekly.hoursShort')}</Typography>
                 </Box>)}
               </Box>}
