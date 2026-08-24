@@ -1,11 +1,27 @@
 {
   "files": {
-    "main.js": "/static/js/main.ef54393d.js",
-    "static/media/announcement-project-budget-overview.jpg": "/static/media/announcement-project-budget-overview.30de1d3f6a2f68e1b26a.jpg",
+    "main.css": "/static/css/main.051bd280.css",
+    "main.js": "/static/js/main.d6378b4f.js",
+    "static/media/inter-latin-500-normal.woff": "/static/media/inter-latin-500-normal.5014db633e71a7741bf5.woff",
+    "static/media/inter-latin-600-normal.woff": "/static/media/inter-latin-600-normal.f10265da6bd8d66999ac.woff",
+    "static/media/inter-latin-400-normal.woff": "/static/media/inter-latin-400-normal.2ea1079c0069eb040a52.woff",
+    "static/media/inter-latin-600-normal.woff2": "/static/media/inter-latin-600-normal.69a8d1d484967aba2389.woff2",
+    "static/media/inter-latin-500-normal.woff2": "/static/media/inter-latin-500-normal.b7c27c60f848f2083f45.woff2",
+    "static/media/inter-latin-400-normal.woff2": "/static/media/inter-latin-400-normal.eca1e21531598d5db58f.woff2",
+    "static/media/actionplan-logo.svg": "/static/media/actionplan-logo.51730a3f6dd8533de1e06591108753e2.svg",
+    "static/media/inter-cyrillic-500-normal.woff": "/static/media/inter-cyrillic-500-normal.72f7a9db87626ca30c76.woff",
+    "static/media/inter-cyrillic-600-normal.woff": "/static/media/inter-cyrillic-600-normal.8609e1b95284125f21cb.woff",
+    "static/media/inter-cyrillic-400-normal.woff": "/static/media/inter-cyrillic-400-normal.dd21c71421d58232ef03.woff",
+    "static/media/inter-cyrillic-600-normal.woff2": "/static/media/inter-cyrillic-600-normal.fdee7b66c2d88216b75f.woff2",
+    "static/media/inter-cyrillic-500-normal.woff2": "/static/media/inter-cyrillic-500-normal.33a76a7cbcfcb7076534.woff2",
+    "static/media/inter-cyrillic-400-normal.woff2": "/static/media/inter-cyrillic-400-normal.89455522650c3fb3654c.woff2",
+    "static/media/actionplan-mark.svg": "/static/media/actionplan-mark.1f5b3932a6037a13ac4b96abac5d2eac.svg",
     "index.html": "/index.html",
-    "main.ef54393d.js.map": "/static/js/main.ef54393d.js.map"
+    "main.051bd280.css.map": "/static/css/main.051bd280.css.map",
+    "main.d6378b4f.js.map": "/static/js/main.d6378b4f.js.map"
   },
   "entrypoints": [
-    "static/js/main.ef54393d.js"
+    "static/css/main.051bd280.css",
+    "static/js/main.d6378b4f.js"
   ]
 }

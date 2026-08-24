@@ -14,6 +14,7 @@ export const translations = {
     },
     nav: {
       home: 'Главная',
+      analytics: 'Аналитика',
       collapseSidebar: 'Свернуть навигацию',
       expandSidebar: 'Развернуть навигацию',
       projects: 'Проекты',
@@ -261,10 +262,26 @@ export const translations = {
       quarterLabel: '\u041a\u0432 {{quarter}} {{year}}',
       hoursSuffix: '{{value}} ч'
     },
+    teamWeekly: {
+      views: { completion: 'Заполнение часов', analytics: 'Аналитика', aria: 'Режим командного обзора' },
+      previousYear: 'Предыдущий год', nextYear: 'Следующий год',
+      quarterSelector: 'Квартал', weekNumber: 'Неделя {{number}}',
+      quarters: { q1: '1 кв.', q2: '2 кв.', q3: '3 кв.', q4: '4 кв.' },
+      attentionSummary: 'Требуют внимания: {{attention}} из {{total}}',
+      employee: 'Сотрудник', missingCount: '{{count}} проп.', missingCountTooltip: 'Завершённых недель без заполненных часов: {{count}}', hoursShort: 'ч',
+      dominantCategory: 'Преобладающая категория: {{category}}',
+      categories: { unclassified: 'Требует классификации', external_delivery: 'Внешние проекты', internal_project: 'Внутренние проекты', operations: 'Операционная деятельность', people_development: 'Развитие и обмен опытом', time_off: 'Отсутствия' },
+      tableAria: 'Заполнение часов командой по неделям года',
+      cellAria: '{{user}}, {{week}}, {{hours}} ч, {{status}}',
+      empty: 'Нет активных сотрудников для отображения.',
+      status: { complete: 'Заполнено', partial: 'Частично', missing: 'Не заполнено', in_progress: 'В процессе', future: 'Будущая неделя', not_applicable: 'До начала работы' },
+      dialog: { title: 'Открыть табель за эту неделю?', detailsTitle: 'Часы за эту неделю', content: '{{user}} · {{week}}', total: '{{hours}} из {{target}} ч · {{status}}', categoryHours: 'Заполнено по категориям', noHours: 'За эту неделю часов нет.', noProject: 'Без проекта', navigationNotice: 'Табель откроется на другой странице.', readOnlyNotice: 'Детализация проектов и редактирование доступны только для вашей недели.', confirm: 'Открыть табель' },
+      errors: { fetch: 'Не удалось загрузить годовой обзор заполнения часов.', detail: 'Не удалось загрузить детализацию недели.' },
+    },
   },
   en: {
     common: { appName: 'Time Tracker', notAuthorized: 'Not authorized', actions: { save: 'Save', apply: 'Apply', retry: 'Retry', revert: 'Revert', cancel: 'Cancel', close: 'Close', delete: 'Delete' } },
-    nav: { home: 'Home', collapseSidebar: 'Collapse navigation', expandSidebar: 'Expand navigation', projects: 'Projects', clients: 'Clients', users: 'Users', profile: 'Profile', settings: 'Settings', logout: 'Logout' },
+    nav: { home: 'Home', analytics: 'Analytics', collapseSidebar: 'Collapse navigation', expandSidebar: 'Expand navigation', projects: 'Projects', clients: 'Clients', users: 'Users', profile: 'Profile', settings: 'Settings', logout: 'Logout' },
     notifications: { title: 'Notifications', readAll: 'Mark all as read', empty: 'No notifications yet', projectManagerAssigned: 'You are now managing “{{project}}”', projectManagerRemoved: 'You are no longer managing “{{project}}”', projectPayrollWarning: '“{{project}}” reached {{threshold}}% of its payroll limit', projectPayrollLimitReached: '“{{project}}” reached or exceeded its payroll limit', projectBudgetChangeRequested: 'A budget request was submitted for “{{project}}”', projectBudgetChangeApproved: 'The budget request for “{{project}}” was approved', projectBudgetChangeRejected: 'The budget request for “{{project}}” was rejected', projectBudgetRequestTransferred: 'An active budget request for “{{project}}” was transferred to you', unknown: 'New project notification for “{{project}}”' },
     auth: {
       sessionExpired: 'Session expired. Please sign in again.', invalidSession: 'Invalid session. Please sign in again.',
@@ -282,6 +299,22 @@ export const translations = {
     dashboard: {
       quarterLabel: 'Q{{quarter}} {{year}}',
       hoursSuffix: '{{value}}h'
+    },
+    teamWeekly: {
+      views: { completion: 'Time completion', analytics: 'Analytics', aria: 'Team overview mode' },
+      previousYear: 'Previous year', nextYear: 'Next year',
+      quarterSelector: 'Quarter', weekNumber: 'Week {{number}}',
+      quarters: { q1: 'Q1', q2: 'Q2', q3: 'Q3', q4: 'Q4' },
+      attentionSummary: 'Need attention: {{attention}} of {{total}}',
+      employee: 'Employee', missingCount: '{{count}} missed', missingCountTooltip: 'Completed weeks without logged hours: {{count}}', hoursShort: 'h',
+      dominantCategory: 'Dominant category: {{category}}',
+      categories: { unclassified: 'Needs classification', external_delivery: 'External delivery', internal_project: 'Internal projects', operations: 'Operations', people_development: 'People development', time_off: 'Time off' },
+      tableAria: 'Team time completion by week of year',
+      cellAria: '{{user}}, {{week}}, {{hours}} hours, {{status}}',
+      empty: 'There are no active employees to display.',
+      status: { complete: 'Complete', partial: 'Partial', missing: 'Missing', in_progress: 'In progress', future: 'Future week', not_applicable: 'Before employment' },
+      dialog: { title: 'Open this week\'s timesheet?', detailsTitle: 'Hours for this week', content: '{{user}} · {{week}}', total: '{{hours}} of {{target}} h · {{status}}', categoryHours: 'Hours by category', noHours: 'There are no logged hours for this week.', noProject: 'No project', navigationNotice: 'The timesheet will open on another page.', readOnlyNotice: 'Project details and editing are available only for your own week.', confirm: 'Open timesheet' },
+      errors: { fetch: 'Failed to load the yearly time completion overview.', detail: 'Failed to load week details.' },
     },
     smtp: { title: 'SMTP Settings', host: 'SMTP Host', port: 'SMTP Port', username: 'Username', password: 'Password', passwordPlaceholder: 'Password saved', passwordHint: 'Leave blank to keep the current password.', fromAddress: 'From Address', useSecure: 'Use SSL/TLS (secure)', testEmailTo: 'Test Email To', testConnection: 'Test Connection', settingsSaved: 'Settings saved.', saveFailed: 'Failed to save settings.', testSent: 'Test email sent successfully.', testFailed: 'Failed to send test email.' },
   },
@@ -795,29 +828,111 @@ Object.assign(translations.en.projects.analytics.tooltip, {
   dailySuffix: '(daily)',
 });
 
-translations.ru.updates = {
-  projectBudget: {
-    title: 'Ставки и бюджет проекта',
-    intro: 'Логирование часов теперь учитывает почасовые ставки и лимиты проекта.',
-    whatChanged: 'Что изменилось',
-    rateAccounting: 'Часы оцениваются по ставке, действующей на дату записи, и сравниваются с лимитом ФОТ.',
-    financialAccess: 'Администратор видит сводный бюджет всех проектов, руководитель — своего проекта.',
-    privacy: 'Показываются только агрегированные данные без персональных ставок и затрат участников.',
-    openFromCard: 'Аналитика открывается кликом по карточке проекта на странице «Проекты».',
-    previewTitle: 'Обновлённая карточка проекта',
-    previewAlt: 'Карточка проекта со сводными показателями бюджета и графиком накопленной стоимости ФОТ',
+Object.assign(translations.ru, {
+  productTour: {
+    announcement: {
+      title: 'Actionplan TimeTracker получил большое обновление',
+      description: 'Появились отдельная аналитика, контроль заполнения часов и новые способы изучать проекты.',
+      dismiss: 'Закрыть', later: 'Позже', view: 'Посмотреть новый функционал',
+    },
+    step: 'Шаг {{current}} из {{total}}', back: 'Назад', next: 'Далее', finish: 'Завершить', skip: 'Пропустить тур', replay: 'Что нового', waiting: 'Проверяем результат действия…', unavailableContinue: 'Пропустить недоступный шаг',
+    steps: {
+      homeNav: { title: 'Учёт времени — на главной', description: 'Перейдите на «Главную», чтобы регистрировать часы по проектам и видеть базовую аналитику распределения своего времени.' },
+      homePeriod: { title: 'Выберите период', description: 'Выберите период для аналитики, в котором есть зарегистрированные часы.' },
+      homeCategory: { title: 'Фильтр проектов по категории', description: 'Выберите одну из категорий в выделенной колонке. «Распределение времени» сразу покажет только проекты этой категории.' },
+      homeCategoryApplied: { title: 'Фильтр применён', description: 'Синий контур отмечает активный фильтр, а в «Распределении времени» остались только подходящие проекты.' },
+      homeClearCategory: { title: 'Верните все проекты', description: 'Нажмите крестик на теге фильтра, чтобы снять ограничение.' },
+      analyticsNav: { title: 'Новая аналитика', description: 'Нажмите «Аналитика» в навигации, чтобы открыть новый раздел.' },
+      completion: { title: 'Заполнение часов команды', description: 'Нажмите «Заполнение часов». В своей неделе доступны проекты и табель, а в неделе коллеги — только категории.' },
+      weekDetail: { title: 'Откройте любую неделю', description: 'Нажмите квадрат недели. В своей неделе вы увидите проекты и сможете открыть табель; в неделе коллеги — только категории.' },
+      closeWeekDetail: { title: 'Вернитесь к обзору', description: 'Закройте недельную карточку крестиком в правом верхнем углу.' },
+      analytics: { title: 'Аналитика времени', description: 'Откройте вкладку «Аналитика», чтобы посмотреть динамику, клиентов и проекты.' },
+      categories: { title: 'Фильтр по категории', description: 'Нажмите категорию на диаграмме: проекты и клиенты ниже отфильтруются.' },
+      categoryFilterResult: { title: 'Проекты отфильтрованы по категории', description: 'Активный тег показывает выбранную категорию. Нажмите крестик в теге, чтобы снять фильтр и снова увидеть все проекты.' },
+      clientFilterResult: { title: 'Проекты отфильтрованы по клиенту', description: 'Активный тег показывает выбранного клиента. Нажмите крестик в теге, чтобы снять фильтр и снова увидеть все проекты.' },
+      clearCategory: { title: 'Снимите фильтр категории', description: 'Нажмите крестик на теге фильтра, чтобы снова увидеть всех клиентов.' },
+      clearFilters: { title: 'Снимите фильтры', description: 'Нажимайте крестик на активных тегах, чтобы последовательно вернуть все данные.' },
+      clients: { title: 'Фильтр по клиенту', description: 'Нажмите клиента, чтобы оставить в таблице только его проекты. Снимите фильтр крестиком на появившемся теге.' },
+      tornado: { title: 'Договоры и трудозатраты', description: 'Здесь отражается баланс договоров и трудозатрат по внешним проектам за всё время.' },
+      projectOverview: { title: 'Карточка проекта', description: 'В карточке видны все часы, зарегистрированные на проект. Руководитель проекта также видит общую стоимость проекта в сравнении с лимитами договора.' },
+      project: { title: 'Карточка проекта', description: 'Нажмите проект, чтобы открыть его карточку без перехода на другую страницу.' },
+      projectHours: { title: 'Часы участников', description: 'Откройте вкладку часов, чтобы увидеть общую линию и линии участников проекта.' },
+    },
   },
-};
-translations.en.updates = {
-  projectBudget: {
-    title: 'Project rates and budget',
-    intro: 'Logged hours now take hourly rates and project limits into account.',
-    whatChanged: 'What changed',
-    rateAccounting: 'Hours are valued at the rate effective on the entry date and compared with the payroll limit.',
-    financialAccess: 'Administrators see budget summaries for all projects; managers see their own projects.',
-    privacy: 'Only aggregated data are shown, without personal rates or individual participant costs.',
-    openFromCard: 'Open analytics by clicking a project card on the Projects page.',
-    previewTitle: 'Updated project card',
-    previewAlt: 'Project card with aggregated budget metrics and a cumulative payroll cost chart',
+});
+Object.assign(translations.en, {
+  productTour: {
+    announcement: {
+      title: 'Actionplan TimeTracker has a major update',
+      description: 'Explore dedicated analytics, time completion tracking, and new ways to review projects.',
+      dismiss: 'Dismiss', later: 'Later', view: 'Explore what’s new',
+    },
+    step: 'Step {{current}} of {{total}}', back: 'Back', next: 'Next', finish: 'Finish', skip: 'Skip tour', replay: 'What’s new', waiting: 'Checking the result…', unavailableContinue: 'Skip unavailable step',
+    steps: {
+      homeNav: { title: 'Time tracking is now on Home', description: 'Go to Home to log project hours and see a basic view of how you spend your time.' },
+      homePeriod: { title: 'Choose a period', description: 'Choose an analytics period that contains logged hours.' },
+      homeCategory: { title: 'Filter projects by category', description: 'Choose a category in the highlighted column. Time distribution immediately shows only projects in that category.' },
+      homeCategoryApplied: { title: 'Filter applied', description: 'The blue outline marks the active filter, and Time distribution now shows only matching projects.' },
+      homeClearCategory: { title: 'Show all projects again', description: 'Select the × on the filter tag to clear the filter.' },
+      analyticsNav: { title: 'New analytics', description: 'Select Analytics in the navigation to open the new section.' },
+      completion: { title: 'Team time completion', description: 'Select Time completion. Your week shows projects and a timesheet; a colleague’s week shows categories only.' },
+      weekDetail: { title: 'Open any week', description: 'Select a week cell. Your week shows projects and a timesheet; a colleague’s week shows categories only.' },
+      closeWeekDetail: { title: 'Return to the overview', description: 'Close the weekly card with the button in the upper-right corner.' },
+      analytics: { title: 'Time analytics', description: 'Open the Analytics tab to review trends, clients, and projects.' },
+      categories: { title: 'Category filtering', description: 'Select a category in the chart to filter projects and clients below.' },
+      categoryFilterResult: { title: 'Projects filtered by category', description: 'The active tag shows the selected category. Select its × to clear the filter and show all projects again.' },
+      clientFilterResult: { title: 'Projects filtered by client', description: 'The active tag shows the selected client. Select its × to clear the filter and show all projects again.' },
+      clearCategory: { title: 'Clear the category filter', description: 'Select the × on the filter tag to show all clients again.' },
+      clearFilters: { title: 'Clear filters', description: 'Select the × on active tags to restore all data one filter at a time.' },
+      clients: { title: 'Client filtering', description: 'Select a client to keep only that client’s projects in the table. Select × on the tag that appears to clear the filter.' },
+      tornado: { title: 'Contracts and effort', description: 'This card shows the balance between contracts and effort for external projects across all time.' },
+      projectOverview: { title: 'Project card', description: 'The card shows all hours logged to the project. The project manager also sees the total project cost against contract limits.' },
+      project: { title: 'Project card', description: 'Select a project to open its card without leaving this page.' },
+      projectHours: { title: 'Team hours', description: 'Open the hours tab to see the total line and project-member lines.' },
+    },
   },
-};
+});
+
+Object.assign(translations.ru, {
+  projectCategories: { unclassified: 'Требует классификации', external_delivery: 'Внешние проекты', internal_project: 'Внутренние проекты', operations: 'Операционная деятельность', people_development: 'Развитие и обмен опытом', time_off: 'Отсутствия' },
+  analytics: {
+    team: 'Вся команда', usersLoadError: 'Не удалось загрузить список пользователей', dashboardLoadError: 'Не удалось загрузить командную аналитику',
+    ranges: { week: 'Неделя', month: 'Месяц', quarter: 'Квартал', year: 'Год', all: 'Всё время' },
+    period: { all: 'Всё время', quarter: '{{quarter}} квартал {{year}}', previous: 'Предыдущий период', next: 'Следующий период', selector: 'Период командной аналитики', completionOnlyYear: 'В режиме «Заполнение часов» доступен только годовой обзор' },
+    clients: { title: 'Часы по клиентам', internal: 'Внутренние клиенты', external: 'Внешние клиенты', filterAria: 'Фильтровать проекты клиента {{client}}' },
+    projects: { title: 'Часы по проектам', project: 'Проект', manager: 'Руководитель', hours: 'Часы', percent: 'Процент', payroll: 'ФОТ, %', payrollTitle: 'Использовано лимита ФОТ', distribution: 'Распределение', noData: 'Нет данных за выбранный период', clearCategory: 'Сбросить фильтр категории', clearClient: 'Сбросить фильтр клиента', expand: 'Развернуть проект {{project}}', collapse: 'Свернуть проект {{project}}', distributionAria: 'Распределение времени: {{percent}}%' },
+    payroll: { noLimit: 'Лимит ФОТ не настроен', used: 'Использовано лимита ФОТ: {{percent}}%', incomplete: 'Расчёт неполный: есть записи без ставки.' },
+    tornado: { title: 'Договоры и трудозатраты', lifetime: 'за весь срок', empty: 'Нет активных проектов с договором', code: 'Код', contract: 'Договор', contractRub: 'Договор, ₽', effort: 'Трудозатраты', effortHours: 'Трудозатраты, ч', fallbackProject: 'Проект #{{id}}', aria: '{{project}}. Договор: {{contract}}. Трудозатраты: {{hours}} ч.' },
+  },
+  mineAnalytics: {
+    ranges: { '8w': '8 недель', '6m': '6 месяцев', '12m': '12 месяцев' },
+    weekday: { sun: 'Вс', mon: 'Пн', tue: 'Вт', wed: 'Ср', thu: 'Чт', fri: 'Пт', sat: 'Сб' },
+    quarter: '{{quarter}} кв. {{year}}', other: 'Остальные', retry: 'Повторить', retryLoad: 'Повторить загрузку', error: 'Не удалось загрузить аналитику времени',
+    title: 'Структура времени в динамике', compactTitle: 'Структура времени', rangeAria: 'Период аналитики', detailsEmpty: 'Доля категорий в каждом периоде', empty: 'За выбранный период сохранённых часов нет',
+    distributionTitle: 'Распределение времени', distributionSummary: '{{count}} проектов · топ-3 — {{percent}}%', mobileViewAria: 'Вид аналитики', categories: 'Категории', projects: 'Проекты',
+    flowAria: 'Структура времени по категориям и периодам', flowEmpty: '{{period}}: за период часы не зарегистрированы', flowPartial: 'Неполный период', hoursSuffix: 'ч',
+  },
+  homeUser: { current: 'Текущий пользователь: {{name}}', user: 'Пользователь', loadError: 'Не удалось загрузить список пользователей', deleted: 'Удалён', unsavedChangesConfirmation: 'Есть несохранённые изменения. Сменить сотрудника без сохранения?' },
+});
+
+Object.assign(translations.en, {
+  projectCategories: { unclassified: 'Needs classification', external_delivery: 'External projects', internal_project: 'Internal projects', operations: 'Operations', people_development: 'Development and knowledge sharing', time_off: 'Time off' },
+  analytics: {
+    team: 'Whole team', usersLoadError: 'Failed to load the user list', dashboardLoadError: 'Failed to load team analytics',
+    ranges: { week: 'Week', month: 'Month', quarter: 'Quarter', year: 'Year', all: 'All time' },
+    period: { all: 'All time', quarter: 'Q{{quarter}} {{year}}', previous: 'Previous period', next: 'Next period', selector: 'Team analytics period', completionOnlyYear: 'Only the yearly overview is available in Time completion mode' },
+    clients: { title: 'Hours by client', internal: 'Internal clients', external: 'External clients', filterAria: 'Filter {{client}} projects' },
+    projects: { title: 'Hours by project', project: 'Project', manager: 'Manager', hours: 'Hours', percent: 'Percent', payroll: 'Payroll, %', payrollTitle: 'Payroll limit used', distribution: 'Distribution', noData: 'No data for the selected period', clearCategory: 'Clear category filter', clearClient: 'Clear client filter', expand: 'Expand project {{project}}', collapse: 'Collapse project {{project}}', distributionAria: 'Time distribution: {{percent}}%' },
+    payroll: { noLimit: 'No payroll limit configured', used: 'Payroll limit used: {{percent}}%', incomplete: 'Incomplete calculation: some entries have no rate.' },
+    tornado: { title: 'Contracts and effort', lifetime: 'lifetime', empty: 'No active projects with a contract', code: 'Code', contract: 'Contract', contractRub: 'Contract, RUB', effort: 'Effort', effortHours: 'Effort, h', fallbackProject: 'Project #{{id}}', aria: '{{project}}. Contract: {{contract}}. Effort: {{hours}} h.' },
+  },
+  mineAnalytics: {
+    ranges: { '8w': '8 weeks', '6m': '6 months', '12m': '12 months' },
+    weekday: { sun: 'Sun', mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat' },
+    quarter: 'Q{{quarter}} {{year}}', other: 'Other', retry: 'Retry', retryLoad: 'Retry loading', error: 'Failed to load time analytics',
+    title: 'Time structure over time', compactTitle: 'Time structure', rangeAria: 'Analytics period', detailsEmpty: 'Category share in each period', empty: 'No saved hours for the selected period',
+    distributionTitle: 'Time distribution', distributionSummary: '{{count}} projects · top 3 — {{percent}}%', mobileViewAria: 'Analytics view', categories: 'Categories', projects: 'Projects',
+    flowAria: 'Time structure by category and period', flowEmpty: '{{period}}: no hours recorded for this period', flowPartial: 'Partial period', hoursSuffix: 'h',
+  },
+  homeUser: { current: 'Current user: {{name}}', user: 'User', loadError: 'Failed to load the user list', deleted: 'Deleted', unsavedChangesConfirmation: 'There are unsaved changes. Change the employee without saving?' },
+});

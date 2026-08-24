@@ -46,7 +46,7 @@ function formatHoursValue(value, t) {
   return t('dashboard.hoursSuffix', { value: rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(1) });
 }
 
-function buildCumulativeData(analytics) {
+export function buildCumulativeData(analytics) {
   const daily = [...(analytics?.daily || [])].sort((left, right) => left.date.localeCompare(right.date));
   if (daily.length === 0) return [];
 

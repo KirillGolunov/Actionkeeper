@@ -28,6 +28,8 @@ export default function ProjectDialogLayout({
   primaryVisible = true,
   actionsVisible = true,
   closeDisabled = false,
+  compact = false,
+  tourTarget,
 }) {
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
@@ -41,11 +43,12 @@ export default function ProjectDialogLayout({
       maxWidth={false}
       scroll="paper"
       PaperProps={{
+        'data-product-tour': tourTarget,
         sx: {
-          width: { sm: 'calc(100% - 48px)' },
-          maxWidth: 1320,
-          height: { xs: '100dvh', sm: 'min(900px, calc(100dvh - 48px))' },
-          maxHeight: { xs: '100dvh', sm: 'calc(100dvh - 48px)' },
+          width: compact ? { sm: 'min(100% - 48px, 560px)' } : { sm: 'calc(100% - 48px)' },
+          maxWidth: compact ? 560 : 1320,
+          height: compact ? 'auto' : { xs: '100dvh', sm: 'min(900px, calc(100dvh - 48px))' },
+          maxHeight: compact ? { xs: '100dvh', sm: 'calc(100dvh - 48px)' } : { xs: '100dvh', sm: 'calc(100dvh - 48px)' },
           borderRadius: { xs: 0, sm: '14px' },
           overflow: 'hidden',
           background: '#FBFCFF',
@@ -95,6 +98,7 @@ export default function ProjectDialogLayout({
             </Box>
           ) : null}
           <IconButton
+            data-product-tour={tourTarget ? 'project-dialog-close' : undefined}
             aria-label={secondaryLabel}
             onClick={onClose}
             disabled={closeDisabled}

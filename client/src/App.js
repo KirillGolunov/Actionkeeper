@@ -3,11 +3,13 @@ import { Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import { Box } from '@mui/material';
-import AutoLoginInfoDialog from './components/AutoLoginInfoDialog';
+import MajorUpdateAnnouncement, { MAJOR_UPDATE_ANNOUNCEMENT_ID } from './components/MajorUpdateAnnouncement';
+import ProductTour from './components/ProductTour';
 import Projects from './pages/Projects';
 import Clients from './pages/Clients';
 import Users from './pages/Users';
 import Home from './pages/Home';
+import Analytics from './pages/Analytics';
 import SMTPSettings from './pages/SMTPSettings';
 import AcceptInvitation from './pages/AcceptInvitation';
 import SignIn from './pages/SignIn';
@@ -68,6 +70,17 @@ function App() {
     location.pathname.startsWith('/invite/accept/') ||
     location.pathname === '/setup';
 
+  const [tourOpen, setTourOpen] = React.useState(false);
+  React.useEffect(() => {
+    const startTour = () => setTourOpen(true);
+    window.addEventListener('product-tour:start', startTour);
+    return () => window.removeEventListener('product-tour:start', startTour);
+  }, []);
+  const completeTour = async () => {
+    setTourOpen(false);
+    await axios.post(`/api/product-updates/${MAJOR_UPDATE_ANNOUNCEMENT_ID}`, { action: 'complete' }).catch(() => {});
+  };
+
   return (
     <ThemeProvider theme={appTheme}>
       <CssBaseline />
@@ -83,10 +96,12 @@ function App() {
         ) : (
           <ProtectedAppLayout>
             <AppShell>
-              <AutoLoginInfoDialog />
+              <MajorUpdateAnnouncement onStartTour={() => setTourOpen(true)} />
+              <ProductTour open={tourOpen} onClose={() => setTourOpen(false)} onComplete={completeTour} />
               <Box component="main" sx={{ height: '100%', minHeight: 0, width: '100%', overflow: 'hidden' }}>
                 <Routes>
                   <Route path="/" element={<ProtectedRoute><Home /></ProtectedRoute>} />
+                  <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
                   <Route path="/projects" element={<ProtectedRoute><Projects /></ProtectedRoute>} />
                   <Route path="/time-entries" element={<Navigate to="/?mode=mine" replace />} />
                   <Route path="/clients" element={<ProtectedRoute><AdminRoute><Clients /></AdminRoute></ProtectedRoute>} />

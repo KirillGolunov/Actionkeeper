@@ -43,22 +43,22 @@ export const PROJECT_CATEGORY_TRANSITION = {
 
 export const PROJECT_CATEGORY_VISUALS = Object.freeze({
   external_delivery: Object.freeze({
-    main: '#6F86D8', backgroundColor: '#F0F2FB', color: '#455DB5', borderColor: '#CED6F1', borderStyle: 'solid',
+    main: '#B892E8', backgroundColor: '#F6F1FC', color: '#714F9C', borderColor: '#E3D7F1', borderStyle: 'solid',
   }),
   internal_project: Object.freeze({
-    main: '#8F7CC8', backgroundColor: '#F3F0F9', color: '#67549F', borderColor: '#D9D1EA', borderStyle: 'solid',
+    main: '#8296E0', backgroundColor: '#EEF0FC', color: '#5266B0', borderColor: '#D3D9F5', borderStyle: 'solid',
   }),
   operations: Object.freeze({
-    main: '#6FA7A1', backgroundColor: '#EEF5F4', color: '#477771', borderColor: '#C9DFDC', borderStyle: 'solid',
+    main: '#A8AFBC', backgroundColor: '#F2F3F5', color: '#5F6878', borderColor: '#D8DCE3', borderStyle: 'solid',
   }),
   people_development: Object.freeze({
-    main: '#C9A36F', backgroundColor: '#FBF4E9', color: '#8B642E', borderColor: '#E5D5BD', borderStyle: 'solid',
+    main: '#B9C5EE', backgroundColor: '#F5F7FD', color: '#6677B8', borderColor: '#E3E8F8', borderStyle: 'solid',
   }),
   time_off: Object.freeze({
-    main: '#C9CFD9', backgroundColor: '#F3F4F6', color: '#667085', borderColor: '#D0D5DD', borderStyle: 'solid',
+    main: '#E2E4E9', backgroundColor: '#F9FAFB', color: '#667085', borderColor: '#EAECF0', borderStyle: 'solid',
   }),
   unclassified: Object.freeze({
-    main: '#AEB7C5', backgroundColor: '#F1F3F5', color: '#5C6675', borderColor: '#C5CBD4', borderStyle: 'dashed',
+    main: '#C5C9D2', backgroundColor: '#F5F6F8', color: '#667085', borderColor: '#D6DAE1', borderStyle: 'dashed',
   }),
 });
 
@@ -87,6 +87,11 @@ const categoryMap = new Map(
 
 export function getProjectCategoryMeta(categoryValue) {
   return categoryMap.get(categoryValue) || PROJECT_CATEGORY_TRANSITION;
+}
+
+export function getProjectCategoryLabel(categoryValue, t) {
+  return t?.(`projectCategories.${categoryValue}`)
+    || getProjectCategoryMeta(categoryValue).label;
 }
 
 export function getProjectCategoryVisual(categoryValue) {

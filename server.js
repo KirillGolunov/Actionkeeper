@@ -20,10 +20,14 @@ const {
   buildLaborCostSeries,
   kopecksToRubles,
   getProjectFinancialRisk,
+  getProjectPayrollUsage,
 } = require('./budgetUtils');
 const { getProjectEditRole, canEditProjectField } = require('./projectUtils');
 const { activateVerifiedUser, migratePreviouslyAuthenticatedInvitedUsers } = require('./userActivation');
 const { buildDashboardTimeSeries } = require('./dashboardAnalytics');
+const { buildTeamWeeklyOverview, getIsoWeeks } = require('./teamWeeklyOverview');
+const { buildContractComparisonProjects } = require('./contractComparison');
+const { buildProjectHoursAnalyticsResponse } = require('./projectHoursAnalytics');
 
 const app = express();
 app.set('trust proxy', true);
@@ -402,6 +406,7 @@ async function loadFixtures() {
     console.log(`[Migration] Activated ${invitedUserMigration.activatedCount} previously authenticated invited user(s)`);
   }
   await createNotificationsTable();
+  await createProductUpdateTables();
   console.log('Tables verified');
 }
 
@@ -3435,6 +3440,151 @@ function summarizeDashboardBreakdowns(rows) {
   };
 }
 
+const MAJOR_UPDATE_ANNOUNCEMENT_ID = 'major-update-guided-tour-v1';
+
+async function createProductUpdateTables() {
+  await runDb(`CREATE TABLE IF NOT EXISTS product_update_rollouts (
+    announcement_id TEXT PRIMARY KEY,
+    released_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`);
+  await runDb(`CREATE TABLE IF NOT EXISTS product_update_audience (
+    announcement_id TEXT NOT NULL,
+    user_id INTEGER NOT NULL,
+    PRIMARY KEY (announcement_id, user_id),
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  )`);
+  await runDb(`CREATE TABLE IF NOT EXISTS product_update_states (
+    announcement_id TEXT NOT NULL,
+    user_id INTEGER NOT NULL,
+    dismissed_at DATETIME,
+    completed_at DATETIME,
+    PRIMARY KEY (announcement_id, user_id),
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  )`);
+
+  // The first startup after deployment establishes a fixed audience of existing users.
+  await runDb('INSERT OR IGNORE INTO product_update_rollouts (announcement_id) VALUES (?)', [MAJOR_UPDATE_ANNOUNCEMENT_ID]);
+  await runDb(`INSERT OR IGNORE INTO product_update_audience (announcement_id, user_id)
+    SELECT ?, u.id FROM users u
+    WHERE datetime(u.created_at) <= (SELECT released_at FROM product_update_rollouts WHERE announcement_id = ?)` ,
+  [MAJOR_UPDATE_ANNOUNCEMENT_ID, MAJOR_UPDATE_ANNOUNCEMENT_ID]);
+}
+
+async function getDashboardProjectPayrollUsage(projectId) {
+  const [rawBudget, aggregate] = await Promise.all([
+    getCurrentBudgetRow(projectId),
+    getProjectLaborAggregate(projectId),
+  ]);
+  const budget = mapBudgetRow(rawBudget?.id ? rawBudget : null);
+  const summary = calculateLaborSummary(
+    aggregate.total_labor_cost_kopecks,
+    aggregate.missing_rate_entries_count,
+    rawBudget?.budget_mode === 'none' ? null : rawBudget
+  );
+  return getProjectPayrollUsage({ budget, summary });
+}
+
+async function getTeamWeeklyRows({ startDate, endDate, userId = null }) {
+  const parameters = [PROJECT_CATEGORY_TRANSITION, startDate, endDate];
+  const userFilter = userId === null ? '' : ' AND t.user_id = ?';
+  if (userId !== null) parameters.push(userId);
+  parameters.push(PROJECT_CATEGORY_TRANSITION);
+  return allDb(
+    `SELECT t.user_id AS user_id,
+       substr(t.date, 1, 10) AS date,
+       p.id AS project_id,
+       p.name AS project_name,
+       p.code AS project_code,
+       COALESCE(p.category, ?) AS category,
+       COALESCE(SUM(t.hours), 0) AS hours
+     FROM time_entries t
+     INNER JOIN users u ON u.id = t.user_id
+     LEFT JOIN projects p ON p.id = t.project_id
+     WHERE u.deleted = 0
+       AND COALESCE(u.invited, 0) = 0
+       AND substr(t.date, 1, 10) >= ?
+       AND substr(t.date, 1, 10) <= ?${userFilter}
+     GROUP BY t.user_id, substr(t.date, 1, 10), p.id, p.name, p.code, COALESCE(p.category, ?)
+     ORDER BY t.user_id, date, category, p.code, p.name`,
+    parameters
+  );
+}
+
+app.get('/api/dashboard/team-weekly', authenticateJWT, async (req, res) => {
+  try {
+    const year = Number(req.query.year || new Date().getFullYear());
+    if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+      return sendApiError(res, 400, 'budgetValidationFailed', { message: 'Year must be between 2000 and 2100.' });
+    }
+    const weeks = getIsoWeeks(year);
+    const startDate = weeks[0].startDate;
+    const endDate = weeks[weeks.length - 1].endDate;
+    const users = await allDb(
+      `SELECT id, name, surname, created_at
+       FROM users
+       WHERE deleted = 0 AND COALESCE(invited, 0) = 0
+       ORDER BY surname ASC, name ASC`
+    );
+    const rows = await getTeamWeeklyRows({ startDate, endDate });
+    res.json(buildTeamWeeklyOverview({ year, users, rows, categoryOrder: [PROJECT_CATEGORY_TRANSITION, ...PROJECT_CATEGORIES], includeDetails: false }));
+  } catch (err) {
+    console.error('[Dashboard] Failed to load weekly team overview:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/dashboard/team-weekly/detail', authenticateJWT, async (req, res) => {
+  try {
+    const userId = Number(req.query.userId);
+    const weekStart = normalizeDateOnlyValue(req.query.weekStart);
+    if (!Number.isInteger(userId) || !weekStart) return sendApiError(res, 400, 'budgetValidationFailed', { message: 'User and week are required.' });
+    const calendarYear = Number(weekStart.slice(0, 4));
+    if (calendarYear < 2000 || calendarYear > 2100) return sendApiError(res, 400, 'budgetValidationFailed', { message: 'Year must be between 2000 and 2100.' });
+    const weekCandidate = [calendarYear - 1, calendarYear, calendarYear + 1]
+      .map((year) => ({ year, week: getIsoWeeks(year).find((week) => week.startDate === weekStart) }))
+      .find((candidate) => candidate.week);
+    if (!weekCandidate) return sendApiError(res, 400, 'budgetValidationFailed', { message: 'Invalid ISO week.' });
+    const { year, week: weekMeta } = weekCandidate;
+    const user = await getDb(`SELECT id, name, surname, created_at FROM users
+      WHERE id = ? AND deleted = 0 AND COALESCE(invited, 0) = 0`, [userId]);
+    if (!user) return sendApiError(res, 404, 'budgetValidationFailed', { message: 'User not found.' });
+    const rows = await getTeamWeeklyRows({ startDate: weekMeta.startDate, endDate: weekMeta.endDate, userId });
+    const overview = buildTeamWeeklyOverview({
+      year, users: [user], rows,
+      categoryOrder: [PROJECT_CATEGORY_TRANSITION, ...PROJECT_CATEGORIES], includeDetails: true,
+    });
+    const detail = overview.users[0]?.weeks.find((week) => week.weekStart === weekMeta.startDate);
+    const canOpenTimesheet = req.user.role === 'admin' || Number(req.user.id) === userId;
+    if (!canOpenTimesheet && detail) delete detail.projectHours;
+    res.json({ weeklyTargetHours: overview.weeklyTargetHours, user: overview.users[0] && { id: overview.users[0].id, label: overview.users[0].label }, week: detail, canOpenTimesheet });
+  } catch (err) {
+    console.error('[Dashboard] Failed to load weekly detail:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/product-updates/:announcementId', authenticateJWT, async (req, res) => {
+  const announcementId = req.params.announcementId;
+  if (announcementId !== MAJOR_UPDATE_ANNOUNCEMENT_ID) return sendApiError(res, 404, 'budgetValidationFailed', { message: 'Announcement not found.' });
+  const [audience, state] = await Promise.all([
+    getDb('SELECT 1 AS included FROM product_update_audience WHERE announcement_id = ? AND user_id = ?', [announcementId, req.user.id]),
+    getDb('SELECT dismissed_at, completed_at FROM product_update_states WHERE announcement_id = ? AND user_id = ?', [announcementId, req.user.id]),
+  ]);
+  res.json({ announcementId, eligible: Boolean(audience), dismissed: Boolean(state?.dismissed_at), completed: Boolean(state?.completed_at) });
+});
+
+app.post('/api/product-updates/:announcementId', authenticateJWT, async (req, res) => {
+  const announcementId = req.params.announcementId;
+  const action = req.body?.action;
+  if (announcementId !== MAJOR_UPDATE_ANNOUNCEMENT_ID || !['dismiss', 'complete'].includes(action)) return sendApiError(res, 400, 'budgetValidationFailed', { message: 'Invalid product update action.' });
+  const audience = await getDb('SELECT 1 AS included FROM product_update_audience WHERE announcement_id = ? AND user_id = ?', [announcementId, req.user.id]);
+  if (!audience) return sendApiError(res, 403, 'adminForbidden');
+  const column = action === 'dismiss' ? 'dismissed_at' : 'completed_at';
+  await runDb(`INSERT INTO product_update_states (announcement_id, user_id, ${column}) VALUES (?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(announcement_id, user_id) DO UPDATE SET ${column} = CURRENT_TIMESTAMP`, [announcementId, req.user.id]);
+  res.json({ ok: true });
+});
+
 app.get('/api/dashboard', authenticateJWT, async (req, res) => {
   try {
     const availableScopes = await getDashboardScopes(req.user);
@@ -3507,6 +3657,7 @@ app.get('/api/dashboard', authenticateJWT, async (req, res) => {
         project,
         periodHours: Number(row.period_hours || 0),
         lastEntryDate: row.last_entry_date || null,
+        payrollUsage: await getDashboardProjectPayrollUsage(row.id),
       };
       if (!includeFinance) return item;
 
@@ -3529,6 +3680,17 @@ app.get('/api/dashboard', authenticateJWT, async (req, res) => {
     }));
 
     const financialProjects = projects.filter((item) => item.finance);
+    const contractComparisonRows = await allDb(
+      `SELECT p.id AS project_id, p.name, p.code, v.contract_amount_kopecks,
+         COALESCE(SUM(t.hours), 0) AS lifetime_hours
+       FROM projects p
+       INNER JOIN project_budget_versions v ON v.id = p.current_budget_version_id AND v.budget_mode = 'contract'
+       LEFT JOIN time_entries t ON t.project_id = p.id
+       WHERE p.active = 1
+       GROUP BY p.id
+       ORDER BY v.contract_amount_kopecks DESC, p.name ASC`
+    );
+    const contractComparisonProjects = buildContractComparisonProjects(contractComparisonRows);
     let timeSeries;
     if (scope === 'mine' || scope === 'company') {
       const timeSeriesConditions = [
@@ -3638,6 +3800,7 @@ app.get('/api/dashboard', authenticateJWT, async (req, res) => {
         })),
       },
       projects,
+      contractComparisonProjects,
       ...(timeSeries ? { timeSeries } : {}),
     });
   } catch (err) {
@@ -3733,56 +3896,15 @@ app.get('/api/projects/:id/analytics', authenticateJWT, (req, res) => {
                     return res.status(500).json({ error: dailyErr.message });
                   }
 
-                  const buildResponse = (baseline = { totalHours: 0, byUser: {} }) => {
-                    const canSeeNamedAnalytics = req.user.role === 'admin'
-                      || Number(project.manager_user_id) === Number(req.user.id);
-                    const dailyMap = new Map();
-                    dailyRows.forEach((row) => {
-                      if (!dailyMap.has(row.entry_date)) {
-                        dailyMap.set(row.entry_date, {
-                          date: row.entry_date,
-                          totalHours: 0,
-                          users: [],
-                        });
-                      }
-
-                      const point = dailyMap.get(row.entry_date);
-                      const hours = Number(row.total_hours) || 0;
-                      point.totalHours += hours;
-                      point.users.push({
-                        userId: row.user_id,
-                        hours,
-                      });
-                    });
-
-                    const daily = Array.from(dailyMap.values());
-                    const totalHours = Number(summaryRow?.total_hours) || 0;
-                    const activeDays = daily.length;
-
-                    return res.json({
-                      project: {
-                        id: project.id,
-                        name: project.name,
-                        code: project.code,
-                        clientName: project.client_name,
-                      },
-                      range,
-                      summary: {
-                        participantsCount: Number(summaryRow?.participants_count) || 0,
-                        totalHours,
-                        averagePerDay: activeDays > 0 ? totalHours / activeDays : 0,
-                        firstEntryDate: summaryRow?.first_entry_date || null,
-                        lastEntryDate: projectActivityRow?.last_entry_date || null,
-                      },
-                      members: canSeeNamedAnalytics ? membersRows.map((row) => ({
-                        userId: row.user_id,
-                        userName: row.user_name || 'Unknown User',
-                        totalHours: Number(row.total_hours) || 0,
-                      })) : [],
-                      cumulativeBaseline: canSeeNamedAnalytics ? baseline : { totalHours: baseline.totalHours, byUser: {} },
-                      daily: canSeeNamedAnalytics ? daily : daily.map((point) => ({ ...point, users: [] })),
-                    });
-                  };
+                  const buildResponse = (baseline = { totalHours: 0, byUser: {} }) => res.json(buildProjectHoursAnalyticsResponse({
+                    project,
+                    range,
+                    summaryRow,
+                    projectActivityRow,
+                    membersRows,
+                    dailyRows,
+                    baseline,
+                  }));
 
                   if (!startDate) {
                     return buildResponse();

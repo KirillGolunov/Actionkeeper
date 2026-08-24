@@ -2,6 +2,7 @@ import React, { act } from 'react';
 import { Simulate } from 'react-dom/test-utils';
 import { createRoot } from 'react-dom/client';
 import HomeUserControl, { getUserDisplayName } from './HomeUserControl';
+import { I18nProvider } from '../i18n/I18nProvider';
 
 const admin = { id: 1, name: 'Кирилл', surname: 'Голунов', role: 'admin' };
 const users = [
@@ -18,7 +19,7 @@ function renderControl(props) {
   const host = document.createElement('div');
   document.body.appendChild(host);
   const root = createRoot(host);
-  act(() => root.render(<HomeUserControl {...props} />));
+  act(() => root.render(<I18nProvider><HomeUserControl {...props} /></I18nProvider>));
   return {
     host,
     root,
@@ -98,4 +99,10 @@ test('closes the admin dropdown with Escape and disables it on an error', () => 
   const errorView = renderControl({ currentUser: admin, users: [], value: 1, error: 'failed' });
   expect(errorView.host.querySelector('[role="combobox"]').hasAttribute('disabled')).toBe(true);
   errorView.cleanup();
+});
+
+test('supports an explicitly disabled team selector', () => {
+  const view = renderControl({ currentUser: admin, users, value: 1, onChange: jest.fn(), disabled: true });
+  expect(view.host.querySelector('[role="combobox"]').hasAttribute('disabled')).toBe(true);
+  view.cleanup();
 });
