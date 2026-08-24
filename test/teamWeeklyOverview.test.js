@@ -48,6 +48,25 @@ test('classifies weekly hours and keeps current, future, and pre-employment week
   assert.equal(boris.weeks[2].status, 'in_progress');
 });
 
+test('classifies logged hours before user creation instead of hiding those weeks', () => {
+  const result = buildTeamWeeklyOverview({
+    year: 2026,
+    todayKey: '2026-01-19',
+    users: [{ id: 1, name: 'Анна', surname: 'Алексеева', created_at: '2026-01-19' }],
+    rows: [
+      { user_id: 1, date: '2025-12-29', hours: 40, category: 'operations' },
+      { user_id: 1, date: '2026-01-05', hours: 8, category: 'operations' },
+    ],
+  });
+
+  const [completeBeforeCreation, incompleteBeforeCreation, emptyBeforeCreation] = result.users[0].weeks;
+  assert.equal(completeBeforeCreation.status, 'complete');
+  assert.equal(completeBeforeCreation.dominantCategory, 'operations');
+  assert.equal(incompleteBeforeCreation.status, 'missing');
+  assert.equal(emptyBeforeCreation.status, 'not_applicable');
+  assert.deepEqual(result.users[0].counts, { complete: 1, partial: 0, missing: 1 });
+});
+
 test('treats every incomplete completed week as missing for sorting and summary', () => {
   const result = buildTeamWeeklyOverview({
     year: 2026,

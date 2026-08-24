@@ -308,3 +308,35 @@ test('shows the selected week category breakdown before opening a timesheet', as
   expect(document.body.textContent).toContain('Табель откроется на другой странице.');
   view.cleanup();
 });
+
+test('constrains long project names inside the week detail dialog', async () => {
+  const longProjectName = 'Проект с очень длинным названием, которое не должно выходить за границы модального окна';
+  const dataWithLongProjectName = {
+    ...overview,
+    users: overview.users.map((user, userIndex) => userIndex === 0 ? {
+      ...user,
+      weeks: user.weeks.map((week, weekIndex) => weekIndex === 0 ? {
+        ...week,
+        projectHours: [{ id: 99, code: 'LONG-99', name: longProjectName, category: 'operations', hours: 40 }],
+      } : week),
+    } : user),
+  };
+  const view = await renderOverview(jest.fn(), dataWithLongProjectName);
+
+  await act(async () => {
+    Simulate.click(view.host.querySelector('[data-dominant-category="operations"]'));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  const projectName = document.body.querySelector('[data-project-name]');
+  expect(projectName.textContent).toBe(`LONG-99 — ${longProjectName}`);
+  const projectNameStyles = getComputedStyle(projectName);
+  expect(projectNameStyles.minWidth).toBe('0');
+  expect(projectNameStyles.overflow).toBe('hidden');
+  expect(projectNameStyles.textOverflow).toBe('ellipsis');
+  expect(projectNameStyles.whiteSpace).toBe('nowrap');
+  expect(projectNameStyles.flexGrow).toBe('1');
+  expect(getComputedStyle(projectName.parentElement)).toMatchObject({ overflow: 'hidden', maxWidth: '100%' });
+  view.cleanup();
+});

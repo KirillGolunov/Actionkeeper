@@ -134,7 +134,7 @@ function buildTeamWeeklyOverview({ year, users = [], rows = [], todayKey = getTo
     const weekly = weeks.map((week) => {
       const hours = Number(hoursByUserWeek.get(`${userId}|${week.startDate}`) || 0);
       let status;
-      if (createdDate && week.startDate < createdDate) status = 'not_applicable';
+      if (createdDate && week.startDate < createdDate && hours === 0) status = 'not_applicable';
       else if (week.startDate > currentWeekStart) status = 'future';
       else if (week.startDate === currentWeekStart) status = 'in_progress';
       else if (hours >= targetHours) status = 'complete';
