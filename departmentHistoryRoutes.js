@@ -34,9 +34,17 @@ function registerDepartmentHistoryRoutes({app,authenticateJWT,requireAdmin,seria
     const old=await getDb('SELECT * FROM time_entries WHERE id=?',[req.params.id]);if(!old)throw history.fail(404,'Запись не найдена','entry_not_found');await history.assertEntry(req.user,old);
     const b=req.body,fields=[],args=[];
     if(b.hours!==undefined&&(!Number.isFinite(b.hours)||b.hours<0))throw history.fail(400,'Некорректное количество часов','invalid_hours');
-    if(b.date&&history.day(b.date)!==history.day(old.date)||b.project_id&&Number(b.project_id)!==old.project_id){
-      const dept=await history.assertNew(req.user,old.user_id,b.project_id||old.project_id,b.date||old.date);
-      if(b.date&&history.day(b.date)!==history.day(old.date)){fields.push('department_id=?','legacy_department_unknown=0');args.push(dept);}
+    const dateChanged=b.date!==undefined&&history.day(b.date)!==history.day(old.date),projectChanged=b.project_id!==undefined&&Number(b.project_id)!==old.project_id;
+    if(dateChanged||projectChanged){
+      const targetDate=history.day(b.date||old.date);
+      if(!history.validDay(targetDate))throw history.fail(400,'Укажите корректную дату работы','invalid_work_date');
+      let dept;
+      if(projectChanged)dept=await history.assertNew(req.user,old.user_id,b.project_id||old.project_id,targetDate);
+      else {
+        if(!await history.canDay(req.user,old.user_id,targetDate))throw history.fail(403,'Нет доступа к сотруднику на эту дату','day_forbidden');
+        dept=await history.at(old.user_id,targetDate);
+      }
+      if(dateChanged){fields.push('department_id=?','legacy_department_unknown=0');args.push(dept);}
     }
     for(const key of ['date','hours','description','project_id'])if(b[key]!==undefined){fields.push(key+'=?');args.push(b[key]);}
     if(!fields.length)throw history.fail(400,'Нет изменений','no_changes');args.push(old.id);await runDb(`UPDATE time_entries SET ${fields.join(',')} WHERE id=?`,args);const warnings=await after(old.user_id,[old.project_id,b.project_id||old.project_id],req);res.json({id:old.id,...b,payrollWarning:warnings[0]||null});

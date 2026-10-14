@@ -75,7 +75,9 @@ test('department API enforces catalog, membership and history access with atomic
     const entry = { user_id: ua.id, project_id: onlyA.id, date: '2026-10-05', hours: 4 };
     const saved = await request('POST', '/api/time-entries', ta, entry);
     await request('POST', '/api/time-entries', tb, { ...entry, user_id: ub.id }, 403);
-    await request('PATCH', `/api/users/${ua.id}`, admin, { department_id: b.id });
+    const transfer = { operation: 'create', departmentId: b.id, effectiveFrom: '2026-10-06' };
+    const preview = await request('POST', `/api/admin/users/${ua.id}/department-history/preview`, admin, transfer);
+    await request('POST', `/api/admin/users/${ua.id}/department-history`, admin, { ...transfer, expectedVersion: preview.version });
     assert.equal((await request('GET', '/api/auth/session-status', ta)).user.department_id, b.id);
     assert.equal((await request('GET', '/api/projects', ta)).length, 1);
     await request('PATCH', `/api/time-entries/${saved.id}`, ta, { hours: 5, description: 'Historical correction', date: '2026-10-06' });
@@ -83,7 +85,7 @@ test('department API enforces catalog, membership and history access with atomic
     await request('POST', '/api/time-entries/batch', ta, { entries: [{ ...entry, date: '2026-10-06', hours: 7 }, { ...entry, date: '2026-10-07' }] }, 403);
     assert.equal((await sql.get('SELECT hours FROM time_entries WHERE id = ?', [saved.id])).hours, 6);
     await request('POST', '/api/time-entries', ta, { ...entry, date: '2026-10-08' }, 403);
-    const other = await request('POST', '/api/time-entries', ta, { ...entry, project_id: shared.id });
+    const other = await request('POST', '/api/time-entries', ta, { ...entry, date: '2026-10-06', project_id: shared.id });
     await request('PATCH', `/api/time-entries/${other.id}`, ta, { project_id: onlyA.id }, 403);
     await request('DELETE', `/api/time-entries/${saved.id}`, ta);
     assert.equal((await request('GET', '/api/projects', admin)).length, 2);
@@ -102,20 +104,20 @@ test('department API enforces catalog, membership and history access with atomic
     // Department-governance scenarios use the same live sessions to verify immediate changes.
     const c = await request('POST', '/api/departments', admin, { name: 'C', short_name: 'C', manager_user_id: ua.id });
     const d = await request('POST', '/api/departments', admin, { name: 'D', short_name: 'D', manager_user_id: ub.id });
-    await request('PATCH', `/api/users/${ub.id}`, admin, { department_id: d.id });
+    const candidate = await request('POST', '/api/users', admin, { name: 'Candidate', surname: 'User', email: 'candidate@test.invalid', department_id: d.id });
     const session = await request('GET', '/api/auth/session-status', ta);
     assert.equal(session.user.canCreateProjects, true); assert.deepEqual(session.user.managedDepartmentIds, [c.id]);
     const options = await request('GET', '/api/projects/creation-options', ta);
     assert.ok(options.managerCandidates.some(u => u.id === ua.id)); assert.ok(options.managerCandidates.some(u => u.id === ub.id));
-    assert.equal(options.managerCandidates.find(u => u.id === ub.id).department_id, d.id);
+    assert.equal(options.managerCandidates.find(u => u.id === candidate.id).department_id, d.id);
     const initialBudget = { budgetMode: 'manual', projectBudgetLimitRub: 100000, payrollLimitMode: 'fixed_amount', payrollLimitRub: 70000, payrollWarningThresholdPercent: 80 };
     const newPayload = { ...payload, name: 'Governed', departmentIds: [c.id,d.id], responsibleDepartmentId: c.id, managerUserId: ua.id, budget: initialBudget, budgetReason: 'Initial budget' };
     for (const state of ['invited', 'deleted']) {
-      await sql.run(`UPDATE users SET ${state} = 1 WHERE id = ?`, [ub.id]);
+      await sql.run(`UPDATE users SET ${state} = 1 WHERE id = ?`, [candidate.id]);
       const filtered = await request('GET', '/api/projects/creation-options', ta);
-      assert.ok(!filtered.managerCandidates.some(u => u.id === ub.id));
-      await request('POST', '/api/projects', ta, { ...newPayload, managerUserId: ub.id }, 400);
-      await sql.run(`UPDATE users SET ${state} = 0 WHERE id = ?`, [ub.id]);
+      assert.ok(!filtered.managerCandidates.some(u => u.id === candidate.id));
+      await request('POST', '/api/projects', ta, { ...newPayload, managerUserId: candidate.id }, 400);
+      await sql.run(`UPDATE users SET ${state} = 0 WHERE id = ?`, [candidate.id]);
     }
     await sql.run('UPDATE departments SET manager_user_id = ? WHERE id = ?', [ub.id, d.id]);
     await request('POST', '/api/projects', ta, { ...newPayload, managerUserId: 999999 }, 400);

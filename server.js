@@ -3153,7 +3153,7 @@ app.get('/api/projects', authenticateJWT, serializeProjectMutation(async (req, r
       for (let date = new Date(start); date <= new Date(end); date.setUTCDate(date.getUTCDate()+1)) { const key=date.toISOString().slice(0,10); if(await departmentHistory.canDay(req.user,targetId,key)) accessibleDepartments.add(await departmentHistory.at(targetId,key)); }
       res.json(decorated.filter(project => {
         const available = project.departments.some(d => d.id === target.department_id);
-        return req.query.purpose === 'time-entry' ? req.user.role === 'admin' || project.departments.some(d=>accessibleDepartments.has(d.id)) : req.user.role === 'admin' || project.permissions.canReviewBudget || available || Number(project.manager_user_id) === Number(req.user.id);
+        return req.query.purpose === 'time-entry' ? project.departments.some(d=>accessibleDepartments.has(d.id)) : req.user.role === 'admin' || project.permissions.canReviewBudget || available || Number(project.manager_user_id) === Number(req.user.id);
       }));
     } catch (error) { res.status(500).json({ error: error.message }); }
     }
