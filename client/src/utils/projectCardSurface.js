@@ -22,6 +22,15 @@ export const projectCardSelectedSx = {
   boxShadow: '0 12px 28px rgba(90,112,184,0.12)',
 };
 
+export const projectDialogSurfaceSx = {
+  ...projectCardSurfaceSx,
+  transition: 'box-shadow .2s ease, border-color .2s ease',
+  '&:hover': {
+    boxShadow: projectCardSurfaceSx['&:hover'].boxShadow,
+    borderColor: projectCardSurfaceSx['&:hover'].borderColor,
+  },
+};
+
 export const projectFieldInteractionSx = {
   '& .MuiOutlinedInput-root': {
     borderRadius: 2,
@@ -31,7 +40,8 @@ export const projectFieldInteractionSx = {
     },
     '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
       borderColor: '#5673DC',
-      boxShadow: '0 0 0 3px rgba(86,115,220,0.12)',
+      borderWidth: '1px',
+      boxShadow: '0 0 0 1px rgba(86,115,220,0.10)',
     },
   },
 };

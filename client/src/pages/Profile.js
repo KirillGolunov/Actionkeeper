@@ -54,7 +54,8 @@ export default function Profile() {
     setError(null);
     setSuccess(null);
     try {
-      await axios.patch(`/api/users/${user.id}`, profile);
+      const { name, surname, phone, job_title, avatar_url, language, timezone } = profile;
+      await axios.patch(`/api/users/${user.id}`, { name, surname, phone, job_title, avatar_url, language, timezone });
       setSuccess(t('profile.updated')); 
     } catch (err) {
       setError(getApiErrorMessage(err, t, 'profile.errors.update')); 
@@ -175,8 +176,8 @@ export default function Profile() {
                 <TextField
                   label={t('profile.department')}
                   name="department"
-                  value={profile.department || ''}
-                  onChange={handleChange}
+                  value={profile.department_name==='Без подразделения'?t('departments.unassigned'):profile.department_name||''}
+                  InputProps={{ readOnly: true }}
                   fullWidth
                   sx={{ background: '#f7f8fa', borderRadius: 2, '& .MuiOutlinedInput-root': { fontSize: 15, borderRadius: 2, background: '#f7f8fa' } }}
                 />

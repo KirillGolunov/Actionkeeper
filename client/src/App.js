@@ -3,7 +3,7 @@ import { Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import { Box } from '@mui/material';
-import MajorUpdateAnnouncement, { MAJOR_UPDATE_ANNOUNCEMENT_ID } from './components/MajorUpdateAnnouncement';
+import DepartmentUpdateAnnouncement from './components/DepartmentUpdateAnnouncement';
 import ProductTour from './components/ProductTour';
 import Projects from './pages/Projects';
 import Clients from './pages/Clients';
@@ -17,6 +17,7 @@ import MagicLinkCallback from './pages/MagicLinkCallback';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import ProtectedAppLayout from './components/ProtectedAppLayout';
+import Departments from './pages/Departments';
 import Profile from './pages/Profile';
 import Setup from './pages/Setup';
 import axios from 'axios';
@@ -78,7 +79,7 @@ function App() {
   }, []);
   const completeTour = async () => {
     setTourOpen(false);
-    await axios.post(`/api/product-updates/${MAJOR_UPDATE_ANNOUNCEMENT_ID}`, { action: 'complete' }).catch(() => {});
+    await axios.post(`/api/product-updates/major-update-guided-tour-v1`, { action: 'complete' }).catch(() => {});
   };
 
   return (
@@ -96,7 +97,7 @@ function App() {
         ) : (
           <ProtectedAppLayout>
             <AppShell>
-              <MajorUpdateAnnouncement onStartTour={() => setTourOpen(true)} />
+              <DepartmentUpdateAnnouncement />
               <ProductTour open={tourOpen} onClose={() => setTourOpen(false)} onComplete={completeTour} />
               <Box component="main" sx={{ height: '100%', minHeight: 0, width: '100%', overflow: 'hidden' }}>
                 <Routes>
@@ -105,6 +106,7 @@ function App() {
                   <Route path="/projects" element={<ProtectedRoute><Projects /></ProtectedRoute>} />
                   <Route path="/time-entries" element={<Navigate to="/?mode=mine" replace />} />
                   <Route path="/clients" element={<ProtectedRoute><AdminRoute><Clients /></AdminRoute></ProtectedRoute>} />
+                  <Route path="/departments" element={<ProtectedRoute><AdminRoute><Departments /></AdminRoute></ProtectedRoute>} />
                   <Route path="/users" element={<ProtectedRoute><AdminRoute><Users /></AdminRoute></ProtectedRoute>} />
                   <Route path="/settings/smtp" element={<ProtectedRoute><AdminRoute><SMTPSettings /></AdminRoute></ProtectedRoute>} />
                   <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />

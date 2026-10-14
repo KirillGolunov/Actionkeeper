@@ -21,6 +21,7 @@ export default function NotificationPanel({
 
   const getText = (notification) => {
     const keys = {
+      project_responsibility_transferred: 'notifications.projectResponsibilityTransferred',
       project_manager_assigned: 'notifications.projectManagerAssigned',
       project_manager_removed: 'notifications.projectManagerRemoved',
       project_payroll_warning: 'notifications.projectPayrollWarning',

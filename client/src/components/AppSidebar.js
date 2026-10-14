@@ -164,6 +164,7 @@ function SidebarBody({ collapsed, mobile, unreadCount, notificationsOpen, onTogg
         <MenuItem onClick={() => { setProfileAnchor(null); go('/profile'); }}>{t('nav.profile')}</MenuItem>
         <MenuItem onClick={() => { setProfileAnchor(null); window.dispatchEvent(new Event('product-tour:start')); }}>{t('productTour.replay')}</MenuItem>
         {isAdmin && <MenuItem onClick={() => { setProfileAnchor(null); go('/users'); }}>{t('nav.users')}</MenuItem>}
+        {isAdmin && <MenuItem onClick={() => { setProfileAnchor(null); go('/departments'); }}>{t('departments.title')}</MenuItem>}
         {isAdmin && <MenuItem onClick={() => { setProfileAnchor(null); go('/clients'); }}>{t('nav.clients')}</MenuItem>}
         {isAdmin && <MenuItem onClick={() => { setProfileAnchor(null); go('/settings/smtp'); }}>{t('nav.settings')}</MenuItem>}
         <MenuItem onClick={handleLogout}>{t('nav.logout')}</MenuItem>

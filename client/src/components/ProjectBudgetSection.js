@@ -1,3 +1,4 @@
+import ProductErrorToast from './ProductErrorToast';
 import React from 'react';
 import {
   Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Chip,
@@ -392,7 +393,7 @@ function PercentSliderField({
   );
 }
 
-function BudgetFields({ value, onChange, disabled = false, allowNone = true, showErrors = false }) {
+function BudgetFields({ value, onChange, disabled = false, allowNone = true, showErrors = false, hideErrorText = false }) {
   const { t, locale } = useTranslation();
   const calculated = calculateBudgetDraft(value);
   const errors = validateBudgetDraft(value, allowNone);
@@ -404,7 +405,7 @@ function BudgetFields({ value, onChange, disabled = false, allowNone = true, sho
     [currency],
   );
   const setValue = (field, nextValue) => onChange({ ...value, [field]: nextValue });
-  const helper = (field) => showErrors && errors[field] ? t(`projects.budget.validation.${errors[field]}`) : undefined;
+  const helper = (field) => !hideErrorText && showErrors && errors[field] ? t(`projects.budget.validation.${errors[field]}`) : undefined;
   const active = value.budgetMode !== 'none';
   const modeButtonRefs = React.useRef({});
   const modeOptions = [
@@ -700,7 +701,7 @@ function BudgetFields({ value, onChange, disabled = false, allowNone = true, sho
                         onCommit={setNonPayrollAmount}
                         disabled={disabled}
                         error={showErrors && nonPayrollAboveTotal}
-                        helperText={showErrors && nonPayrollAboveTotal ? t('projects.budget.validation.nonPayrollAboveTotal') : undefined}
+                        helperText={!hideErrorText && showErrors && nonPayrollAboveTotal ? t('projects.budget.validation.nonPayrollAboveTotal') : undefined}
                         suffix={currencySymbol}
                         width={160}
                         groupWhileEditing
@@ -824,6 +825,7 @@ function BudgetSnapshot({ budget, currency }) {
 const ProjectBudgetSection = React.forwardRef(function ProjectBudgetSection({
   projectId = null,
   isAdmin,
+  canReview = false,
   isManager,
   creationDraft,
   onCreationDraftChange,
@@ -876,10 +878,11 @@ const ProjectBudgetSection = React.forwardRef(function ProjectBudgetSection({
   }, [projectId, status]);
 
   const managerMode = !isAdmin && isManager;
+  const reviewer = isAdmin || canReview;
   const dirty = projectId
     ? serialized(draft) !== serialized(baseline) || reason !== baselineReason
     : false;
-  const validationErrors = validateBudgetDraft(draft, isAdmin);
+  const validationErrors = validateBudgetDraft(draft, reviewer);
   const valid = Object.keys(validationErrors).length === 0;
   const primaryVisible = Boolean(projectId && (
     (!status?.activeRequest && (isAdmin || managerMode))
@@ -999,7 +1002,7 @@ const ProjectBudgetSection = React.forwardRef(function ProjectBudgetSection({
   if (!projectId) {
     return (
       <Stack spacing={1.5}>
-        <BudgetFields value={creationDraft} onChange={onCreationDraftChange} showErrors={validationVisible} />
+        <BudgetFields value={creationDraft} onChange={onCreationDraftChange} showErrors={validationVisible} hideErrorText />
         {creationDraft?.budgetMode !== 'none' ? (
           <FormField label={t('projects.budget.changeReason')} required>
             <TextField
@@ -1009,7 +1012,6 @@ const ProjectBudgetSection = React.forwardRef(function ProjectBudgetSection({
               value={creationReason}
               onChange={(event) => onCreationReasonChange?.(event.target.value)}
               error={validationVisible && !creationReason.trim()}
-              helperText={validationVisible && !creationReason.trim() ? t('projects.budget.validation.reasonRequired') : undefined}
               sx={projectFieldInteractionSx}
             />
           </FormField>
@@ -1017,7 +1019,7 @@ const ProjectBudgetSection = React.forwardRef(function ProjectBudgetSection({
       </Stack>
     );
   }
-  if (!isAdmin && !isManager) return null;
+  if (!isAdmin && !isManager && !canReview) return null;
   const historyRequests = Array.isArray(historyData) ? historyData : historyData?.requests || [];
   const historyEntries = Array.isArray(historyData) ? [] : historyData?.entries || [];
   const activeHistoryRequest = historyRequests.find((item) => Number(item.id) === Number(status?.activeRequest?.id));
@@ -1042,7 +1044,7 @@ const ProjectBudgetSection = React.forwardRef(function ProjectBudgetSection({
   return (
     <Stack spacing={2}>
       {loading && !status ? <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}><CircularProgress /></Box> : null}
-      {loadError || error ? <Alert severity="error">{loadError || error}</Alert> : null}
+      <ProductErrorToast message={loadError || error} onClose={() => setError(null)} />
       {notice ? <Alert severity="success" onClose={() => setNotice(null)}>{notice}</Alert> : null}
 
       {initialView === 'result' && focusedHistoryRequest && !status?.activeRequest ? (
@@ -1136,15 +1138,15 @@ const ProjectBudgetSection = React.forwardRef(function ProjectBudgetSection({
         </Box>
       ) : null}
 
-      {initialView !== 'result' && (!status?.activeRequest || (isAdmin && reviewEditing) || (managerMode && requestEditing)) ? (
+      {initialView !== 'result' && (isAdmin || managerMode || reviewEditing) && (!status?.activeRequest || (reviewer && reviewEditing) || (managerMode && requestEditing)) ? (
         <Box>
-          {isAdmin && reviewEditing ? (
+          {reviewer && reviewEditing ? (
             <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1} sx={{ mb: 1 }}>
               <Typography sx={{ fontWeight: 700, color: '#1D2433' }}>{t('projects.budget.editProposal')}</Typography>
               <Chip size="small" label={t('projects.budget.overview.preview')} sx={{ height: 22, background: '#EEF3FF', color: '#4561C2', fontWeight: 700 }} />
             </Stack>
           ) : null}
-          <BudgetFields value={draft} onChange={setDraft} allowNone={isAdmin} showErrors={showErrors} />
+          <BudgetFields value={draft} onChange={setDraft} allowNone={isAdmin || reviewEditing} showErrors={showErrors} />
         </Box>
       ) : null}
 
@@ -1164,7 +1166,7 @@ const ProjectBudgetSection = React.forwardRef(function ProjectBudgetSection({
         </Box>
       ) : null}
 
-      {isAdmin && status?.activeRequest ? (
+      {reviewer && status?.activeRequest ? (
         <Box>
           <Divider sx={{ mb: 1.75 }} />
           <Typography sx={{ fontWeight: 700, mb: 1 }}>{t('projects.budget.decisionTitle')}</Typography>

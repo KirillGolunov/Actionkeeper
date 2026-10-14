@@ -1,4 +1,4 @@
-﻿require('dotenv').config();
+require('dotenv').config();
 
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
@@ -29,6 +29,24 @@ const { buildTeamWeeklyOverview, getIsoWeeks } = require('./teamWeeklyOverview')
 const { buildContractComparisonProjects } = require('./contractComparison');
 const { buildProjectHoursAnalyticsResponse } = require('./projectHoursAnalytics');
 
+const { createDepartmentService } = require('./departmentService');
+const departments = createDepartmentService({ runDb, getDb, allDb });
+const { createProjectGovernance } = require('./projectGovernance');
+const governance = createProjectGovernance({ runDb, getDb, allDb });
+const { createDepartmentHistory } = require('./departmentHistory');
+const departmentHistory = createDepartmentHistory({ runDb, getDb, allDb });
+departments.useHistory(departmentHistory);
+let projectMutationQueue = Promise.resolve();
+function serializeProjectMutation(handler) {
+  return (req,res,next)=>{
+    const job=projectMutationQueue.then(()=>new Promise((resolve,reject)=>{
+      const done=()=>{res.removeListener('finish',done);res.removeListener('close',done);resolve();};
+      res.once('finish',done);res.once('close',done);
+      (async()=>{if(req.user?.id){const current=await getDb('SELECT * FROM users WHERE id=? AND deleted=0',[req.user.id]);if(!current)return sendApiError(res,401,'authUserNotFound');req.user={...req.user,...current};}return handler(req,res,next);})().catch(reject);
+    }));
+    projectMutationQueue=job.catch(()=>{});return job.catch(next);
+  };
+}
 const app = express();
 app.set('trust proxy', true);
 let setupRequired = false;
@@ -398,6 +416,7 @@ async function loadFixtures() {
   console.log('Checking if tables exist...');
   await createTables();
   await createBudgetTables();
+  await departments.migrate();
   await createInvitationsTable();
   await createMagicLinksTable();
   await createAuthSessionsTable();
@@ -406,6 +425,8 @@ async function loadFixtures() {
     console.log(`[Migration] Activated ${invitedUserMigration.activatedCount} previously authenticated invited user(s)`);
   }
   await createNotificationsTable();
+  await governance.migrate();
+  await departmentHistory.migrate();
   await createProductUpdateTables();
   console.log('Tables verified');
 }
@@ -1335,8 +1356,10 @@ async function buildSessionStatus(user) {
   const progress = await extendSessionIfEligible(user.id) || await getWeekProgress(db, user.id);
   const session = await getDb('SELECT expires_at FROM auth_sessions WHERE token_id = ? AND revoked = 0', [user.sid]);
 
+  const managedDepartmentIds = await governance.managed(user);
   return {
     authenticated: true,
+    user: { id: user.id, role: user.role, name: user.name, surname: user.surname, email: user.email, avatar_url: user.avatar_url, department_id: user.department_id, managedDepartmentIds, canCreateProjects: user.role === 'admin' || managedDepartmentIds.length > 0 },
     sessionValidUntil: session ? session.expires_at : null,
     autoLoginQualified: progress.qualified,
     progress,
@@ -1369,7 +1392,10 @@ function authenticateJWT(req, res, next) {
         return sendApiError(res, 401, 'authSessionExpired');
       }
 
-      req.user = user;
+      const currentUser = await getDb('SELECT * FROM users WHERE id = ? AND deleted = 0', [session.user_id]);
+      if (!currentUser || Number(currentUser.id) !== Number(user.id)) return sendApiError(res, 401, 'authUserNotFound');
+      currentUser.department_id = await departmentHistory.at(currentUser.id, departmentHistory.today());
+      req.user = { ...user, ...currentUser };
       req.session = session;
       next();
     } catch (sessionError) {
@@ -1401,7 +1427,10 @@ function optionalAuthenticateJWT(req, res, next) {
         return sendApiError(res, 401, 'authSessionExpired');
       }
 
-      req.user = user;
+      const currentUser = await getDb('SELECT * FROM users WHERE id = ? AND deleted = 0', [session.user_id]);
+      if (!currentUser || Number(currentUser.id) !== Number(user.id)) return sendApiError(res, 401, 'authUserNotFound');
+      currentUser.department_id = await departmentHistory.at(currentUser.id, departmentHistory.today());
+      req.user = { ...user, ...currentUser };
       req.session = session;
       next();
     } catch (sessionError) {
@@ -1467,8 +1496,8 @@ async function canAccessProjectFinancials(user, projectId) {
     return false;
   }
 
-  const project = await getDb('SELECT manager_user_id FROM projects WHERE id = ?', [numericProjectId]);
-  return Number(project?.manager_user_id) === Number(user.id);
+  const project = await getDb('SELECT * FROM projects WHERE id = ?', [numericProjectId]);
+  return !!project && (await governance.permissions(user, project)).canViewBudget;
 }
 
 function requireProjectFinancialAccess(projectIdParam = 'projectId') {
@@ -1695,7 +1724,7 @@ async function insertBudgetNotification({ userId, type, project, actorUserId = n
 }
 
 async function getBudgetNotificationRecipients(project) {
-  const admins = await allDb("SELECT id, name, surname, email, language FROM users WHERE role = 'admin' AND deleted = 0 AND invited = 0");
+  const admins = await allDb("SELECT DISTINCT u.id, u.name, u.surname, u.email, u.language FROM users u WHERE u.deleted = 0 AND u.invited = 0 AND (u.role = 'admin' OR u.id IN (SELECT d.manager_user_id FROM departments d JOIN projects p ON p.responsible_department_id = d.id WHERE p.id = ?))", [project.id]);
   const recipients = [...admins];
   if (project.manager_user_id && !recipients.some((recipient) => Number(recipient.id) === Number(project.manager_user_id))) {
     const manager = await getDb('SELECT id, name, surname, email, language FROM users WHERE id = ? AND deleted = 0', [project.manager_user_id]);
@@ -1771,7 +1800,7 @@ async function getBudgetStatus(projectId) {
 async function getProjectManagerRow(projectId) {
   return getDb(
     `SELECT
-       p.id, p.name, p.manager_user_id, p.manager_updated_at, p.manager_updated_by,
+       p.*,
        manager.name AS manager_name, manager.surname AS manager_surname, manager.email AS manager_email,
        manager.language AS manager_language,
        updater.name AS updater_name, updater.surname AS updater_surname
@@ -1846,6 +1875,7 @@ async function sendBudgetNotificationEmail(req, recipient, type, projectName, th
       project_budget_change_updated: [`Budget request updated for “${projectName}”`, 'The project manager updated the pending budget request.'],
       project_budget_change_approved: [`Budget request approved for “${projectName}”`, 'The project budget request was approved.'],
       project_budget_change_rejected: [`Budget request rejected for “${projectName}”`, 'The project budget request was rejected.'],
+      project_responsibility_transferred: [`Project responsibility transferred: “${projectName}”`, 'The responsible department has changed. Pending budget reviews now belong to its current manager.'],
       project_budget_request_transferred: [`Budget request transferred for “${projectName}”`, 'An active project budget request was transferred to you.'],
     },
     ru: {
@@ -1855,6 +1885,7 @@ async function sendBudgetNotificationEmail(req, recipient, type, projectName, th
       project_budget_change_updated: [`Запрос бюджета проекта «${projectName}» изменён`, 'Руководитель проекта обновил ожидающий решения запрос.'],
       project_budget_change_approved: [`Бюджет проекта «${projectName}» одобрен`, 'Запрос бюджета проекта одобрен.'],
       project_budget_change_rejected: [`Запрос бюджета проекта «${projectName}» отклонён`, 'Запрос бюджета проекта отклонён.'],
+      project_responsibility_transferred: [`Передана ответственность за проект «${projectName}»`, 'Ответственное подразделение изменено. Открытые запросы бюджета рассматривает его текущий руководитель.'],
       project_budget_request_transferred: [`Передан запрос бюджета проекта «${projectName}»`, 'Вам передан активный запрос бюджета проекта.'],
     },
   };
@@ -2105,7 +2136,7 @@ app.post('/api/projects/:projectId/budget-change-requests', authenticateJWT, asy
       ]
     );
     await insertBudgetRequestRevision(result.lastID, 1, normalized, reason.slice(0, 2000), req.user.id);
-    const admins = await allDb("SELECT id, name, surname, email, language FROM users WHERE role = 'admin' AND deleted = 0 AND invited = 0");
+    const admins = await allDb("SELECT DISTINCT u.id, u.name, u.surname, u.email, u.language FROM users u WHERE u.deleted = 0 AND u.invited = 0 AND (u.role = 'admin' OR u.id IN (SELECT d.manager_user_id FROM departments d JOIN projects p ON p.responsible_department_id = d.id WHERE p.id = ?))", [projectId]);
     for (const admin of admins) {
       await insertBudgetNotification({
         userId: admin.id, type: 'project_budget_change_requested', project,
@@ -2177,7 +2208,7 @@ app.patch('/api/projects/:projectId/budget-change-requests/:requestId', authenti
       ]
     );
     await insertBudgetRequestRevision(requestId, nextRevision, normalized, reason.slice(0, 2000), req.user.id);
-    const admins = await allDb("SELECT id, name, surname, email, language FROM users WHERE role = 'admin' AND deleted = 0 AND invited = 0");
+    const admins = await allDb("SELECT DISTINCT u.id, u.name, u.surname, u.email, u.language FROM users u WHERE u.deleted = 0 AND u.invited = 0 AND (u.role = 'admin' OR u.id IN (SELECT d.manager_user_id FROM departments d JOIN projects p ON p.responsible_department_id = d.id WHERE p.id = ?))", [projectId]);
     for (const admin of admins) {
       const metadata = JSON.stringify({
         version: request.proposed_version_number,
@@ -2236,7 +2267,7 @@ app.get('/api/projects/:projectId/budget-change-requests', authenticateJWT, requ
   }
 });
 
-app.get('/api/admin/project-budget-change-requests', authenticateJWT, requireFinancialAdmin, async (req, res) => {
+app.get('/api/admin/project-budget-change-requests', authenticateJWT, async (req, res) => {
   const status = req.query.status === 'pending' ? 'pending' : null;
   try {
     const params = [];
@@ -2255,7 +2286,10 @@ app.get('/api/admin/project-budget-change-requests', authenticateJWT, requireFin
        ORDER BY updated_at DESC, r.id DESC`,
       params
     );
-    res.json(rows.map((row) => ({
+    const allowedRows = [];
+    for (const row of rows) { const project = await getDb('SELECT * FROM projects WHERE id = ?', [row.project_id]); if ((await governance.permissions(req.user, project)).canReviewBudget) allowedRows.push(row); }
+    if (req.user.role !== 'admin' && !(await governance.managed(req.user)).length) return sendApiError(res, 403, 'financialForbidden');
+    res.json(allowedRows.map((row) => ({
       id: row.id,
       projectId: row.project_id,
       projectName: row.project_name,
@@ -2346,7 +2380,7 @@ app.get('/api/projects/:projectId/budget-history', authenticateJWT, requireProje
         key: `version-${version.id}`,
         versionNumber: Number(version.version),
         status: 'approved',
-        source: request ? 'budget_request' : 'admin_direct',
+        source: request ? 'budget_request' : (version.sourceType || 'admin_direct'),
         versionId: version.id,
         requestId: request?.id || null,
         isCurrent: version.isCurrent,
@@ -2410,7 +2444,7 @@ app.get('/api/projects/:projectId/budget-history', authenticateJWT, requireProje
   }
 });
 
-app.patch('/api/admin/projects/:projectId/budget-change-requests/:requestId', authenticateJWT, requireFinancialAdmin, async (req, res) => {
+app.patch('/api/admin/projects/:projectId/budget-change-requests/:requestId', authenticateJWT, serializeProjectMutation(async (req, res) => {
   const projectId = Number(req.params.projectId);
   const requestId = Number(req.params.requestId);
   const decision = req.body?.decision;
@@ -2435,6 +2469,7 @@ app.patch('/api/admin/projects/:projectId/budget-change-requests/:requestId', au
   }
   try {
     await runDb('BEGIN IMMEDIATE TRANSACTION');
+    await governance.assertReview(req.user, projectId);
     const request = await getDb('SELECT * FROM project_budget_change_requests WHERE id = ? AND project_id = ?', [requestId, projectId]);
     if (!request) {
       await runDb('ROLLBACK');
@@ -2511,9 +2546,9 @@ app.patch('/api/admin/projects/:projectId/budget-change-requests/:requestId', au
   } catch (err) {
     await runDb('ROLLBACK').catch(() => {});
     console.error('[BudgetRequest] Failed to review:', err);
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message, errorCode: err.errorCode });
   }
-});
+}));
 
 function mapNotificationRow(row) {
   let metadata = null;
@@ -2798,13 +2833,38 @@ app.patch('/api/admin/users/:userId/rates/:rateId', authenticateJWT, requireFina
   }
 });
 
+require('./departmentHistoryRoutes').registerDepartmentHistoryRoutes({ app, authenticateJWT, requireAdmin, serialize: serializeProjectMutation, history: departmentHistory, allDb, getDb, runDb, extendSessionIfEligible, onTimeChanged:evaluateProjectBudgetThresholds });
+
+// Department directory: membership is assigned only by administrators.
+function departmentError(res, error) {
+  return res.status(error.status || (error.code === 'SQLITE_CONSTRAINT' ? 409 : 500)).json({
+    errorCode: error.errorCode || 'departments.save_failed',
+    error: error.status ? error.message : 'Could not complete the department operation.',
+  });
+}
+app.get('/api/departments', authenticateJWT, async (req, res) => {
+  try { res.json(await departments.list(req.user.role==='admin'&&req.query.includeArchived==='1')); }
+  catch (error) { departmentError(res, error); }
+});
+async function saveDepartment(req, res) {
+  try { if(req.user.role!=='admin')return sendApiError(res,403,'adminForbidden');res.json(await departments.save(req.params.id, req.body)); }
+  catch (error) { departmentError(res, error); }
+}
+app.post('/api/departments', authenticateJWT, requireAdmin, serializeProjectMutation(saveDepartment));
+app.patch('/api/departments/:id', authenticateJWT, requireAdmin, serializeProjectMutation(saveDepartment));
+app.delete('/api/departments/:id', authenticateJWT, requireAdmin, serializeProjectMutation(async (req, res) => {
+  try { if(req.user.role!=='admin')return sendApiError(res,403,'adminForbidden');await departments.remove(req.params.id); res.json({ deleted: true }); }
+  catch (error) { departmentError(res, error); }
+}));
+
 // Users routes
-app.get('/api/users', authenticateJWT, requireAdmin, (req, res) => {
+app.get('/api/users', authenticateJWT, requireAdmin, async (req, res) => {
+  await departmentHistory.syncCurrent();
   console.log('GET /api/users called');
   db.all(
     `SELECT
        id, name, surname, email, role, created_at, deleted, invited,
-       phone, department, job_title, avatar_url, language, timezone
+       phone, department_id, (SELECT name FROM departments WHERE id = users.department_id) AS department_name, department, job_title, avatar_url, language, timezone
      FROM users
      ORDER BY name`,
     [],
@@ -2819,26 +2879,19 @@ app.get('/api/users', authenticateJWT, requireAdmin, (req, res) => {
   });
 });
 
-app.post('/api/users', authenticateJWT, requireAdmin, (req, res) => {
-  console.log('POST /api/users called with data:', req.body);
-  const { name, surname, email, role } = req.body;
-  db.run('INSERT INTO users (name, surname, email, role) VALUES (?, ?, ?, ?)',
-    [name, surname, email, role || 'user'],
-    function(err) {
-      if (err) {
-        console.error('Error creating user:', err);
-        res.status(500).json({ error: err.message });
-        return;
-      }
-      console.log('User created with ID:', this.lastID);
-      res.json({ id: this.lastID, name, surname, email, role });
-    });
+app.post('/api/users', authenticateJWT, requireAdmin, async (req, res) => {
+  try {
+    const { name, surname, email, role, department_id } = req.body;
+    await departments.validate(department_id);
+    const result = await runDb('INSERT INTO users(name, surname, email, role, department_id) VALUES (?, ?, ?, ?, ?)', [name, surname, email, role === 'admin' ? 'admin' : 'user', department_id]);
+    res.json({ id: result.lastID, name, surname, email, role, department_id });
+  } catch (err) { res.status(err.status || 500).json({ error: err.message, errorCode: err.errorCode }); }
 });
 
 app.get('/api/users/:id', authenticateJWT, (req, res) => {
   const { id } = req.params;
   if (!canActForUser(req.user, id)) return sendApiError(res, 403, 'adminForbidden');
-  db.get('SELECT id, name, surname, email, role, deleted, phone, department, job_title, avatar_url, language, timezone FROM users WHERE id = ?', [id], (err, user) => {
+  db.get('SELECT id, name, surname, email, role, deleted, phone, department_id, (SELECT name FROM departments WHERE id = users.department_id) AS department_name, department, job_title, avatar_url, language, timezone FROM users WHERE id = ?', [id], (err, user) => {
     if (err) {
       res.status(500).json({ error: err.message });
       return;
@@ -2852,13 +2905,20 @@ app.get('/api/users/:id', authenticateJWT, (req, res) => {
 });
 
 // PATCH endpoint to update a user by id
-app.patch('/api/users/:id', authenticateJWT, (req, res) => {
+app.patch('/api/users/:id', authenticateJWT, async (req, res) => {
   const { id } = req.params;
-  const { name, surname, email, role, deleted, phone, department, job_title, avatar_url, language, timezone } = req.body;
+  const { name, surname, email, role, deleted, phone, department_id, job_title, avatar_url, language, timezone } = req.body;
   const isAdmin = req.user?.role === 'admin';
   const isSelf = Number(id) === Number(req.user?.id);
   if (!isAdmin && !isSelf) {
     return sendApiError(res, 403, 'adminForbidden');
+  }
+
+  if (department_id !== undefined) {
+    if (!isAdmin) return sendApiError(res, 403, 'adminForbidden');
+    const current = await getDb('SELECT department_id FROM users WHERE id=?',[id]);
+    if (Number(current?.department_id) !== Number(department_id)) return res.status(400).json({error:'Измените подразделение через историю переводов с датой начала',errorCode:'departments.history_required'});
+    try { await departments.validate(department_id); } catch (err) { return res.status(400).json({ error: err.message, errorCode: err.errorCode }); }
   }
 
   // Build dynamic update query
@@ -2877,7 +2937,7 @@ app.patch('/api/users/:id', authenticateJWT, (req, res) => {
   }
 
   if (phone !== undefined) { fields.push('phone = ?'); values.push(phone); }
-  if (department !== undefined) { fields.push('department = ?'); values.push(department); }
+
   if (job_title !== undefined) { fields.push('job_title = ?'); values.push(job_title); }
   if (avatar_url !== undefined) { fields.push('avatar_url = ?'); values.push(avatar_url); }
   if (language !== undefined) { fields.push('language = ?'); values.push(language); }
@@ -3046,7 +3106,13 @@ app.delete('/api/clients/:id/full', authenticateJWT, requireAdmin, (req, res) =>
 });
 
 // Projects routes
-app.get('/api/projects', authenticateJWT, (req, res) => {
+app.get('/api/projects', authenticateJWT, serializeProjectMutation(async (req, res) => {
+  const targetId = req.query.user_id === undefined ? req.user.id : Number(req.query.user_id);
+  if (!canActForUser(req.user, targetId) && !(req.query.purpose === 'time-entry' && (await departmentHistory.managed(req.user)).length)) return sendApiError(res, 403, 'adminForbidden');
+  let target;
+  try { target = await getDb('SELECT department_id FROM users WHERE id = ? AND deleted = 0', [targetId]); } catch (err) { return res.status(500).json({ error: err.message }); }
+  if (!target) return sendApiError(res, 404, 'usersNotFound');
+  target.department_id=await departmentHistory.at(targetId,departmentHistory.today());
   db.all(
     `SELECT p.*, c.name AS client_name,
             manager.name AS manager_name, manager.surname AS manager_surname,
@@ -3057,6 +3123,10 @@ app.get('/api/projects', authenticateJWT, (req, res) => {
               ) THEN 1
               ELSE 0
             END AS is_my_project,
+            EXISTS (
+              SELECT 1 FROM time_entries participation
+              WHERE participation.user_id = ? AND participation.project_id = p.id
+            ) AS has_my_time_entries,
             CASE
               WHEN (? = 'admin' OR p.manager_user_id = ?) AND EXISTS (
                 SELECT 1 FROM project_budget_change_requests budget_request
@@ -3068,65 +3138,113 @@ app.get('/api/projects', authenticateJWT, (req, res) => {
      LEFT JOIN clients c ON p.client_id = c.id
      LEFT JOIN users manager ON manager.id = p.manager_user_id
      ORDER BY p.category, p.name`,
-    [req.user.id, req.user.id, req.user.role, req.user.id],
-    (err, rows) => {
+    [req.user.id, req.user.id, req.user.id, req.user.role, req.user.id],
+    async (err, rows) => {
     if (err) {
       res.status(500).json({ error: err.message });
       return;
     }
-    res.json(rows);
+    try {
+      const decorated = await governance.decorate(req.user, await departments.decorate(rows));
+      const accessibleDepartments = new Set();
+      const start = req.query.startDate || departmentHistory.today();
+      const end = req.query.endDate || start;
+      if (!departmentHistory.validDay(start) || !departmentHistory.validDay(end) || end < start || Date.parse(end)-Date.parse(start)>366*86400000) throw departmentHistory.fail(400,'Некорректный период','invalid_period');
+      for (let date = new Date(start); date <= new Date(end); date.setUTCDate(date.getUTCDate()+1)) { const key=date.toISOString().slice(0,10); if(await departmentHistory.canDay(req.user,targetId,key)) accessibleDepartments.add(await departmentHistory.at(targetId,key)); }
+      res.json(decorated.filter(project => {
+        const available = project.departments.some(d => d.id === target.department_id);
+        return req.query.purpose === 'time-entry' ? project.departments.some(d=>accessibleDepartments.has(d.id)) : req.user.role === 'admin' || project.permissions.canReviewBudget || available || Number(project.manager_user_id) === Number(req.user.id);
+      }));
+    } catch (error) { res.status(500).json({ error: error.message }); }
     }
   );
+}));
+
+app.get('/api/projects/creation-options', authenticateJWT, async (req, res) => {
+  try { res.json(await governance.creationOptions(req.user)); }
+  catch (err) { res.status(err.status || 500).json({ error: err.message, errorCode: err.errorCode }); }
 });
 
-app.post('/api/projects', authenticateJWT, (req, res) => {
-  const { name, description, client_id, active, code } = req.body;
-  const category = normalizeProjectCategory(req.body.category);
-
-  if (!category) {
-    return sendApiError(res, 400, 'projectsCategoryRequired');
-  }
-  if (!PROJECT_CATEGORIES.includes(category)) {
-    return sendApiError(res, 400, 'projectsCategoryInvalid');
-  }
-
-  // Check for duplicate name (case-insensitive)
-  db.get('SELECT * FROM projects WHERE LOWER(name) = LOWER(?)', [name], (err, row) => {
-    if (err) return res.status(500).json({ error: err.message });
-    if (row) return sendApiError(res, 409, 'projectsDuplicateName');
-    // Check for duplicate code (if code is set)
-    if (code && code.trim()) {
-      db.get('SELECT * FROM projects WHERE code IS NOT NULL AND LOWER(code) = LOWER(?)', [code], (err2, row2) => {
-        if (err2) return res.status(500).json({ error: err2.message });
-        if (row2) return sendApiError(res, 409, 'projectsDuplicateCode');
-        // No duplicates, proceed to insert
-        db.run('INSERT INTO projects (name, description, client_id, active, code, category) VALUES (?, ?, ?, ?, ?, ?)', 
-          [name, description, client_id, active !== undefined ? active : 1, code || null, category], 
-          function(err3) {
-            if (err3) {
-              res.status(500).json({ error: err3.message });
-              return;
-            }
-            res.json({ id: this.lastID, name, description, client_id, active: active !== undefined ? active : 1, code: code || null, category });
-          });
-      });
-    } else {
-      // No code, proceed to insert
-      db.run('INSERT INTO projects (name, description, client_id, active, code, category) VALUES (?, ?, ?, ?, ?, ?)', 
-        [name, description, client_id, active !== undefined ? active : 1, null, category], 
-        function(err3) {
-          if (err3) {
-            res.status(500).json({ error: err3.message });
-            return;
-          }
-          res.json({ id: this.lastID, name, description, client_id, active: active !== undefined ? active : 1, code: null, category });
-        });
+app.post('/api/projects', authenticateJWT, serializeProjectMutation(async (req, res) => {
+  let transaction = false;
+  try {
+    await governance.creationOptions(req.user);
+    const { name, description, client_id, active, code, responsibleDepartmentId, managerUserId = null } = req.body;
+    const category = normalizeProjectCategory(req.body.category);
+    if (!name?.trim()) return sendApiError(res, 400, 'projectsNameRequired');
+    if (!PROJECT_CATEGORIES.includes(category)) return sendApiError(res, 400, 'projectsCategoryInvalid');
+    const ids = await departments.validateIds(req.body.departmentIds);
+    if (!ids.includes(responsibleDepartmentId)) throw governance.fail(400, 'projects.owner_required', 'Choose a responsible department from the project departments.');
+    if (!await getDb('SELECT id FROM clients WHERE id = ?', [client_id])) return sendApiError(res, 400, 'projectsClientInvalid');
+    let normalized = null;
+    if (req.body.budget) { try { normalized = parseBudgetPayload(req.body.budget); } catch (e) { throw governance.fail(400, 'budget.validation_failed', e.message); } }
+    const reason = typeof req.body.budgetReason === 'string' ? req.body.budgetReason.trim() : '';
+    if (normalized && normalized.budget_mode !== 'none' && !reason) throw governance.fail(400, 'budget.validation_failed', 'Budget reason is required.');
+    await runDb('BEGIN IMMEDIATE TRANSACTION'); transaction = true;
+    const options = await governance.creationOptions(req.user);
+    if (managerUserId !== null && (!Number.isInteger(managerUserId) || !options.managerCandidates.some(u => u.id === managerUserId))) throw governance.fail(400, 'project_manager.invalid_candidate', 'Choose an eligible project manager.');
+    if (await getDb('SELECT id FROM projects WHERE LOWER(name) = LOWER(?)', [name.trim()])) throw governance.fail(409, 'projects.duplicate_name', 'Project name already exists.');
+    if (code?.trim() && await getDb('SELECT id FROM projects WHERE LOWER(code) = LOWER(?)', [code.trim()])) throw governance.fail(409, 'projects.duplicate_code', 'Project code already exists.');
+    const result = await runDb('INSERT INTO projects(name, description, client_id, active, code, category, responsible_department_id, created_by, manager_user_id, manager_updated_by, manager_updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [name.trim(), description, client_id, active === undefined ? 1 : active, code?.trim() || null, category, responsibleDepartmentId, req.user.id, managerUserId, managerUserId ? req.user.id : null, managerUserId ? new Date().toISOString() : null]);
+    await departments.setProject(result.lastID, ids);
+    if (normalized && normalized.budget_mode !== 'none') await createBudgetVersion(result.lastID, normalized, req.user.id, { reason, sourceType: 'project_creation' });
+    await runDb('COMMIT'); transaction = false;
+    let emailDelivery = null;
+    if (managerUserId) {
+      const recipient = await getDb('SELECT * FROM users WHERE id = ?', [managerUserId]);
+      const results = await Promise.allSettled([
+        runDb("INSERT INTO notifications(user_id,type,project_id,project_name,actor_user_id) VALUES(?,'project_manager_assigned',?,?,?)", [managerUserId, result.lastID, name.trim(), req.user.id]),
+        sendProjectManagerEmail(req, recipient, 'project_manager_assigned', name.trim(), [req.user.surname,req.user.name].filter(Boolean).join(' ')),
+      ]);
+      emailDelivery = results.some(r => r.status === 'rejected') ? 'failed' : 'sent';
     }
-  });
+    const project = (await governance.decorate(req.user, await departments.decorate([await getProjectManagerRow(result.lastID)])))[0];
+    res.json({ ...project, emailDelivery });
+  } catch (err) { if (transaction) await runDb('ROLLBACK'); res.status(err.status || 500).json({ error: err.message, errorCode: err.errorCode }); }
+}));
+
+app.get('/api/projects/:id/responsibility-history', authenticateJWT, async (req, res) => {
+  try {
+    const project = await getDb('SELECT * FROM projects WHERE id = ?', [req.params.id]);
+    if (!project) return sendApiError(res, 404, 'projectsNotFound');
+    const permissions = await governance.permissions(req.user, project);
+    const visible = req.user.role === 'admin' || permissions.canViewBudget || permissions.canTransferResponsibility || await departments.canLog(req.user, project.id);
+    if (!visible) return sendApiError(res, 403, 'projectsEditForbidden');
+    res.json(await allDb('SELECT h.*, u.name AS actor_name, u.surname AS actor_surname FROM project_responsibility_history h LEFT JOIN users u ON u.id = h.actor_user_id WHERE project_id = ? ORDER BY h.id DESC', [project.id]));
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
+app.post('/api/projects/:id/transfer-responsibility', authenticateJWT, serializeProjectMutation(async (req, res) => {
+  let transaction = false;
+  try {
+    await runDb('BEGIN IMMEDIATE TRANSACTION'); transaction = true;
+    const project = await getDb('SELECT * FROM projects WHERE id = ?', [req.params.id]);
+    if (!project) throw governance.fail(404, 'projects.not_found', 'Project not found.');
+    if (!(await governance.permissions(req.user, project)).canTransferResponsibility) throw governance.fail(403, 'projects.transfer_forbidden', 'You cannot transfer this project.');
+    const id = await departments.validate(req.body.departmentId);
+    const from = await getDb('SELECT * FROM departments WHERE id = ?', [project.responsible_department_id]);
+    const to = await getDb('SELECT * FROM departments WHERE id = ?', [id]);
+    if (project.responsible_department_id === id) { await runDb('COMMIT'); transaction = false; return res.json((await governance.decorate(req.user, await departments.decorate([project])))[0]); }
+    const links = (await allDb('SELECT department_id FROM project_departments WHERE project_id = ?', [project.id])).map(d => d.department_id);
+    const ids = to.is_system ? [id] : await departments.validateIds([...links, id]);
+    await departments.setProject(project.id, ids);
+    await runDb('UPDATE projects SET responsible_department_id = ? WHERE id = ?', [id, project.id]);
+    await runDb('INSERT INTO project_responsibility_history(project_id,from_department_id,from_department_name,to_department_id,to_department_name,actor_user_id) VALUES(?,?,?,?,?,?)', [project.id, from?.id || null, from?.name || null, to.id, to.name, req.user.id]);
+    await runDb('COMMIT'); transaction = false;
+    const recipients = [...new Set([from?.manager_user_id, to.manager_user_id, project.manager_user_id].filter(Boolean))];
+    const results = await Promise.allSettled(recipients.map(async userId => {
+      const recipient = await getDb('SELECT * FROM users WHERE id = ? AND deleted = 0 AND invited = 0', [userId]);
+      if (!recipient) return;
+      await runDb("INSERT INTO notifications(user_id,type,project_id,project_name,actor_user_id,metadata_json) VALUES(?,'project_responsibility_transferred',?,?,?,?)", [userId,project.id,project.name,req.user.id,JSON.stringify({ fromDepartment: from?.name || null, toDepartment: to.name })]);
+      await sendBudgetNotificationEmail(req, recipient, 'project_responsibility_transferred', project.name);
+    }));
+    const updated = (await governance.decorate(req.user, await departments.decorate([await getProjectManagerRow(project.id)])))[0];
+    res.json({ ...updated, emailDelivery: results.some(r => r.status === 'rejected') ? 'failed' : 'sent' });
+  } catch (err) { if (transaction) await runDb('ROLLBACK'); res.status(err.status || 500).json({ error: err.message, errorCode: err.errorCode }); }
+}));
 
 // PATCH endpoint to update individual project fields through inline editing.
 app.patch('/api/projects/:id', authenticateJWT, async (req, res) => {
+  let transaction = false;
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id)) return sendApiError(res, 404, 'projectsNotFound');
@@ -3179,10 +3297,14 @@ app.patch('/api/projects/:id', authenticateJWT, async (req, res) => {
     if (has('active')) {
       fields.push('active = ?'); values.push(req.body.active ? 1 : 0);
     }
-    if (fields.length === 0) return sendApiError(res, 400, 'projectsNoFieldsToUpdate');
+    const departmentIds = has('departmentIds') ? await departments.validateIds(req.body.departmentIds) : null;
+    if (departmentIds && current.responsible_department_id && !departmentIds.includes(current.responsible_department_id)) throw governance.fail(400, 'projects.owner_access_required', 'Transfer responsibility before removing the responsible department.');
+    if (fields.length === 0 && !departmentIds) return sendApiError(res, 400, 'projectsNoFieldsToUpdate');
 
     values.push(id);
-    await runDb(`UPDATE projects SET ${fields.join(', ')} WHERE id = ?`, values);
+    await runDb('BEGIN IMMEDIATE TRANSACTION'); transaction = true;
+    if (departmentIds) await departments.setProject(id, departmentIds);
+    if (fields.length) await runDb(`UPDATE projects SET ${fields.join(', ')} WHERE id = ?`, values);
     const updated = await getDb(
       `SELECT p.*, c.name AS client_name,
               manager.name AS manager_name, manager.surname AS manager_surname
@@ -3192,10 +3314,12 @@ app.patch('/api/projects/:id', authenticateJWT, async (req, res) => {
        WHERE p.id = ?`,
       [id]
     );
-    return res.json(updated);
+    await runDb('COMMIT'); transaction = false;
+    return res.json((await governance.decorate(req.user, await departments.decorate([updated])))[0]);
   } catch (err) {
+    if (transaction) await runDb('ROLLBACK');
     console.error('[ProjectInlineEdit] Failed to update project', err);
-    return res.status(500).json({ error: err.message });
+    return res.status(err.status || 500).json({ error: err.message, errorCode: err.errorCode });
   }
 });
 
@@ -3236,170 +3360,6 @@ app.delete('/api/projects/:id', authenticateJWT, requireAdmin, (req, res) => {
 });
 
 // Time entries routes
-app.post('/api/time-entries', authenticateJWT, async (req, res) => {
-  const { project_id, user_id, date, hours, description, submission_time } = req.body;
-  if (rejectForeignUser(req, res, user_id)) return;
-  console.log('Received submission_time:', submission_time);
-  try {
-    const result = await runDb(
-      'INSERT INTO time_entries (project_id, user_id, date, hours, description, submission_time) VALUES (?, ?, ?, ?, ?, ?)',
-      [project_id, user_id, date, hours, description, submission_time]
-    );
-    extendSessionIfEligible(user_id).catch((sessionErr) => console.error('[AutoLogin] Failed after single insert:', sessionErr));
-    const payrollWarning = await evaluateProjectBudgetThresholds(project_id, req.user.id, req).catch((thresholdError) => {
-      console.error('[TimeEntries] Failed to evaluate project budget:', thresholdError);
-      return null;
-    });
-    res.json({ id: result.lastID, project_id, user_id, date, hours, description, submission_time, payrollWarning });
-  } catch (err) {
-    if (err.code === 'SQLITE_CONSTRAINT') return sendApiError(res, 409, 'timeEntriesDuplicate');
-    console.error('Error inserting time entry:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get('/api/time-entries', authenticateJWT, (req, res) => {
-  const { project_id, user_id, start_date, end_date } = req.query;
-  let query = `
-    SELECT 
-      t.*,
-      (u.surname || ' ' || u.name) as user_name,
-      p.name as project_name
-    FROM time_entries t
-    LEFT JOIN users u ON t.user_id = u.id
-    LEFT JOIN projects p ON t.project_id = p.id
-  `;
-  let params = [];
-  const conditions = [];
-  if (project_id) {
-    conditions.push('t.project_id = ?');
-    params.push(project_id);
-  }
-  const effectiveUserId = req.user.role === 'admin' ? user_id : req.user.id;
-  if (effectiveUserId) {
-    conditions.push('t.user_id = ?');
-    params.push(effectiveUserId);
-  }
-  if (start_date && end_date) {
-    conditions.push('t.date >= ? AND t.date <= ?');
-    params.push(start_date, end_date);
-  }
-  if (conditions.length > 0) {
-    query += ' WHERE ' + conditions.join(' AND ');
-  }
-  query += ' ORDER BY t.date DESC';
-  db.all(query, params, (err, rows) => {
-    if (err) {
-      res.status(500).json({ error: err.message });
-      return;
-    }
-    res.json(rows);
-  });
-});
-
-app.patch('/api/time-entries/:id', authenticateJWT, async (req, res) => {
-  const { id } = req.params;
-  const { date, hours, description, project_id } = req.body;
-  const fields = [];
-  const values = [];
-  if (date) {
-    fields.push('date = ?');
-    values.push(date);
-  }
-  if (hours !== undefined) {
-    fields.push('hours = ?');
-    values.push(hours);
-  }
-  if (description !== undefined) {
-    fields.push('description = ?');
-    values.push(description);
-  }
-  if (project_id) {
-    fields.push('project_id = ?');
-    values.push(project_id);
-  }
-  if (fields.length === 0) {
-    return sendApiError(res, 400, 'timeEntriesNoFieldsToUpdate');
-  }
-
-  try {
-    const existingEntry = await getDb('SELECT user_id, project_id FROM time_entries WHERE id = ?', [id]);
-    if (!existingEntry) return sendApiError(res, 404, 'timeEntriesNotFound');
-    if (rejectForeignUser(req, res, existingEntry.user_id)) return;
-    values.push(id);
-    const result = await runDb(
-      `UPDATE time_entries SET ${fields.join(', ')} WHERE id = ?`,
-      values
-    );
-    if (!result.changes) return sendApiError(res, 404, 'timeEntriesNotFound');
-    extendSessionIfEligible(existingEntry.user_id).catch((sessionErr) => console.error('[AutoLogin] Failed after patch:', sessionErr));
-    const affectedProjectIds = [...new Set([Number(existingEntry.project_id), Number(project_id || existingEntry.project_id)])];
-    const warnings = [];
-    for (const affectedProjectId of affectedProjectIds) {
-      const warning = await evaluateProjectBudgetThresholds(affectedProjectId, req.user.id, req).catch((thresholdError) => {
-        console.error('[TimeEntries] Failed to evaluate project budget:', thresholdError);
-        return null;
-      });
-      if (warning) warnings.push(warning);
-    }
-    res.json({ id, ...req.body, payrollWarning: warnings[0] || null });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Add DELETE route for time entries
-app.delete('/api/time-entries/:id', authenticateJWT, (req, res) => {
-  const { id } = req.params;
-  db.get('SELECT user_id FROM time_entries WHERE id = ?', [id], (lookupErr, entry) => {
-    if (lookupErr) {
-      return res.status(500).json({ error: lookupErr.message });
-    }
-    if (!entry) return sendApiError(res, 404, 'timeEntriesNotFound');
-    if (rejectForeignUser(req, res, entry.user_id)) return;
-    db.run('DELETE FROM time_entries WHERE id = ?', [id], function(err) {
-      if (err) {
-        res.status(500).json({ error: err.message });
-        return;
-      }
-      if (this.changes === 0) {
-        res.status(404).json({ error: 'Time entry not found' });
-        return;
-      }
-      extendSessionIfEligible(entry && entry.user_id).catch((sessionErr) => console.error('[AutoLogin] Failed after delete:', sessionErr));
-      res.json({ success: true });
-    });
-  });
-});
-
-// Bulk delete all time entries for a user, project, and week (POST for JSON body support)
-app.post('/api/time-entries/bulk-delete', authenticateJWT, (req, res) => {
-  const { user_id, project_id, week_start } = req.body;
-  if (!user_id || !project_id || !week_start) {
-    return sendApiError(res, 400, 'timeEntriesWeekRequired');
-  }
-  if (rejectForeignUser(req, res, user_id)) return;
-  const start = new Date(week_start);
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 6);
-  end.setHours(23, 59, 59, 999);
-
-  db.run(
-    `DELETE FROM time_entries
-     WHERE user_id = ? AND project_id = ? AND date >= ? AND date <= ?`,
-    [user_id, project_id, start.toISOString(), end.toISOString()],
-    function (err) {
-      if (err) {
-        res.status(500).json({ error: err.message });
-        return;
-      }
-      extendSessionIfEligible(user_id).catch((sessionErr) => console.error('[AutoLogin] Failed after bulk delete:', sessionErr));
-      res.json({ deleted: this.changes });
-    }
-  );
-});
-
 function getDefaultDashboardPeriod() {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -3411,6 +3371,7 @@ function getDefaultDashboardPeriod() {
 async function getDashboardScopes(user) {
   const managed = await getDb('SELECT COUNT(*) AS count FROM projects WHERE manager_user_id = ?', [user.id]);
   const scopes = ['mine'];
+  if (user.role === 'admin' || (await departmentHistory.managed(user)).length) scopes.push('department');
   if (Number(managed?.count || 0) > 0) scopes.push('managed');
   scopes.push('company');
   if (user.role === 'admin') scopes.push('portfolio');
@@ -3441,6 +3402,8 @@ function summarizeDashboardBreakdowns(rows) {
 }
 
 const MAJOR_UPDATE_ANNOUNCEMENT_ID = 'major-update-guided-tour-v1';
+const DEPARTMENT_UPDATE_ANNOUNCEMENT_ID = 'department-support-v1';
+const PRODUCT_UPDATE_ANNOUNCEMENT_IDS = [MAJOR_UPDATE_ANNOUNCEMENT_ID, DEPARTMENT_UPDATE_ANNOUNCEMENT_ID];
 
 async function createProductUpdateTables() {
   await runDb(`CREATE TABLE IF NOT EXISTS product_update_rollouts (
@@ -3463,11 +3426,13 @@ async function createProductUpdateTables() {
   )`);
 
   // The first startup after deployment establishes a fixed audience of existing users.
-  await runDb('INSERT OR IGNORE INTO product_update_rollouts (announcement_id) VALUES (?)', [MAJOR_UPDATE_ANNOUNCEMENT_ID]);
-  await runDb(`INSERT OR IGNORE INTO product_update_audience (announcement_id, user_id)
-    SELECT ?, u.id FROM users u
-    WHERE datetime(u.created_at) <= (SELECT released_at FROM product_update_rollouts WHERE announcement_id = ?)` ,
-  [MAJOR_UPDATE_ANNOUNCEMENT_ID, MAJOR_UPDATE_ANNOUNCEMENT_ID]);
+  for (const announcementId of PRODUCT_UPDATE_ANNOUNCEMENT_IDS) {
+    await runDb('INSERT OR IGNORE INTO product_update_rollouts (announcement_id) VALUES (?)', [announcementId]);
+    await runDb(`INSERT OR IGNORE INTO product_update_audience (announcement_id, user_id)
+      SELECT ?, u.id FROM users u
+      WHERE datetime(u.created_at) <= (SELECT released_at FROM product_update_rollouts WHERE announcement_id = ?)` ,
+    [announcementId, announcementId]);
+  }
 }
 
 async function getDashboardProjectPayrollUsage(projectId) {
@@ -3484,10 +3449,11 @@ async function getDashboardProjectPayrollUsage(projectId) {
   return getProjectPayrollUsage({ budget, summary });
 }
 
-async function getTeamWeeklyRows({ startDate, endDate, userId = null }) {
+async function getTeamWeeklyRows({ startDate, endDate, userId = null, departmentIds = null }) {
   const parameters = [PROJECT_CATEGORY_TRANSITION, startDate, endDate];
-  const userFilter = userId === null ? '' : ' AND t.user_id = ?';
+  let userFilter = userId === null ? '' : ' AND t.user_id = ?';
   if (userId !== null) parameters.push(userId);
+  if (departmentIds) { userFilter += ` AND t.department_id IN (${departmentIds.map(()=>'?').join(',')})`; parameters.push(...departmentIds); }
   parameters.push(PROJECT_CATEGORY_TRANSITION);
   return allDb(
     `SELECT t.user_id AS user_id,
@@ -3510,7 +3476,15 @@ async function getTeamWeeklyRows({ startDate, endDate, userId = null }) {
   );
 }
 
-app.get('/api/dashboard/team-weekly', authenticateJWT, async (req, res) => {
+async function departmentWeekTargets(users,year,departmentIds) {
+  if (!departmentIds) return undefined;
+  const result={};
+  const rows=await allDb('SELECT * FROM user_department_history ORDER BY user_id,effective_from');
+  for (const user of users) { result[user.id]={}; const periods=rows.filter(h=>h.user_id===user.id);
+    for(const week of getIsoWeeks(year)) { let hours=0; for(let i=0;i<5;i++){const date=new Date(week.startDate);date.setUTCDate(date.getUTCDate()+i);const key=date.toISOString().slice(0,10);const assignment=[...periods].reverse().find(h=>!h.effective_from||h.effective_from<=key);if(key>=String(user.created_at).slice(0,10)&&departmentIds.includes(assignment?.department_id))hours+=8;} result[user.id][week.startDate]=hours; }
+  }return result;
+}
+app.get('/api/dashboard/team-weekly', authenticateJWT, serializeProjectMutation(async (req, res) => {
   try {
     const year = Number(req.query.year || new Date().getFullYear());
     if (!Number.isInteger(year) || year < 2000 || year > 2100) {
@@ -3519,21 +3493,25 @@ app.get('/api/dashboard/team-weekly', authenticateJWT, async (req, res) => {
     const weeks = getIsoWeeks(year);
     const startDate = weeks[0].startDate;
     const endDate = weeks[weeks.length - 1].endDate;
-    const users = await allDb(
+    let users = await allDb(
       `SELECT id, name, surname, created_at
        FROM users
        WHERE deleted = 0 AND COALESCE(invited, 0) = 0
        ORDER BY surname ASC, name ASC`
     );
-    const rows = await getTeamWeeklyRows({ startDate, endDate });
-    res.json(buildTeamWeeklyOverview({ year, users, rows, categoryOrder: [PROJECT_CATEGORY_TRANSITION, ...PROJECT_CATEGORIES], includeDetails: false }));
+    const departmentIds = await departmentHistory.scope(req.user,req.query.departmentId,req.query.userId);
+    if (req.query.userId) users=users.filter(u=>Number(u.id)===Number(req.query.userId));
+    const rows = await getTeamWeeklyRows({ startDate, endDate, userId:req.query.userId ? Number(req.query.userId):null, departmentIds });
+    const targets = await departmentWeekTargets(users,year,departmentIds);
+    if (departmentIds) users=users.filter(u=>Object.values(targets[u.id]||{}).some(n=>n>0));
+    res.json(buildTeamWeeklyOverview({ year, users, rows, targets, categoryOrder: [PROJECT_CATEGORY_TRANSITION, ...PROJECT_CATEGORIES], includeDetails: false }));
   } catch (err) {
     console.error('[Dashboard] Failed to load weekly team overview:', err);
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message, errorCode: err.errorCode });
   }
-});
+}));
 
-app.get('/api/dashboard/team-weekly/detail', authenticateJWT, async (req, res) => {
+app.get('/api/dashboard/team-weekly/detail', authenticateJWT, serializeProjectMutation(async (req, res) => {
   try {
     const userId = Number(req.query.userId);
     const weekStart = normalizeDateOnlyValue(req.query.weekStart);
@@ -3548,24 +3526,28 @@ app.get('/api/dashboard/team-weekly/detail', authenticateJWT, async (req, res) =
     const user = await getDb(`SELECT id, name, surname, created_at FROM users
       WHERE id = ? AND deleted = 0 AND COALESCE(invited, 0) = 0`, [userId]);
     if (!user) return sendApiError(res, 404, 'budgetValidationFailed', { message: 'User not found.' });
-    const rows = await getTeamWeeklyRows({ startDate: weekMeta.startDate, endDate: weekMeta.endDate, userId });
+    const ownedDepartments=await departmentHistory.managed(req.user);
+    const publicSummary = !req.query.departmentId && req.user.role!=='admin' && Number(req.user.id)!==userId && !ownedDepartments.length;
+    const departmentIds=publicSummary ? null : await departmentHistory.scope(req.user,req.query.departmentId,userId);
+    const rows = await getTeamWeeklyRows({ startDate: weekMeta.startDate, endDate: weekMeta.endDate, userId,departmentIds });
+    const targets=await departmentWeekTargets([user],year,departmentIds);
     const overview = buildTeamWeeklyOverview({
-      year, users: [user], rows,
+      year, users: [user], rows, targets,
       categoryOrder: [PROJECT_CATEGORY_TRANSITION, ...PROJECT_CATEGORIES], includeDetails: true,
     });
     const detail = overview.users[0]?.weeks.find((week) => week.weekStart === weekMeta.startDate);
-    const canOpenTimesheet = req.user.role === 'admin' || Number(req.user.id) === userId;
+    const canOpenTimesheet = req.user.role === 'admin' || Number(req.user.id) === userId || (!!departmentIds?.length && !!detail?.targetHours);
     if (!canOpenTimesheet && detail) delete detail.projectHours;
-    res.json({ weeklyTargetHours: overview.weeklyTargetHours, user: overview.users[0] && { id: overview.users[0].id, label: overview.users[0].label }, week: detail, canOpenTimesheet });
+    res.json({ weeklyTargetHours: detail?.targetHours ?? overview.weeklyTargetHours, user: overview.users[0] && { id: overview.users[0].id, label: overview.users[0].label }, week: detail, canOpenTimesheet });
   } catch (err) {
     console.error('[Dashboard] Failed to load weekly detail:', err);
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message, errorCode: err.errorCode });
   }
-});
+}));
 
 app.get('/api/product-updates/:announcementId', authenticateJWT, async (req, res) => {
   const announcementId = req.params.announcementId;
-  if (announcementId !== MAJOR_UPDATE_ANNOUNCEMENT_ID) return sendApiError(res, 404, 'budgetValidationFailed', { message: 'Announcement not found.' });
+  if (!PRODUCT_UPDATE_ANNOUNCEMENT_IDS.includes(announcementId)) return sendApiError(res, 404, 'budgetValidationFailed', { message: 'Announcement not found.' });
   const [audience, state] = await Promise.all([
     getDb('SELECT 1 AS included FROM product_update_audience WHERE announcement_id = ? AND user_id = ?', [announcementId, req.user.id]),
     getDb('SELECT dismissed_at, completed_at FROM product_update_states WHERE announcement_id = ? AND user_id = ?', [announcementId, req.user.id]),
@@ -3576,7 +3558,7 @@ app.get('/api/product-updates/:announcementId', authenticateJWT, async (req, res
 app.post('/api/product-updates/:announcementId', authenticateJWT, async (req, res) => {
   const announcementId = req.params.announcementId;
   const action = req.body?.action;
-  if (announcementId !== MAJOR_UPDATE_ANNOUNCEMENT_ID || !['dismiss', 'complete'].includes(action)) return sendApiError(res, 400, 'budgetValidationFailed', { message: 'Invalid product update action.' });
+  if (!PRODUCT_UPDATE_ANNOUNCEMENT_IDS.includes(announcementId) || !['dismiss', 'complete'].includes(action)) return sendApiError(res, 400, 'budgetValidationFailed', { message: 'Invalid product update action.' });
   const audience = await getDb('SELECT 1 AS included FROM product_update_audience WHERE announcement_id = ? AND user_id = ?', [announcementId, req.user.id]);
   if (!audience) return sendApiError(res, 403, 'adminForbidden');
   const column = action === 'dismiss' ? 'dismissed_at' : 'completed_at';
@@ -3585,10 +3567,11 @@ app.post('/api/product-updates/:announcementId', authenticateJWT, async (req, re
   res.json({ ok: true });
 });
 
-app.get('/api/dashboard', authenticateJWT, async (req, res) => {
+app.get('/api/dashboard', authenticateJWT, serializeProjectMutation(async (req, res) => {
   try {
     const availableScopes = await getDashboardScopes(req.user);
     const requestedScope = typeof req.query.scope === 'string' ? req.query.scope : 'mine';
+    if(requestedScope==='department'&&!availableScopes.includes('department'))throw departmentHistory.fail(403,'Нет доступа к аналитике подразделения','analytics_forbidden');
     const scope = availableScopes.includes(requestedScope) ? requestedScope : 'mine';
     const defaults = getDefaultDashboardPeriod();
     const startDate = normalizeDateOnlyValue(req.query.startDate) || defaults.startDate;
@@ -3601,25 +3584,28 @@ app.get('/api/dashboard', authenticateJWT, async (req, res) => {
 
     let targetUserId = req.user.id;
     if (scope === 'mine' && req.query.userId !== undefined) {
-      if (req.user.role !== 'admin') return sendApiError(res, 403, 'adminForbidden');
+      if (req.user.role !== 'admin' && !(await departmentHistory.managed(req.user)).length) return sendApiError(res, 403, 'adminForbidden');
       targetUserId = Number(req.query.userId);
       if (!Number.isInteger(targetUserId)) return sendApiError(res, 400, 'ratesValidationFailed', { message: 'User id is invalid.' });
       const target = await getDb('SELECT id FROM users WHERE id = ? AND deleted = 0', [targetUserId]);
       if (!target) return sendApiError(res, 404, 'usersNotFound');
     }
 
+    const departmentScope = scope === 'department' ? await departmentHistory.scope(req.user, req.query.departmentId) : scope === 'mine' ? await departmentHistory.scope(req.user, null, targetUserId) : null;
+    if (scope === 'department' && !departmentScope) throw departmentHistory.fail(400,'Укажите подразделение','department_required');
     const joinConditions = ['t.project_id = p.id', 'substr(t.date, 1, 10) >= ?', 'substr(t.date, 1, 10) <= ?'];
     const params = [startDate, endDate];
     if (scope === 'mine') {
       joinConditions.push('t.user_id = ?');
       params.push(targetUserId);
     }
+    if (departmentScope) { joinConditions.push(`t.department_id IN (${departmentScope.map(()=>'?').join(',')})`); params.push(...departmentScope); }
     const where = [];
     if (scope === 'managed') {
       where.push('p.manager_user_id = ?');
       params.push(req.user.id);
     }
-    if (scope === 'mine' || scope === 'company') where.push('t.id IS NOT NULL');
+    if (scope === 'mine' || scope === 'company' || scope === 'department') where.push('t.id IS NOT NULL');
     if (clientType) {
       where.push('c.type = ?');
       params.push(clientType);
@@ -3805,9 +3791,9 @@ app.get('/api/dashboard', authenticateJWT, async (req, res) => {
     });
   } catch (err) {
     console.error('[Dashboard] Failed to load:', err);
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message, errorCode: err.errorCode });
   }
-});
+}));
 
 app.get('/api/projects/:id/analytics', authenticateJWT, (req, res) => {
   const { id } = req.params;
@@ -3959,47 +3945,6 @@ app.get('/api/projects/:id/analytics', authenticateJWT, (req, res) => {
 });
 
 // Batch insert time entries
-app.post('/api/time-entries/batch', authenticateJWT, async (req, res) => {
-  const { entries } = req.body;
-  if (!Array.isArray(entries) || entries.length === 0) {
-    return sendApiError(res, 400, 'timeEntriesNoEntries');
-  }
-  if (entries.some((entry) => !canActForUser(req.user, entry.user_id))) {
-    return sendApiError(res, 403, 'adminForbidden');
-  }
-  try {
-    await runDb('BEGIN IMMEDIATE TRANSACTION');
-    for (const entry of entries) {
-      if (!entry.user_id || !entry.project_id || !entry.date || typeof entry.hours !== 'number') {
-        throw new Error('Missing required fields in one or more entries.');
-      }
-      await runDb(
-        `INSERT INTO time_entries (user_id, project_id, date, hours, submission_time)
-         VALUES (?, ?, ?, ?, datetime('now'))
-         ON CONFLICT(user_id, project_id, date) DO UPDATE SET hours=excluded.hours, submission_time=datetime('now')`,
-        [entry.user_id, entry.project_id, entry.date, entry.hours]
-      );
-    }
-    await runDb('COMMIT');
-    const touchedUsers = [...new Set(entries.map((entry) => entry.user_id).filter(Boolean))];
-    Promise.all(touchedUsers.map((userId) => extendSessionIfEligible(userId)))
-      .catch((sessionErr) => console.error('[AutoLogin] Failed after batch:', sessionErr));
-    const payrollWarnings = [];
-    for (const projectId of [...new Set(entries.map((entry) => Number(entry.project_id)))]) {
-      const warning = await evaluateProjectBudgetThresholds(projectId, req.user.id, req).catch((thresholdError) => {
-        console.error('[TimeEntries] Failed to evaluate project budget:', thresholdError);
-        return null;
-      });
-      if (warning) payrollWarnings.push(warning);
-    }
-    res.json({ success: true, payrollWarnings });
-  } catch (err) {
-    await runDb('ROLLBACK').catch(() => {});
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Bulk delete all time entries for a project
 app.delete('/api/time-entries/by-project/:project_id', authenticateJWT, requireAdmin, (req, res) => {
   const { project_id } = req.params;
   db.run('DELETE FROM time_entries WHERE project_id = ?', [project_id], function(err) {
@@ -4081,7 +4026,13 @@ app.post('/api/smtp-test', optionalAuthenticateJWT, async (req, res) => {
 
 // POST /api/invitations - create and send invitation
 app.post('/api/invitations', authenticateJWT, requireAdmin, async (req, res) => {
-  const { email, invited_by, name, surname, role } = req.body;
+  const { email, invited_by, name, surname, role, department_id } = req.body;
+  const existingInviteUser = await getDb('SELECT id FROM users WHERE email = ?', [email]);
+  try { await departments.validate(department_id); } catch (err) { return res.status(400).json({ error: err.message, errorCode: err.errorCode }); }
+  if (existingInviteUser) {
+    const currentDepartment = await departmentHistory.at(existingInviteUser.id, departmentHistory.today());
+    if (Number(currentDepartment) !== Number(department_id)) return res.status(400).json({error:'Измените подразделение через историю переводов с датой начала',errorCode:'departments.history_required'});
+  }
   const invitedRole = role === 'admin' ? 'admin' : 'user';
   if (!email) return sendApiError(res, 400, 'invitationEmailRequired');
   // Check if user exists
@@ -4089,8 +4040,8 @@ app.post('/api/invitations', authenticateJWT, requireAdmin, async (req, res) => 
     if (err) return res.status(500).json({ error: err.message });
     if (!userRow) {
       // Insert placeholder user with invited=1, use name/surname if provided
-      db.run('INSERT INTO users (name, surname, email, role, invited, deleted) VALUES (?, ?, ?, ?, 1, 0)',
-        [name || '', surname || '', email, invitedRole],
+      db.run('INSERT INTO users (name, surname, email, role, department_id, invited, deleted) VALUES (?, ?, ?, ?, ?, 1, 0)',
+        [name || '', surname || '', email, invitedRole, department_id],
         function(err2) {
           if (err2) return res.status(500).json({ error: err2.message });
           // Continue to invitation logic below
@@ -4099,8 +4050,8 @@ app.post('/api/invitations', authenticateJWT, requireAdmin, async (req, res) => 
       );
     } else if (userRow.invited || userRow.deleted) {
       db.run(
-        'UPDATE users SET name = ?, surname = ?, role = ?, deleted = 0, invited = 1 WHERE id = ?',
-        [name ?? userRow.name, surname ?? userRow.surname, invitedRole, userRow.id],
+        'UPDATE users SET name = ?, surname = ?, role = ?, department_id = ?, deleted = 0, invited = 1 WHERE id = ?',
+        [name ?? userRow.name, surname ?? userRow.surname, invitedRole, department_id ?? userRow.department_id, userRow.id],
         function(err2) {
           if (err2) return res.status(500).json({ error: err2.message });
           insertInvitation();
@@ -4428,7 +4379,7 @@ app.post('/api/setup', async (req, res) => {
   }
 
   // Create admin user
-  db.run('INSERT INTO users (name, surname, email, role, invited, deleted) VALUES (?, ?, ?, ?, 0, 0)',
+  db.run('INSERT INTO users (name, surname, email, role, department_id, invited, deleted) VALUES (?, ?, ?, ?, (SELECT id FROM departments WHERE is_system = 1), 0, 0)',
     [name, surname, email, 'admin'],
     async function(err) {
       if (err) {

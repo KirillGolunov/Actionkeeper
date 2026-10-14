@@ -12,6 +12,7 @@ jest.mock('../context/AuthContext', () => ({ useAuth: jest.fn() }));
 jest.mock('../components/TeamDashboard', () => () => <div>TEAM_DASHBOARD</div>);
 jest.mock('./TimeEntries', () => (props) => <div data-testid="mock-time-entries">
   user={String(props.selectedUserId)};week={String(props.weekAnchor || '')}
+  <button type="button" onClick={() => props.onDirtyChange(true)}>MAKE_DIRTY</button>
   <button type="button" onClick={() => props.onWeekChange(new Date(2026, 0, 12))}>CHANGE_WEEK</button>
 </div>);
 
@@ -23,10 +24,10 @@ function LocationProbe() {
   return <output data-testid="location">{location.pathname}{location.search}</output>;
 }
 
-async function renderHome(initialEntry, user = admin) {
+async function renderHome(initialEntry, user = admin, selectionData = [admin, employee]) {
   window.IS_REACT_ACT_ENVIRONMENT = true;
   useAuth.mockReturnValue({ user });
-  axios.get.mockResolvedValue({ data: [admin, employee] });
+  axios.get.mockResolvedValue({ data: selectionData });
   const host = document.createElement('div');
   document.body.appendChild(host);
   const root = createRoot(host);
@@ -66,4 +67,20 @@ test('ignores a foreign user id for a regular user', async () => {
   expect(view.host.querySelector('[data-testid="mock-time-entries"]').textContent).toContain('user=1');
   expect(view.host.querySelector('[data-testid="location"]').textContent).not.toContain('userId=2');
   view.cleanup();
+});
+
+test('canceling a nested employee selection preserves the current employee and dirty hours',async()=>{
+ const confirm=jest.spyOn(window,'confirm').mockReturnValue(false);
+ const view=await renderHome('/?mode=mine&userId=1&week=2026-01-05',admin,{managedDepartmentIds:[2],departments:[{id:2,name:'Engineering',short_name:'ENG',users:[employee]}]});
+ const click=async node=>{await act(async()=>node.dispatchEvent(new MouseEvent('click',{bubbles:true})));};
+ try{
+ await click([...view.host.querySelectorAll('button')].find(node=>node.textContent==='MAKE_DIRTY'));
+ await click(view.host.querySelector('[role="combobox"]'));
+ await click(document.querySelector('[role="menuitem"][aria-label="ENG"]'));
+ expect(confirm).not.toHaveBeenCalled();
+ await click(document.querySelector('[role="menuitem"][aria-label="Иванов Иван"]'));
+ expect(confirm).toHaveBeenCalledTimes(1);
+ expect(view.host.querySelector('[data-testid="mock-time-entries"]').textContent).toContain('user=1');
+ expect(view.host.querySelector('[data-testid="location"]').textContent).toContain('userId=1');
+ }finally{confirm.mockRestore();view.cleanup();}
 });

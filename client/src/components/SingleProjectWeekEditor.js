@@ -1,11 +1,12 @@
 import React from 'react';
 import { Box, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, TextField, MenuItem, Button, DialogActions, Typography, IconButton } from '@mui/material';
-import { Add, Remove } from '@mui/icons-material';
+import Add from '@mui/icons-material/Add';
+import Remove from '@mui/icons-material/Remove';
 import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import { useTranslation } from '../i18n/I18nProvider';
 
-function HourInput({ value, onChange }) {
+function HourInput({ value, onChange, disabled }) {
   const handleDecrement = () => {
     const newValue = Math.max(0, (parseFloat(value) || 0) - 1);
     onChange(newValue === 0 ? '' : newValue);
@@ -16,13 +17,13 @@ function HourInput({ value, onChange }) {
   };
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', border: '1px solid #e0e0e0', borderRadius: 2, px: 0.5, py: 0.2, minWidth: 48, justifyContent: 'center', background: '#fff' }}>
-      <IconButton size="small" onClick={handleDecrement} sx={{ p: 0.25 }}>
+      <IconButton size="small" disabled={disabled} onClick={handleDecrement} sx={{ p: 0.25 }}>
         <Remove fontSize="small" />
       </IconButton>
       <Typography sx={{ mx: 0.5, minWidth: 16, textAlign: 'center', fontWeight: 500, fontSize: 14 }}>
         {value || 0}
       </Typography>
-      <IconButton size="small" onClick={handleIncrement} sx={{ p: 0.25 }}>
+      <IconButton size="small" disabled={disabled} onClick={handleIncrement} sx={{ p: 0.25 }}>
         <Add fontSize="small" />
       </IconButton>
     </Box>
@@ -30,7 +31,7 @@ function HourInput({ value, onChange }) {
 }
 
 
-function SingleProjectWeekEditor({ entry, projects, daysOfWeek, weekStart, onChange, onSave, onCancel, error, loading }) {
+function SingleProjectWeekEditor({ entry, projects, daysOfWeek, weekStart, onChange, onSave, onCancel, error, loading, canOverride = false }) {
   const { t } = useTranslation();
   const handleProjectChange = (e) => {
     onChange({ ...entry, project_id: e.target.value });
@@ -75,7 +76,8 @@ function SingleProjectWeekEditor({ entry, projects, daysOfWeek, weekStart, onCha
                   onChange={handleProjectChange}
                   fullWidth
                 >
-                  {projects.map(project => (
+                  {!projects.some(p => p.id === entry.project_id) && <MenuItem value={entry.project_id} disabled>{entry.project_name} · {t('departments.unavailable')}</MenuItem>}
+                  {projects.filter(p => p.active !== 0 || p.id === entry.project_id).map(project => (
                     <MenuItem key={project.id} value={project.id}>{project.name}</MenuItem>
                   ))}
                 </TextField>
@@ -87,6 +89,7 @@ function SingleProjectWeekEditor({ entry, projects, daysOfWeek, weekStart, onCha
                   sx={{ backgroundColor: (day.key === 'sat' || day.key === 'sun') ? '#f5f5f5' : undefined, minWidth: 56, px: 0.5, py: 0.5 }}
                 >
                   <HourInput
+                    disabled={loading || (!canOverride && !projects.some(p => p.id === entry.project_id && p.active !== 0) && !entry.existingDays?.includes(day.key))}
                     value={entry.hours[day.key] || ''}
                     onChange={val => handleHourChange(day.key, val)}
                   />

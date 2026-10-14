@@ -18,6 +18,7 @@ export default function ProjectDialogLayout({
   title,
   subtitle,
   chips = [],
+  reserveChips = false,
   headerAction,
   children,
   secondaryLabel,
@@ -29,6 +30,7 @@ export default function ProjectDialogLayout({
   actionsVisible = true,
   closeDisabled = false,
   compact = false,
+  compactWidth = 560,
   tourTarget,
 }) {
   const theme = useTheme();
@@ -45,8 +47,8 @@ export default function ProjectDialogLayout({
       PaperProps={{
         'data-product-tour': tourTarget,
         sx: {
-          width: compact ? { sm: 'min(100% - 48px, 560px)' } : { sm: 'calc(100% - 48px)' },
-          maxWidth: compact ? 560 : 1320,
+          width: compact ? { sm: `min(100% - 48px, ${compactWidth}px)` } : { sm: 'calc(100% - 48px)' },
+          maxWidth: compact ? compactWidth : 1320,
           height: compact ? 'auto' : { xs: '100dvh', sm: 'min(900px, calc(100dvh - 48px))' },
           maxHeight: compact ? { xs: '100dvh', sm: 'calc(100dvh - 48px)' } : { xs: '100dvh', sm: 'calc(100dvh - 48px)' },
           borderRadius: { xs: 0, sm: '14px' },
@@ -78,8 +80,8 @@ export default function ProjectDialogLayout({
                 {subtitle}
               </Typography>
             ) : null}
-            {chips.length > 0 ? (
-              <Stack direction="row" useFlexGap flexWrap="wrap" spacing={0.75} sx={{ mt: 1.25 }}>
+            {reserveChips || chips.length > 0 ? (
+              <Stack direction="row" useFlexGap flexWrap="wrap" spacing={0.75} sx={{ mt: 1.25, minHeight: 24 }}>
                 {chips.map((chip) => (
                   <Chip
                     key={chip.key || chip.label}

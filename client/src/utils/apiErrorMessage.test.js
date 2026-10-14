@@ -1,0 +1,5 @@
+import {getApiErrorMessage} from './apiErrorMessage';
+import {translations} from '../i18n/translations';
+const t=key=>key.split('.').reduce((value,part)=>value?.[part],translations.en)||key;
+test.each(['date_conflict','project_unavailable','stale','period_forbidden'])('translates %s even when the server message is Russian',code=>{const result=getApiErrorMessage({response:{data:{errorCode:`department_history.${code}`,error:'Русская ошибка'}}},t,'departmentHistory.saveError');expect(result).toBe(translations.en.departmentHistory.errors[code]);expect(result).not.toMatch(/[А-Яа-яЁё]/);});
+test('unknown and legacy department error codes use localized fallbacks',()=>{expect(getApiErrorMessage({response:{data:{errorCode:'unknown',error:'Русская ошибка'}}},t)).toBe(translations.en.common.requestFailed);expect(getApiErrorMessage({response:{data:{errorCode:'departments.history_required'}}},t)).toBe(translations.en.departmentHistory.errors.history_required);expect(getApiErrorMessage({response:{data:{errorCode:'departments.invalid_status'}}},t)).toBe(translations.en.departments.invalidStatus);});

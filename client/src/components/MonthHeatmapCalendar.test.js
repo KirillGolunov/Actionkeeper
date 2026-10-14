@@ -39,3 +39,5 @@ test('year selector always keeps a rolling range around the displayed year', () 
 test('overtime tooltip describes hours above the daily norm without legal wording', () => {
   expect(getDayTooltip(new Date(2026, 7, 12), 10, false)).toContain('10 часов · на 2 часа больше дневной нормы');
 });
+
+test('calendar tooltips have English months, units and states without Russian text',()=>{const date=new Date(2026,7,12);expect(getDayTooltip(date,10,false,'en')).toContain('10 hours · 2 hours above the daily target');expect(getDayTooltip(date,1,true,'en')).toContain('1 hour · weekend');expect(getDayTooltip(date,2.5,false,'en')).toContain('2.5 of 8 hours');expect(getDayTooltip(date,8,false,'en')).not.toMatch(/[А-Яа-яЁё]/);});

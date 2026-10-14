@@ -1,3 +1,7 @@
+import ProductErrorToast from '../components/ProductErrorToast';
+import ProjectFilterControl from '../components/ProjectFilterControl';
+import { defaultProjectFilters, filterProjectCatalog } from '../utils/projectFilters';
+import DepartmentChips from '../components/DepartmentChips';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Box,
@@ -14,11 +18,7 @@ import {
   IconButton,
   Tooltip,
   Chip,
-  Popover,
-  Checkbox,
-  FormControlLabel,
   Divider,
-  ClickAwayListener,
   CircularProgress,
   Snackbar,
   Stack,
@@ -32,7 +32,6 @@ import AddIcon from '@mui/icons-material/Add';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import PauseCircleOutlineIcon from '@mui/icons-material/PauseCircleOutline';
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
-import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from '../i18n/I18nProvider';
 import { getApiErrorMessage } from '../utils/apiErrorMessage';
@@ -47,17 +46,14 @@ import {
   getProjectStatusLabelSx,
   projectCardSurfaceSx,
 } from '../utils/projectCardSurface';
-import PageLayout, {
-  PageToolbar,
-  pageActionButtonSx,
-  pageFilterChipSx,
-} from '../components/PageLayout';
+import { pageActionButtonSx } from '../components/PageLayout';
 import {
   PROJECT_CATEGORY_OPTIONS,
   PROJECT_CATEGORY_ORDER,
   PROJECT_CATEGORY_TRANSITION,
   getProjectCategoryChipStyles,
   getProjectCategoryMeta,
+  getProjectCategoryLabel,
 } from '../utils/projectCategories';
 
 function Projects({ modalOnly = false, initialProjectId = null, onModalClose }) {
@@ -65,14 +61,14 @@ function Projects({ modalOnly = false, initialProjectId = null, onModalClose }) 
   const isRussian = locale === 'ru';
   const categoryFieldLabel = t('projects.category');
   const categoryRequiredText = t('projects.validation.categoryRequired');
-  const unclassifiedFilterLabel = t('projects.filters.unclassified');
   const [projects, setProjects] = useState([]);
+  const [projectsLoaded, setProjectsLoaded] = useState(false);
+  const [departmentsLoaded, setDepartmentsLoaded] = useState(false);
   const [clients, setClients] = useState([]);
   const [managerCandidates, setManagerCandidates] = useState([]);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
-  const [categoriesAnchorEl, setCategoriesAnchorEl] = useState(null);
   const [newProject, setNewProject] = useState({ 
     name: '', 
     description: '',
@@ -108,22 +104,16 @@ function Projects({ modalOnly = false, initialProjectId = null, onModalClose }) 
   const [projectActionsAnchorEl, setProjectActionsAnchorEl] = useState(null);
   const [deletingProject, setDeletingProject] = useState(false);
   const [pendingBudgetRequests, setPendingBudgetRequests] = useState([]);
-  const [filters, setFilters] = useState({
-    scope: 'mine',
-    active: true,
-    closed: false,
-    requiresDecision: false,
-    external_delivery: false,
-    internal_project: false,
-    operations: false,
-    people_development: false,
-    time_off: false,
-    unclassified: false,
-  });
-  const { user: currentUser } = useAuth();
+  const [filters, setFilters] = useState(defaultProjectFilters);
+  const { user: currentUser, refreshSessionStatus } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const [departments, setDepartments] = useState([]);
+  useEffect(() => { axios.get('/api/departments').then(r => { setDepartments(r.data); setDepartmentsLoaded(true); }).catch(() => setError(t('departments.loadFailed'))); }, [t]);
+  useEffect(() => { const refresh = () => refreshSessionStatus?.()?.catch(() => {}); window.addEventListener('focus', refresh); const timer = window.setInterval(refresh, 30000); return () => { window.removeEventListener('focus', refresh); window.clearInterval(timer); }; }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const canEdit = currentUser?.role === 'admin';
+  const canCreateProjects = canEdit || !!currentUser?.canCreateProjects;
+  const canReviewProjects = canEdit || !!currentUser?.managedDepartmentIds?.length;
   const deepLinkParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const focusedBudgetRequestId = deepLinkParams.get('requestId');
   const focusedBudgetNotificationId = deepLinkParams.get('notificationId');
@@ -131,9 +121,10 @@ function Projects({ modalOnly = false, initialProjectId = null, onModalClose }) 
   const deepLinkTargetsEditProject = Number(deepLinkParams.get('projectId')) === Number(editProject?.id);
   const embeddedTargetsEditProject = modalOnly && Number(initialProjectId) === Number(editProject?.id);
   const isEditProjectManager = Number(editProject?.manager_user_id) === Number(currentUser?.id);
-  const canViewEditProjectFinance = Boolean(canEdit || isEditProjectManager);
+  const canReviewEditProject = canEdit || !!currentUser?.managedDepartmentIds?.includes(editProject?.responsible_department_id);
+  const canViewEditProjectFinance = Boolean(canEdit || isEditProjectManager || (canReviewEditProject && editProject?.permissions?.canViewBudget));
   const fetchPendingBudgetRequests = useCallback(async () => {
-    if (currentUser?.role !== 'admin') {
+    if (currentUser?.role !== 'admin' && !currentUser?.managedDepartmentIds?.length) {
       setPendingBudgetRequests([]);
       return;
     }
@@ -143,7 +134,7 @@ function Projects({ modalOnly = false, initialProjectId = null, onModalClose }) 
     } catch (fetchError) {
       console.error('Error fetching pending budget requests:', fetchError);
     }
-  }, [currentUser?.role]);
+  }, [currentUser?.role, currentUser?.managedDepartmentIds]);
 
   const loadEditBudgetData = useCallback(async () => {
     if (!editOpen || !editProject?.id || !canViewEditProjectFinance) return null;
@@ -168,7 +159,7 @@ function Projects({ modalOnly = false, initialProjectId = null, onModalClose }) 
         console.warn('Budget history could not be loaded:', historyResult.reason);
         setEditBudgetHistory({ versions: [], requests: [], events: [] });
       }
-      if (canEdit) fetchPendingBudgetRequests();
+      if (canReviewProjects) fetchPendingBudgetRequests();
       return statusResponse.data;
     } catch (budgetError) {
       setEditBudgetLoadError(getApiErrorMessage(budgetError, t, 'projects.budget.errors.fetch'));
@@ -176,7 +167,7 @@ function Projects({ modalOnly = false, initialProjectId = null, onModalClose }) 
     } finally {
       setEditBudgetLoading(false);
     }
-  }, [editOpen, editProject?.id, canViewEditProjectFinance, canEdit, fetchPendingBudgetRequests, t]);
+  }, [editOpen, editProject?.id, canViewEditProjectFinance, canReviewProjects, fetchPendingBudgetRequests, t]);
 
   useEffect(() => {
     if (editOpen && editProject?.id && canViewEditProjectFinance) loadEditBudgetData();
@@ -189,6 +180,7 @@ function Projects({ modalOnly = false, initialProjectId = null, onModalClose }) 
     code: project?.code || '',
     category: project?.category || '',
     managerUserId: project?.managerUserId || null,
+    departmentIds: project?.departmentIds || [], responsibleDepartmentId: project?.responsibleDepartmentId || null,
     active: project?.active === undefined ? true : Boolean(project.active),
   }), []);
   const emptyProjectComparable = useMemo(() => projectComparable({}), [projectComparable]);
@@ -202,6 +194,8 @@ function Projects({ modalOnly = false, initialProjectId = null, onModalClose }) 
     try {
       const response = await axios.get('/api/projects');
       setProjects(response.data);
+      setProjectsLoaded(true);
+      setEditProject(current => { const fresh = response.data.find(p => p.id === current?.id); return fresh ? { ...current, permissions: fresh.permissions, responsible_department_id: fresh.responsible_department_id, responsibleDepartment: fresh.responsibleDepartment } : current; });
     } catch (error) {
       console.error('Error fetching projects:', error);
       setError(t('projects.errors.fetch'));
@@ -219,17 +213,15 @@ function Projects({ modalOnly = false, initialProjectId = null, onModalClose }) 
   }, [t]);
 
   const fetchManagerCandidates = useCallback(async () => {
-    if (currentUser?.role !== 'admin') return;
+    if (!canCreateProjects) { setManagerCandidates([]); return; }
     try {
-      const response = await axios.get('/api/users');
-      setManagerCandidates(response.data.filter((candidate) => (
-        !candidate.deleted && !candidate.invited && ['user', 'admin'].includes(candidate.role)
-      )));
+      const response = await axios.get('/api/projects/creation-options');
+      setManagerCandidates(response.data.managerCandidates);
     } catch (fetchError) {
       console.error('Error fetching project manager candidates:', fetchError);
       setError(t('projects.manager.errors.fetchCandidates'));
     }
-  }, [currentUser?.role, t]);
+  }, [canCreateProjects, t]);
 
   useEffect(() => {
     fetchProjects();
@@ -239,10 +231,10 @@ function Projects({ modalOnly = false, initialProjectId = null, onModalClose }) 
   }, [fetchProjects, fetchClients, fetchManagerCandidates, fetchPendingBudgetRequests]);
 
   useEffect(() => {
-    if (!canEdit) return undefined;
+    if (!canReviewProjects) return undefined;
     const intervalId = window.setInterval(fetchPendingBudgetRequests, 30000);
     return () => window.clearInterval(intervalId);
-  }, [canEdit, fetchPendingBudgetRequests]);
+  }, [canReviewProjects, fetchPendingBudgetRequests]);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -259,7 +251,7 @@ function Projects({ modalOnly = false, initialProjectId = null, onModalClose }) 
   }, [location.search, projects, canEdit, currentUser?.id, initialProjectId, modalOnly]);
 
   const handleOpen = () => {
-    if (!canEdit) return;
+    if (!canCreateProjects) return;
     setError(null);
     setNotice(null);
     setFormErrors({});
@@ -303,11 +295,12 @@ function Projects({ modalOnly = false, initialProjectId = null, onModalClose }) 
   };
 
   const handleSubmit = async () => {
-    if (!canEdit || saving) return false;
+    if (!canCreateProjects || saving) return false;
     const nextErrors = validateProjectForm(newProject);
     const budgetErrors = validateBudgetDraft(newProjectBudget, true);
     if (Object.keys(nextErrors).length > 0) {
       setFormErrors(nextErrors);
+      setError(Object.values(nextErrors).join('\n'));
       return false;
     }
     if (Object.keys(budgetErrors).length > 0) {
@@ -320,69 +313,25 @@ function Projects({ modalOnly = false, initialProjectId = null, onModalClose }) 
       setError(t('projects.budget.validation.reasonRequired'));
       return false;
     }
+    if (!newProject.departmentIds?.length) { setError(t('departments.required')); setFormErrors(previous => ({ ...previous, departmentIds: t('departments.required') })); return false; }
     setSaving(true);
     setFormErrors({});
     setError(null);
     try {
+      if (!newProject.responsibleDepartmentId || !newProject.departmentIds.includes(newProject.responsibleDepartmentId)) { setError(t('governance.ownerRequired')); return false; }
       const projectResponse = await axios.post('/api/projects', {
+        responsibleDepartmentId: newProject.responsibleDepartmentId, managerUserId: newProject.managerUserId || null,
+        budget: newProjectBudget, budgetReason: newProjectBudgetReason,
+        departmentIds: newProject.departmentIds,
         name: newProject.name,
         description: newProject.description,
         client_id: newProject.client_id,
         code: newProject.code,
         category: newProject.category,
       });
-      let managerSaved = !newProject.managerUserId;
-      let budgetSaved = newProjectBudget.budgetMode === 'none';
-      let partialMessage = null;
-      if (newProject.managerUserId) {
-        try {
-          const managerResponse = await axios.put(`/api/admin/projects/${projectResponse.data.id}/manager`, {
-            managerUserId: newProject.managerUserId,
-          });
-          managerSaved = true;
-          if (managerResponse.data.emailDelivery === 'failed') {
-            partialMessage = t('projects.manager.emailFailed');
-          }
-        } catch (managerError) {
-          console.error('Project created but manager assignment failed:', managerError);
-          partialMessage = t('projects.manager.errors.createdWithoutManager');
-        }
-      }
-      if (newProjectBudget.budgetMode !== 'none') {
-        try {
-          await axios.patch(`/api/admin/projects/${projectResponse.data.id}/budget`, {
-            reason: newProjectBudgetReason,
-            budget: newProjectBudget,
-          });
-          budgetSaved = true;
-        } catch (budgetError) {
-          console.error('Project created but budget failed:', budgetError);
-          partialMessage = t('projects.budget.errors.createdWithoutBudget');
-        }
-      }
       await fetchProjects();
-
-      if (!managerSaved || !budgetSaved) {
-        const assignedManager = managerSaved
-          ? managerCandidates.find((candidate) => Number(candidate.id) === Number(newProject.managerUserId))
-          : null;
-        const createdProject = {
-          ...projectResponse.data,
-          manager_user_id: assignedManager?.id || null,
-          managerUserId: assignedManager?.id || null,
-          originalManagerUserId: assignedManager?.id || null,
-          manager_name: assignedManager?.name || '',
-          manager_surname: assignedManager?.surname || '',
-        };
-        setOpen(false);
-        setEditProject(createdProject);
-        setEditBudgetEditing(!budgetSaved);
-        setEditOpen(true);
-        setNotice(partialMessage);
-      } else {
-        forceCreateClose();
-        setNotice(partialMessage);
-      }
+      forceCreateClose();
+      setNotice(projectResponse.data.emailDelivery === 'failed' ? t('projects.manager.emailFailed') : t('projects.saved'));
       setNewProject({ 
         name: '', 
         description: '',
@@ -416,7 +365,7 @@ function Projects({ modalOnly = false, initialProjectId = null, onModalClose }) 
     setFormErrors({});
     const nextProject = { ...project, managerUserId: project.manager_user_id || null, originalManagerUserId: project.manager_user_id || null };
     const isManager = Number(project.manager_user_id) === Number(currentUser?.id);
-    const nextViewMode = initialMode === 'budget' || canEdit || isManager ? 'budget' : 'hours';
+    const nextViewMode = initialMode === 'budget' || canEdit || isManager || project.permissions?.canViewBudget ? 'budget' : 'hours';
     setEditProject(nextProject);
     setEditViewMode(nextViewMode);
     setEditHoursActivated(nextViewMode === 'hours');
@@ -464,9 +413,16 @@ function Projects({ modalOnly = false, initialProjectId = null, onModalClose }) 
     const isManager = Number(editProject.manager_user_id) === Number(currentUser?.id);
     if (!canEdit && !isManager) return { ok: false, error: t('common.notAuthorized') };
     try {
+      if (field === 'departmentIds') {
+        if (!nextValue.length) return { ok: false, error: t('departments.required') };
+        const response = await axios.patch(`/api/projects/${editProject.id}`, { departmentIds: nextValue });
+        setEditProject(project => ({ ...project, departments: response.data.departments }));
+        setProjects(items => items.map(project => project.id === editProject.id ? { ...project, departments: response.data.departments } : project));
+        return { ok: true };
+      }
       if (field === 'managerUserId') {
         if (!canEdit) return { ok: false, error: t('common.notAuthorized') };
-        const managerUserId = nextValue === '' ? null : Number(nextValue);
+        const managerUserId = nextValue == null || nextValue === '' ? null : Number(nextValue);
         const response = await axios.put(`/api/admin/projects/${editProject.id}/manager`, { managerUserId });
         const assigned = response.data.manager;
         const nextProject = {
@@ -631,25 +587,8 @@ function Projects({ modalOnly = false, initialProjectId = null, onModalClose }) 
     }
   };
 
-  const activeCategoryFilters = Object.entries(filters)
-    .filter(([key, enabled]) => enabled && !['scope', 'active', 'closed', 'requiresDecision'].includes(key))
-    .map(([key]) => key);
   const pendingBudgetProjectIds = new Set(pendingBudgetRequests.map((request) => Number(request.projectId)));
-
-  const filteredProjects = projects.filter(project => {
-    if (filters.scope === 'mine' && !project.is_my_project) return false;
-    if (filters.scope === 'managed' && Number(project.manager_user_id) !== Number(currentUser?.id)) return false;
-    if (filters.requiresDecision && !pendingBudgetProjectIds.has(Number(project.id))) return false;
-    const statusVisible = (project.active && filters.active) || (!project.active && filters.closed);
-    if (!statusVisible) return false;
-    if (activeCategoryFilters.length > 0 && !activeCategoryFilters.includes(project.category || PROJECT_CATEGORY_TRANSITION.value)) {
-      return false;
-    }
-    return true;
-  });
-  const hasDefaultStatusAndCategories = filters.active && !filters.closed && activeCategoryFilters.length === 0;
-  const showDefaultMineEmptyState = filters.scope === 'mine' && hasDefaultStatusAndCategories;
-  const showDefaultManagedEmptyState = filters.scope === 'managed' && hasDefaultStatusAndCategories;
+  const filteredProjects = filterProjectCatalog(projects, filters, currentUser?.id, pendingBudgetProjectIds);
 
   const sortedProjects = [...filteredProjects].sort((a, b) => {
     const categoryIndexA = PROJECT_CATEGORY_ORDER.indexOf(a.category || PROJECT_CATEGORY_TRANSITION.value);
@@ -666,349 +605,15 @@ function Projects({ modalOnly = false, initialProjectId = null, onModalClose }) 
     }))
     .filter((group) => group.projects.length > 0);
 
-  const scopeTagStyles = {
-    mine: {
-      selected: { background: '#EEF3FF', color: '#5673DC', border: '1px solid #5673DC' },
-      default: { background: '#F5F7FA', color: '#90A0B7', border: 'none' },
-      label: t('projects.filters.mine'),
-      tooltip: t('projects.filters.tooltips.mine'),
-    },
-    managed: {
-      selected: { background: '#EEF3FF', color: '#5673DC', border: '1px solid #5673DC' },
-      default: { background: '#F5F7FA', color: '#90A0B7', border: 'none' },
-      label: t('projects.filters.managed'),
-      tooltip: t('projects.filters.tooltips.managed'),
-    },
-    all: {
-      selected: { background: '#EEF3FF', color: '#5673DC', border: '1px solid #5673DC' },
-      default: { background: '#F5F7FA', color: '#90A0B7', border: 'none' },
-      label: t('projects.filters.all'),
-      tooltip: t('projects.filters.tooltips.all'),
-    },
-  };
-
-  const statusTagStyles = {
-    active: {
-      selected: { background: '#F5F7FE', color: '#5673DC', border: '1px solid #5673DC' },
-      default: { background: '#F5F7FA', color: '#90A0B7', border: 'none' },
-      label: t('projects.active'),
-      tooltip: t('projects.filters.tooltips.active'),
-    },
-    closed: {
-      selected: { background: '#F5EAFE', color: '#A259E6', border: '1px solid #A259E6' },
-      default: { background: '#F5F7FA', color: '#90A0B7', border: 'none' },
-      label: t('projects.closed'),
-      tooltip: t('projects.filters.tooltips.closed'),
-    },
-  };
-
-  const categoryFilterOptions = [
-    ...PROJECT_CATEGORY_OPTIONS.map((category) => ({
-      key: category.value,
-      label: category.label,
-      shortLabel: t(`projects.filters.shortCategories.${category.value}`),
-      tooltip: t(`projects.filters.tooltips.${category.value}`),
-    })),
-    {
-      key: PROJECT_CATEGORY_TRANSITION.value,
-      label: unclassifiedFilterLabel,
-      shortLabel: t('projects.filters.shortCategories.unclassified'),
-      tooltip: t('projects.filters.tooltips.unclassified'),
-    },
-  ];
-
-  const scopeFilterOptions = Object.keys(scopeTagStyles).map((key) => ({
-    key,
-    ...scopeTagStyles[key],
-  }));
-
-  const statusFilterOptions = Object.keys(statusTagStyles).map((key) => ({
-    key,
-    ...statusTagStyles[key],
-  }));
-
-  const hasNonDefaultFilters = filters.scope !== 'mine'
-    || !filters.active
-    || filters.closed
-    || filters.requiresDecision
-    || activeCategoryFilters.length > 0;
-
-  const clearCategoryFilters = () => {
-    setFilters((currentFilters) => ({
-      ...currentFilters,
-      external_delivery: false,
-      internal_project: false,
-      operations: false,
-      people_development: false,
-      time_off: false,
-      unclassified: false,
-    }));
-  };
-
-  const resetFilters = () => {
-    setFilters({
-      scope: 'mine',
-      active: true,
-      closed: false,
-      requiresDecision: false,
-      external_delivery: false,
-      internal_project: false,
-      operations: false,
-      people_development: false,
-      time_off: false,
-      unclassified: false,
-    });
-  };
-
   return (
-      <PageLayout
-      sx={modalOnly ? { display: 'none' } : undefined}
-      title={t('projects.title')}
-      subtitle={t('projects.catalogCount', { count: projects.length })}
-      actions={
-        canEdit ? (
-          <Button
-            variant="contained"
-            color="primary"
-            startIcon={<AddIcon />}
-            onClick={handleOpen}
-            sx={{
-              ...pageActionButtonSx,
-              width: { xs: '100%', md: 'auto' },
-            }}
-          >
-            {t('projects.addProject')}
-          </Button>
-        ) : null
-      }
-      toolbar={
-        <PageToolbar sx={{ py: { xs: 1, md: 1 } }}>
-          <Box
-            sx={{
-              display: 'flex',
-              alignItems: { xs: 'stretch', md: 'center' },
-              justifyContent: 'space-between',
-              gap: { xs: 1, md: 1.25 },
-              flexDirection: { xs: 'column', md: 'row' },
-            }}
-          >
-            <Box
-              sx={{
-                display: 'flex',
-                gap: 1,
-                flexWrap: 'nowrap',
-                overflowX: 'auto',
-                width: { xs: '100%', md: 'auto' },
-                pb: { xs: 0.25, md: 0 },
-                scrollbarWidth: 'thin',
-              }}
-            >
-              {scopeFilterOptions.map((scope) => (
-                <Tooltip key={scope.key} title={scope.tooltip} arrow>
-                  <Chip
-                    label={scope.label}
-                    clickable
-                    onClick={() => setFilters((currentFilters) => ({ ...currentFilters, scope: scope.key }))}
-                    sx={{
-                      ...pageFilterChipSx,
-                      flexShrink: 0,
-                      ...(filters.scope === scope.key ? scope.selected : scope.default),
-                    }}
-                  />
-                </Tooltip>
-              ))}
-              {canEdit ? (
-                <Tooltip title={t('projects.filters.tooltips.requiresDecision')} arrow>
-                  <Chip
-                    label={`${t('projects.filters.requiresDecision')} · ${pendingBudgetRequests.length}`}
-                    clickable
-                    onClick={() => setFilters((currentFilters) => ({ ...currentFilters, requiresDecision: !currentFilters.requiresDecision }))}
-                    sx={{
-                      ...pageFilterChipSx,
-                      flexShrink: 0,
-                      ...(filters.requiresDecision
-                        ? { background: '#FCF0EB', color: '#C95425', border: '1px solid #E77142' }
-                        : { background: '#F5F7FA', color: '#90A0B7', border: 'none' }),
-                    }}
-                  />
-                </Tooltip>
-              ) : null}
-            </Box>
-
-            <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', md: 'block' }, mx: 0.25 }} />
-
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', width: { xs: '100%', md: 'auto' } }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                {statusFilterOptions.map((status) => (
-                  <Tooltip key={status.key} title={status.tooltip} arrow>
-                    <Chip
-                      label={status.label}
-                      clickable
-                      onClick={() => setFilters((currentFilters) => ({ ...currentFilters, [status.key]: !currentFilters[status.key] }))}
-                      sx={{
-                        ...pageFilterChipSx,
-                        ...(filters[status.key] ? status.selected : status.default),
-                      }}
-                    />
-                  </Tooltip>
-                ))}
-              </Box>
-
-              <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', md: 'block' }, mx: 0.25 }} />
-
-              <Tooltip title={t('projects.filters.categoriesTooltip')} arrow>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  endIcon={<ArrowDropDownIcon />}
-                  onClick={(event) => setCategoriesAnchorEl((anchor) => anchor ? null : event.currentTarget)}
-                  aria-haspopup="true"
-                  aria-expanded={Boolean(categoriesAnchorEl)}
-                  sx={{
-                    height: 32,
-                    borderRadius: '10px',
-                    px: 1.25,
-                    textTransform: 'none',
-                    fontSize: 13,
-                    fontWeight: 500,
-                    boxShadow: 'none',
-                    whiteSpace: 'nowrap',
-                    color: '#5673DC',
-                    borderColor: activeCategoryFilters.length > 0 ? '#5673DC' : '#D7DFF5',
-                    backgroundColor: activeCategoryFilters.length > 0 ? '#EEF3FF' : '#FFFFFF',
-                    '&:hover': {
-                      color: '#4256B2',
-                      borderColor: '#5673DC',
-                      backgroundColor: '#EEF3FF',
-                      boxShadow: 'none',
-                    },
-                  }}
-                >
-                  {t('projects.filters.categories')}{activeCategoryFilters.length > 0 ? ` · ${activeCategoryFilters.length}` : ''}
-                </Button>
-              </Tooltip>
-
-              <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', md: 'block' }, mx: 0.25 }} />
-
-              <Button
-                onClick={resetFilters}
-                disabled={!hasNonDefaultFilters}
-                sx={{
-                  ml: { xs: 0, md: 'auto' },
-                  color: '#5673DC',
-                  textTransform: 'none',
-                  fontWeight: 500,
-                  fontSize: 13,
-                  minWidth: isRussian ? 72 : 48,
-                  px: 0.5,
-                  '&:hover': {
-                    background: 'transparent',
-                    color: '#4256B2',
-                  },
-                  '&.Mui-disabled': {
-                    color: '#AEB8CA',
-                    background: 'transparent',
-                  },
-                }}
-              >
-                {t('projects.filters.reset')}
-              </Button>
-            </Box>
-
-            <Popover
-              open={Boolean(categoriesAnchorEl)}
-              anchorEl={categoriesAnchorEl}
-              onClose={() => setCategoriesAnchorEl(null)}
-              hideBackdrop
-              disableScrollLock
-              anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-              transformOrigin={{ vertical: 'top', horizontal: 'left' }}
-              sx={{ pointerEvents: 'none' }}
-              PaperProps={{
-                sx: {
-                  pointerEvents: 'auto',
-                  mt: 0.75,
-                  width: 390,
-                  maxWidth: 'calc(100vw - 32px)',
-                  borderRadius: 2.5,
-                  border: '1px solid #D2DCF2',
-                  backgroundColor: '#FFFFFF',
-                  color: '#222832',
-                  boxShadow: '0 14px 36px rgba(53, 67, 112, 0.18)',
-                },
-              }}
-            >
-              <ClickAwayListener
-                onClickAway={(event) => {
-                  if (categoriesAnchorEl?.contains(event.target)) return;
-                  setCategoriesAnchorEl(null);
-                }}
-              >
-                <Box sx={{ px: 2, py: 1.5 }}>
-                  <Typography sx={{ color: '#222832', fontSize: 14, fontWeight: 700, mb: 1 }}>
-                    {t('projects.filters.categoriesTitle')}
-                  </Typography>
-                  <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }, columnGap: 1.5, rowGap: 0.25 }}>
-                    {categoryFilterOptions.map((category) => (
-                      <Tooltip key={category.key} title={category.tooltip} arrow placement="right">
-                        <FormControlLabel
-                          control={
-                            <Checkbox
-                              size="small"
-                              checked={!!filters[category.key]}
-                              onChange={() => setFilters((currentFilters) => ({ ...currentFilters, [category.key]: !currentFilters[category.key] }))}
-                              sx={{
-                                color: '#AEB8CA',
-                                '&.Mui-checked': { color: '#5673DC' },
-                                '&:hover': { backgroundColor: '#EEF3FF' },
-                              }}
-                            />
-                          }
-                          label={category.shortLabel}
-                          sx={{
-                            m: 0,
-                            minWidth: 0,
-                            color: '#222832',
-                            '& .MuiFormControlLabel-label': { fontSize: 13 },
-                          }}
-                        />
-                      </Tooltip>
-                    ))}
-                  </Box>
-                  {activeCategoryFilters.length > 0 && (
-                    <>
-                      <Divider sx={{ my: 1, borderColor: '#D2DCF2' }} />
-                      <Button
-                        size="small"
-                        onClick={clearCategoryFilters}
-                        sx={{
-                          px: 0,
-                          color: '#5673DC',
-                          textTransform: 'none',
-                          fontSize: 13,
-                          '&:hover': {
-                            color: '#4256B2',
-                            backgroundColor: 'transparent',
-                          },
-                        }}
-                      >
-                        {t('projects.filters.clearCategories')}
-                      </Button>
-                    </>
-                  )}
-                </Box>
-              </ClickAwayListener>
-            </Popover>
+      <Box sx={{ height: '100%', minHeight: 0, p: { xs: 1, sm: 2, xl: 3 }, pt: { xs: 7, sm: 2, xl: 3 }, overflow: 'hidden', bgcolor: '#F6F7F9', ...(modalOnly ? { display: 'none' } : {}) }}>
+        <Box sx={{ height: '100%', minHeight: 0, display: 'grid', gridTemplateRows: { xs: 'auto minmax(0,1fr)', sm: '68px minmax(0,1fr)' }, gap: 1.5 }}>
+          <Box sx={{ px: { xs: 2, sm: 3 }, py: { xs: 1.5, sm: 0 }, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: { xs: 'wrap', sm: 'nowrap' }, gap: 1.5, bgcolor: '#FFFFFF', border: '1px solid #E2E4E9', borderRadius: 3 }}>
+            <ProjectFilterControl optionsLoaded={projectsLoaded && departmentsLoaded} filters={filters} onChange={setFilters} departments={departments} projects={projects} currentUser={currentUser} canReview={canReviewProjects} pendingCount={pendingBudgetRequests.length} />
+            {canCreateProjects && <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpen} sx={{ ...pageActionButtonSx, flexShrink: 0 }}>{t('projects.addProject')}</Button>}
           </Box>
-        </PageToolbar>
-      }
-    >
-
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
-        </Alert>
-      )}
+          <Box sx={{ minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}>
+      <ProductErrorToast message={error} onClose={() => setError(null)} />
       <Snackbar
         open={Boolean(notice)}
         autoHideDuration={8000}
@@ -1024,18 +629,14 @@ function Projects({ modalOnly = false, initialProjectId = null, onModalClose }) 
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
         {filteredProjects.length === 0 && (
           <Alert severity="info">
-            {showDefaultMineEmptyState
-              ? t('projects.filters.emptyMine')
-              : showDefaultManagedEmptyState
-                ? t('projects.filters.emptyManaged')
-                : t('projects.filters.empty')}
+            {t('projects.filters.empty')}
           </Alert>
         )}
         {groupedProjects.map((group) => (
           <Box key={group.categoryValue}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
               <Typography variant="h6" sx={{ fontSize: 18, fontWeight: 600 }}>
-                {group.meta.label}
+                {getProjectCategoryLabel(group.categoryValue, t)}
               </Typography>
               <Chip
                 size="small"
@@ -1051,7 +652,6 @@ function Projects({ modalOnly = false, initialProjectId = null, onModalClose }) 
             </Box>
             <Grid container spacing={3}>
               {group.projects.map((project) => {
-                const categoryMeta = getProjectCategoryMeta(project.category);
                 const hasPendingBudgetRequest = Boolean(
                   project.has_pending_budget_request
                   || pendingBudgetProjectIds.has(Number(project.id))
@@ -1080,7 +680,7 @@ function Projects({ modalOnly = false, initialProjectId = null, onModalClose }) 
                       sx={{
                         ...projectCardSurfaceSx,
                         width: '100%',
-                        height: 190,
+                        height: '100%',
                         cursor: 'pointer',
                       }}
                     >
@@ -1112,19 +712,7 @@ function Projects({ modalOnly = false, initialProjectId = null, onModalClose }) 
                             {t('projects.code')}: {project.code || t('projects.noCode')}
                           </Typography>
                         </OverflowTooltip>
-                        <Box sx={{ mb: 0.75, mt: 0.5 }}>
-                          <Chip
-                            size="small"
-                            label={categoryMeta.label}
-                            sx={{
-                              height: 22,
-                              fontSize: 12,
-                              fontWeight: 500,
-                              borderRadius: '6px',
-                              ...getProjectCategoryChipStyles(project.category),
-                            }}
-                          />
-                        </Box>
+                        <DepartmentChips departments={project.departments} />
                         <OverflowTooltip title={`${t('projects.client')}: ${clientName}`} overflowAxis="horizontal" placement="top" arrow>
                           <Typography color="text.secondary" variant="body2" sx={{ mb: 0.25, fontSize: 13, lineHeight: 1.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {t('projects.client')}: {clientName}
@@ -1142,8 +730,7 @@ function Projects({ modalOnly = false, initialProjectId = null, onModalClose }) 
                             sx={{
                               fontSize: 13,
                               lineHeight: 1.3,
-                              mt: 'auto',
-                              minHeight: '2.6em',
+                              mt: 0.25,
                               display: '-webkit-box',
                               WebkitBoxOrient: 'vertical',
                               WebkitLineClamp: 2,
@@ -1167,8 +754,9 @@ function Projects({ modalOnly = false, initialProjectId = null, onModalClose }) 
         open={open}
         onClose={handleClose}
         title={t('projects.dialog.newTitle')}
+        reserveChips
         subtitle={t('projects.dialog.newSubtitle')}
-        chips={newProject.category ? [{ key: 'category', label: PROJECT_CATEGORY_OPTIONS.find((item) => item.value === newProject.category)?.label, sx: getProjectCategoryChipStyles(newProject.category) }] : []}
+        chips={newProject.category ? [{ key: 'category', label: getProjectCategoryLabel(newProject.category, t), sx: getProjectCategoryChipStyles(newProject.category) }] : []}
         secondaryLabel={t('common.actions.cancel')}
         onSecondary={handleClose}
         primaryLabel={t('projects.dialog.create')}
@@ -1177,20 +765,19 @@ function Projects({ modalOnly = false, initialProjectId = null, onModalClose }) 
         primaryVisible
         closeDisabled={saving}
       >
-          {error && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {error}
-            </Alert>
-          )}
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: 'minmax(400px, 38%) minmax(0, 62%)' }, gap: 1.5, alignItems: 'stretch', minWidth: 0, height: { lg: '100%' } }}>
               <ProjectDetailsForm
                 value={newProject}
                 onChange={setNewProject}
                 canEdit
                 clients={clients}
+                departments={departments}
                 managerCandidates={managerCandidates}
+                managedDepartmentIds={currentUser?.managedDepartmentIds || []}
                 categoryOptions={PROJECT_CATEGORY_OPTIONS}
+                onResponsibilityTransferred={project => { setEditProject(project); setProjects(items => items.map(item => item.id === project.id ? { ...item, ...project } : item)); }}
                 errors={formErrors}
+                hideErrorText
                 labels={{
                   sectionTitle: t('projects.dialog.projectDataTitle'),
                   category: categoryFieldLabel,
@@ -1235,7 +822,7 @@ function Projects({ modalOnly = false, initialProjectId = null, onModalClose }) 
           editProject?.manager_user_id ? [editProject.manager_surname, editProject.manager_name].filter(Boolean).join(' ') : t('projects.manager.unassigned'),
         ].filter(Boolean).join(' · ')}
         chips={[
-          editProject?.category ? { key: 'category', label: getProjectCategoryMeta(editProject.category).label, sx: getProjectCategoryChipStyles(editProject.category) } : null,
+          editProject?.category ? { key: 'category', label: getProjectCategoryLabel(editProject.category, t), sx: getProjectCategoryChipStyles(editProject.category) } : null,
           { key: 'active', label: editProject?.active ? t('projects.activeStatus') : t('projects.closedStatus'), sx: editProject?.active ? { background: '#EEF3FF', color: '#3F5FC8' } : { background: '#F0F1F3', color: '#6F7784' } },
           canViewEditProjectFinance
             ? editBudgetLoading && !editBudgetStatus
@@ -1287,11 +874,6 @@ function Projects({ modalOnly = false, initialProjectId = null, onModalClose }) 
         closeDisabled={activeSaving || deletingProject || editBudgetMeta.loading}
         tourTarget="project-dialog"
       >
-          {error && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {error}
-            </Alert>
-          )}
           {editProject ? (
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: 'minmax(400px, 38%) minmax(0, 62%)' }, gap: 1.5, alignItems: 'stretch', minWidth: 0, height: { lg: '100%' } }}>
               <ProjectDetailsForm
@@ -1303,9 +885,13 @@ function Projects({ modalOnly = false, initialProjectId = null, onModalClose }) 
                 inline
                 onSaveField={handleInlineProjectSave}
                 clients={clients}
+                departments={departments}
                 managerCandidates={managerCandidates}
+                managedDepartmentIds={currentUser?.managedDepartmentIds || []}
                 categoryOptions={PROJECT_CATEGORY_OPTIONS}
+                onResponsibilityTransferred={project => { setEditProject(project); setProjects(items => items.map(item => item.id === project.id ? { ...item, ...project } : item)); }}
                 errors={formErrors}
+                hideErrorText
                 currentManagerName={[editProject.manager_surname, editProject.manager_name].filter(Boolean).join(' ')}
                 labels={{
                   sectionTitle: t('projects.dialog.projectDataTitle'),
@@ -1350,12 +936,14 @@ function Projects({ modalOnly = false, initialProjectId = null, onModalClose }) 
                       applyDisabled={editBudgetMeta.primaryDisabled || !editBudgetMeta.primaryVisible}
                       applyVisible={editBudgetMeta.primaryVisible}
                       isAdmin={canEdit}
+                      canReview={canReviewEditProject && !!editProject?.permissions?.canReviewBudget}
                       isManager={!canEdit && isEditProjectManager}
                       settingsContent={(
                         <ProjectBudgetSection
                           ref={budgetSectionRef}
                           projectId={editProject.id}
                           isAdmin={canEdit}
+                      canReview={canReviewEditProject && !!editProject?.permissions?.canReviewBudget}
                           isManager={!canEdit && isEditProjectManager}
                           onDirtyChange={setEditBudgetDirty}
                           onMetaChange={setEditBudgetMeta}
@@ -1552,9 +1140,10 @@ function Projects({ modalOnly = false, initialProjectId = null, onModalClose }) 
           </Button>
         </DialogActions>
       </Dialog>
-      </PageLayout>
+          </Box>
+        </Box>
+      </Box>
   );
 }
 
 export default Projects;
-

@@ -21,10 +21,11 @@ import {
   startOfMonth,
   startOfWeek,
 } from 'date-fns';
-import { ru } from 'date-fns/locale';
+import {useTranslation} from '../i18n/I18nProvider';
+import {translations} from '../i18n/translations';
+import {localeName} from '../utils/localeFormatting';
 
-const WEEKDAY_LABELS = ['П', 'В', 'С', 'Ч', 'П', 'С', 'В'];
-const MONTH_LABELS = ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек'];
+const calendarText=(locale,key,params={})=>{const raw=key.split('.').reduce((value,part)=>value?.[part],translations[locale==='ru'?'ru':'en'].calendar);return String(raw||key).replace(/{{(.*?)}}/g,(_,name)=>params[name.trim()]??'');};
 const MAIN_50 = '#EBEDFA';
 const MAIN_100 = '#D6DCF4';
 const MAIN_200 = '#AABAEB';
@@ -60,31 +61,18 @@ export function getCalendarYears(year) {
   return Array.from({ length: 21 }, (_, index) => Number(year) - 10 + index);
 }
 
-function formatHoursWithWord(value) {
-  const number = Number(value);
-  const formatted = number.toLocaleString('ru-RU', { maximumFractionDigits: 2 });
-  if (!Number.isInteger(number)) return `${formatted} часа`;
-  const lastTwo = Math.abs(number) % 100;
-  const last = lastTwo % 10;
-  const word = lastTwo >= 11 && lastTwo <= 14
-    ? 'часов'
-    : last === 1
-      ? 'час'
-      : last >= 2 && last <= 4
-        ? 'часа'
-        : 'часов';
-  return `${formatted} ${word}`;
+function formatHoursWithWord(value,locale) {
+ const count=new Intl.NumberFormat(localeName(locale),{maximumFractionDigits:2}).format(value);
+ const plural=new Intl.PluralRules(locale==='ru'?'ru':'en').select(Number(value));
+ return calendarText(locale,`hours.${plural}`,{count});
 }
-
-export function getDayTooltip(day, hours, weekend) {
-  const date = format(day, 'd MMMM', { locale: ru });
-  const formattedHours = Number(hours).toLocaleString('ru-RU', { maximumFractionDigits: 2 });
-  if (weekend) return `${date} · ${formatHoursWithWord(hours)} · выходной`;
-  if (hours > 8) {
-    return `${date} · ${formatHoursWithWord(hours)} · на ${formatHoursWithWord(hours - 8)} больше дневной нормы`;
-  }
-  if (hours === 8) return `${date} · 8 часов · день заполнен`;
-  return `${date} · ${formattedHours} из 8 часов`;
+export function getDayTooltip(day,hours,weekend,locale='ru') {
+ const date=new Intl.DateTimeFormat(localeName(locale),{day:'numeric',month:'long'}).format(day);
+ const count=new Intl.NumberFormat(localeName(locale),{maximumFractionDigits:2}).format(hours);
+ if(weekend)return calendarText(locale,'weekend',{date,hours:formatHoursWithWord(hours,locale)});
+ if(hours>8)return calendarText(locale,'overtime',{date,hours:formatHoursWithWord(hours,locale),extra:formatHoursWithWord(hours-8,locale)});
+ if(hours===8)return calendarText(locale,'complete',{date});
+ return calendarText(locale,'partial',{date,count});
 }
 
 const menuProps = {
@@ -189,7 +177,11 @@ export default function MonthHeatmapCalendar({
   onSelectWeek,
   onRetry,
   compact = false,
+  dayPermissions,
 }) {
+  const {t,locale}=useTranslation();
+  const MONTH_LABELS=Array.from({length:12},(_,i)=>new Intl.DateTimeFormat(localeName(locale),{month:'short'}).format(new Date(2026,i,1)));
+  const WEEKDAY_LABELS=Array.from({length:7},(_,i)=>new Intl.DateTimeFormat(localeName(locale),{weekday:'narrow'}).format(new Date(2026,0,5+i)));
   const days = useMemo(() => getCalendarDays(month), [month]);
   const hoursByDay = useMemo(() => summarizeEntriesByDay(entries), [entries]);
   const selectedStart = startOfWeek(new Date(selectedWeek), { weekStartsOn: 1 });
@@ -208,7 +200,7 @@ export default function MonthHeatmapCalendar({
   return (
     <Box
       component="section"
-      aria-label="Календарь заполнения времени"
+      aria-label={t('calendar.title')}
       sx={{
         width: '100%',
         minWidth: 0,
@@ -239,7 +231,7 @@ export default function MonthHeatmapCalendar({
       >
         <IconButton
           size="small"
-          aria-label="Предыдущий месяц"
+          aria-label={t('calendar.previousMonth')}
           onClick={() => onMonthChange(addMonths(month, -1))}
           sx={arrowButtonSx}
         >
@@ -250,7 +242,7 @@ export default function MonthHeatmapCalendar({
           size="small"
           value={month.getMonth()}
           onChange={(event) => changeMonthPart(event.target.value)}
-          inputProps={{ 'aria-label': 'Месяц' }}
+          inputProps={{ 'aria-label': t('calendar.month') }}
           MenuProps={menuProps}
           sx={selectSx}
         >
@@ -261,7 +253,7 @@ export default function MonthHeatmapCalendar({
           size="small"
           value={month.getFullYear()}
           onChange={(event) => changeYearPart(event.target.value)}
-          inputProps={{ 'aria-label': 'Год' }}
+          inputProps={{ 'aria-label': t('calendar.year') }}
           MenuProps={menuProps}
           sx={selectSx}
         >
@@ -270,7 +262,7 @@ export default function MonthHeatmapCalendar({
 
         <IconButton
           size="small"
-          aria-label="Следующий месяц"
+          aria-label={t('calendar.nextMonth')}
           onClick={() => onMonthChange(addMonths(month, 1))}
           sx={arrowButtonSx}
         >
@@ -301,11 +293,12 @@ export default function MonthHeatmapCalendar({
           const key = toDateKey(day);
           const hours = Number(hoursByDay[key] || 0);
           const weekend = day.getDay() === 0 || day.getDay() === 6;
-          const status = getDayStatus(hours, weekend);
+          const accessible = !dayPermissions || !!dayPermissions[key]?.canEdit;
+          const status = accessible ? getDayStatus(hours, weekend) : 'unavailable';
           const inSelectedWeek = day >= selectedStart && day <= selectedEnd;
           const currentMonth = isSameMonth(day, month);
           const todayDay = isSameDay(day, today);
-          const tooltip = getDayTooltip(day, hours, weekend);
+          const tooltip = accessible ? getDayTooltip(day,hours,weekend,locale) : t('calendar.unavailable',{date:new Intl.DateTimeFormat(localeName(locale),{day:'numeric',month:'long'}).format(day)});
           const rowStart = index % 7 === 0;
           const rowEnd = index % 7 === 6;
           const filled = status === 'partial' || status === 'complete' || status === 'overtime' || status === 'weekend-filled';
@@ -318,6 +311,7 @@ export default function MonthHeatmapCalendar({
                 type="button"
                 aria-label={tooltip}
                 aria-pressed={inSelectedWeek}
+                disabled={!accessible}
                 onClick={() => onSelectWeek(startOfWeek(day, { weekStartsOn: 1 }))}
                 sx={{
                   position: 'relative',
@@ -329,7 +323,8 @@ export default function MonthHeatmapCalendar({
                   bgcolor: inSelectedWeek ? MAIN_50 : 'transparent',
                   color: currentMonth ? (weekend ? '#586174' : '#0B0C0F') : '#AEB4C0',
                   font: 'inherit',
-                  cursor: 'pointer',
+                  cursor: accessible ? 'pointer' : 'default',
+                  opacity: accessible ? 1 : 0.4,
                   display: 'grid',
                   placeItems: 'center',
                   '&:hover': { bgcolor: inSelectedWeek ? MAIN_50 : 'transparent' },
@@ -410,8 +405,8 @@ export default function MonthHeatmapCalendar({
       )}
       {error && (
         <Box sx={{ mt: 0.75, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-          <Typography sx={{ fontSize: 11, color: '#B42318' }}>Не удалось обновить календарь</Typography>
-          <Button size="small" onClick={onRetry} sx={{ minWidth: 0, p: 0, fontSize: 11, textTransform: 'none' }}>Повторить</Button>
+          <Typography sx={{ fontSize: 11, color: '#B42318' }}>{t('calendar.loadError')}</Typography>
+          <Button size="small" onClick={onRetry} sx={{ minWidth: 0, p: 0, fontSize: 11, textTransform: 'none' }}>{t('calendar.retry')}</Button>
         </Box>
       )}
     </Box>

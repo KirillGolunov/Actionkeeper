@@ -1,8 +1,28 @@
 export function getApiErrorMessage(error, t, fallbackKey) {
   const errorCode = error?.response?.data?.errorCode;
-  const serverMessage = error?.response?.data?.error;
 
+  if(errorCode?.startsWith('department_history.')){const key=`departmentHistory.errors.${errorCode.slice('department_history.'.length)}`;const message=t(key);if(message!==key)return message;}
   const keyMap = {
+    'departments.invalid_status':'departments.invalidStatus',
+    'departments.history_required':'departmentHistory.errors.history_required',
+    'departments.history_error':'departmentHistory.saveError',
+    'departments.short_name_required': 'departments.shortNameRequired',
+    'departments.duplicate_name': 'departments.duplicateName',
+    'departments.duplicate_short_name': 'departments.duplicateShortName',
+    'departments.invalid_manager': 'departments.invalidManager',
+    'departments.system_protected': 'departments.systemProtected',
+    'departments.not_found': 'departments.notFound',
+    'departments.delete_failed': 'departments.deleteFailed',
+    'projects.owner_required': 'governance.ownerRequired',
+    'projects.owner_access_required': 'governance.ownerAccessRequired',
+    'projects.creation_forbidden': 'common.notAuthorized',
+    'projects.transfer_forbidden': 'common.notAuthorized',
+    'project_manager.invalid_candidate': 'governance.invalidManager',
+    'budget.validation_failed': 'projects.budget.validation.fixErrors',
+    'departments.invalid': 'departments.required',
+    'departments.project_unavailable': 'departments.unavailable',
+    'departments.name_required': 'departments.nameRequired',
+    'departments.save_failed': 'departments.saveFailed',
     'setup.required': 'setup.failed',
     'setup.already_completed': 'setup.failed',
     'setup.missing_required_fields': 'setup.failed',
@@ -64,5 +84,5 @@ export function getApiErrorMessage(error, t, fallbackKey) {
     return t(fallbackKey);
   }
 
-  return serverMessage || 'Request failed';
+  return t('common.requestFailed');
 }

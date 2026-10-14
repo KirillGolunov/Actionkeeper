@@ -499,7 +499,7 @@ translations.en.projects.filters.tooltips.requiresDecision = 'Projects with pend
 
 Object.assign(translations.ru.projects.budget, {
   financialRestrictedTitle: 'Финансовые данные недоступны',
-  financialRestrictedHint: 'Финансовые данные проекта доступны только администратору и текущему руководителю проекта.',
+  financialRestrictedHint: 'Финансовые данные проекта доступны администратору, руководителю проекта и руководителю ответственного подразделения.',
   changeReason: 'Обоснование изменений',
   decisionReason: 'Обоснование решения',
   requestResultTitle: 'Результат рассмотрения запроса',
@@ -515,7 +515,7 @@ Object.assign(translations.ru.projects.budget, {
     fixed_amount: 'Фиксированная сумма',
   },
   sources: {
-    admin_direct: 'Изменено администратором',
+    admin_direct: 'Изменено администратором', project_creation: 'Первоначальный бюджет при создании',
     budget_request: 'По запросу руководителя',
   },
   events: {
@@ -541,7 +541,7 @@ Object.assign(translations.en.projects.budget, {
     fixed_amount: 'Fixed amount',
   },
   sources: {
-    admin_direct: 'Changed by administrator',
+    admin_direct: 'Changed by administrator', project_creation: 'Initial budget at creation',
     budget_request: 'Project manager request',
   },
   events: {
@@ -936,3 +936,94 @@ Object.assign(translations.en, {
   },
   homeUser: { current: 'Current user: {{name}}', user: 'User', loadError: 'Failed to load the user list', deleted: 'Deleted', unsavedChangesConfirmation: 'There are unsaved changes. Change the employee without saving?' },
 });
+
+Object.assign(translations.ru, { departments: { title: 'Подразделения', name: 'Название подразделения', choose: 'Выберите подразделение', unassigned: 'Без подразделения', required: 'Выберите подразделение', loadFailed: 'Не удалось загрузить подразделения', saveFailed: 'Не удалось сохранить подразделение. Названия должны быть уникальными.', unavailable: 'Нет доступа для новых записей', nameRequired: 'Укажите название подразделения (до 120 символов)' } });
+Object.assign(translations.en, { departments: { title: 'Departments', name: 'Department name', choose: 'Choose a department', unassigned: 'No department', required: 'Choose a department', loadFailed: 'Failed to load departments', saveFailed: 'Could not save department. Names must be unique.', unavailable: 'Unavailable for new entries', nameRequired: 'Enter a department name (up to 120 characters)' } });
+
+Object.assign(translations.ru.departments, {
+  addHint: 'Добавьте подразделение в первой строке таблицы', name: 'Наименование', shortName: 'Краткое наименование', manager: 'Руководитель', noManager: 'Не назначен', actions: 'Действия',
+  edit: 'Редактировать', delete: 'Удалить', deleteTitle: 'Удалить подразделение?', retry: 'Повторить загрузку', catalogCount: '{{count}} подразделений в каталоге',
+  shortNameRequired: 'Укажите краткое наименование (до 120 символов)', duplicateName: 'Подразделение с таким наименованием уже существует',
+  duplicateShortName: 'Подразделение с таким кратким наименованием уже существует', invalidManager: 'Выберите действующего пользователя',
+  systemProtected: 'Системное подразделение нельзя изменять или удалять', notFound: 'Подразделение не найдено', deleteFailed: 'Не удалось удалить подразделение',
+  deleteExplanation: 'Все сотрудники подразделения будут переведены в «Без подразделения». Доступ удаляемого подразделения к проектам будет снят. Проекты без других подразделений будут доступны «Без подразделения». Сохранённые часы останутся.'
+});
+Object.assign(translations.en.departments, {
+  addHint: 'Add a department in the first table row', name: 'Name', shortName: 'Short name', manager: 'Manager', noManager: 'Unassigned', actions: 'Actions',
+  edit: 'Edit', delete: 'Delete', deleteTitle: 'Delete department?', retry: 'Retry loading', catalogCount: '{{count}} departments in catalog',
+  shortNameRequired: 'Enter a short name (up to 120 characters)', duplicateName: 'A department with this name already exists',
+  duplicateShortName: 'A department with this short name already exists', invalidManager: 'Choose an active user',
+  systemProtected: 'The system department cannot be changed or deleted', notFound: 'Department not found', deleteFailed: 'Failed to delete department',
+  deleteExplanation: 'All department employees will move to No department. The deleted department’s project access will be removed. Projects with no remaining departments will be assigned to No department. Saved hours will be preserved.'
+});
+
+translations.ru.departments.projectField = 'Подразделение';
+translations.en.departments.projectField = 'Department';
+
+translations.ru.governance = { owner: 'Ответственное подразделение', chooseOwner: 'Выберите ответственное подразделение', unassignedOwner: 'Не назначено — запросы рассматривает администратор', ownerRequired: 'Выберите ответственное подразделение из доступных проекту', ownerAccessRequired: 'Сначала передайте ответственность другому подразделению', invalidManager: 'Выберите действующего сотрудника', transfer: 'Передать ответственность', transferFailed: 'Не удалось передать ответственность', history: 'История передачи', transferExplanation: 'Новому подразделению будет открыт доступ к проекту. Его руководитель получит полномочия рассмотрения открытых запросов бюджета. Прежние обычные подразделения сохранят доступ. При выборе «Без подразделения» обычные назначения будут сняты.' };
+translations.en.governance = { owner: 'Responsible department', chooseOwner: 'Choose a responsible department', unassignedOwner: 'Unassigned — an administrator reviews requests', ownerRequired: 'Choose a responsible department with project access', ownerAccessRequired: 'Transfer responsibility before removing the responsible department', invalidManager: 'Choose an active employee', transfer: 'Transfer responsibility', transferFailed: 'Could not transfer responsibility', history: 'Transfer history', transferExplanation: 'The new department will gain project access and its manager will review pending budget requests. Existing ordinary departments retain access. Choosing No department removes ordinary assignments.' };
+translations.ru.notifications.projectResponsibilityTransferred = 'Передана ответственность за проект «{{project}}»';
+translations.en.notifications.projectResponsibilityTransferred = 'Responsibility transferred for “{{project}}”';
+
+translations.ru.governance.budgetHistory = 'История бюджета';
+translations.en.governance.budgetHistory = 'Budget history';
+
+translations.ru.governance.deliveryWarning = 'Ответственность передана. Некоторые уведомления не удалось доставить.';
+translations.en.governance.deliveryWarning = 'Responsibility was transferred. Some notifications could not be delivered.';
+
+translations.ru.projectMenus = { departments: 'Подразделения', settings: 'Настроить подразделения', participants: 'Добавить участников', ownerProtected: 'Сначала передайте ответственность другому подразделению', otherDepartments: 'Другие подразделения', noEmployees: 'Нет сотрудников', managerFailed: 'Не удалось сохранить руководителя проекта', noHistory: 'Передач ответственности пока не было' };
+translations.en.projectMenus = { departments: 'Departments', settings: 'Configure departments', participants: 'Add participants', ownerProtected: 'Transfer responsibility before removing this department', otherDepartments: 'Other departments', noEmployees: 'No employees', managerFailed: 'Could not save the project manager', noHistory: 'No responsibility transfers yet' };
+
+translations.ru.projectMenus.transferredFrom = 'Передано из';
+translations.ru.projectMenus.transferredTo = 'Передано в';
+translations.en.projectMenus.transferredFrom = 'Transferred from';
+translations.en.projectMenus.transferredTo = 'Transferred to';
+
+translations.ru.projectMenus.errorTitle = 'Ошибка';
+translations.en.projectMenus.errorTitle = 'Error';
+translations.ru.projectMenus.noManager = 'Без руководителя';
+translations.en.projectMenus.noManager = 'No project manager';
+
+translations.ru.departmentHistory = {title:'История подразделений',loadError:'Не удалось загрузить подразделения',saveError:'Не удалось сохранить перевод',selectEmployee:'Выберите сотрудника',myTimesheet:'Мои часы',myAnalytics:'Моя аналитика',allEmployees:'Все сотрудники',archived:'Архивные подразделения',effectiveFrom:'Дата перевода',effectiveTo:'До даты (не включительно)',author:'Автор',initial:'Начало учёта',addTransfer:'Добавить перевод',confirm:'Подтвердить пересчёт',affected:'Будет пересчитано записей: {{count}}',exclusive:'не включительно',onwards:'далее',discardDraft:'Несохранённые изменения будут потеряны. Продолжить?'};
+translations.en.departmentHistory = {title:'Department history',loadError:'Could not load departments',saveError:'Could not save the transfer',selectEmployee:'Select an employee',myTimesheet:'My hours',myAnalytics:'My analytics',allEmployees:'All employees',archived:'Archived departments',effectiveFrom:'Transfer date',effectiveTo:'Until date (exclusive)',author:'Author',initial:'Start of records',addTransfer:'Add transfer',confirm:'Confirm recalculation',affected:'Entries to recalculate: {{count}}',exclusive:'exclusive',onwards:'onwards',discardDraft:'Unsaved changes will be lost. Continue?'};
+translations.ru.common.actions.edit='Изменить';translations.en.common.actions.edit='Edit';
+translations.ru.common.actions.delete='Удалить';translations.en.common.actions.delete='Delete';
+translations.ru.common.actions.confirm='Подтвердить';translations.en.common.actions.confirm='Confirm';
+
+translations.ru.departments.delete='Архивировать';translations.en.departments.delete='Archive';
+translations.ru.departments.deleteTitle='Архивировать подразделение';translations.en.departments.deleteTitle='Archive department';
+translations.ru.departments.deleteExplanation='Подразделение будет скрыто из рабочих списков. Текущие сотрудники перейдут в «Без подразделения», история часов сохранится. Доступность и ответственность проектов изменятся по прежним правилам.';
+translations.en.departments.deleteExplanation='The department will be hidden from active lists. Current employees will move to No department; historical hours will be retained. Project access and responsibility follow the existing deletion rules.';
+
+translations.ru.departmentHistory.changeDepartment='Изменить подразделение';translations.en.departmentHistory.changeDepartment='Change department';
+
+translations.ru.departmentHistory.untilDate='До даты';translations.en.departmentHistory.untilDate='Until date';
+translations.ru.departmentHistory.endDateHint='Дата окончания периода не включается в него.';translations.en.departmentHistory.endDateHint='The end date is excluded from the period.';
+
+translations.ru.departments.employeeField='Подразделение';translations.en.departments.employeeField='Department';
+
+translations.ru.departments.active='Активные';translations.en.departments.active='Active';
+translations.ru.departments.archived='Архивные';translations.en.departments.archived='Archived';
+
+translations.ru.departments.status='Статус';translations.en.departments.status='Status';
+translations.ru.departments.activeStatus='Активное';translations.en.departments.activeStatus='Active';
+translations.ru.departments.archivedStatus='Архивное';translations.en.departments.archivedStatus='Archived';
+
+translations.ru.departmentHistory.errors={"missing_assignment": "Нет назначения подразделения на указанную дату", "entries_forbidden": "Нет доступа к записям этого подразделения", "invalid_work_date": "Укажите корректную дату работы", "user_unavailable": "Сотрудник недоступен", "project_not_found": "Проект не найден", "day_forbidden": "Нет доступа к сотруднику на эту дату", "project_unavailable": "Проект недоступен подразделению на дату работы", "invalid_operation": "Некорректная операция", "user_not_found": "Сотрудник не найден", "protected_assignment": "Исходное или системное назначение нельзя изменять", "department_required": "Укажите подразделение", "transfer_date_required": "Укажите дату перевода", "department_not_found": "Подразделение не найдено", "department_archived": "Подразделение уже архивировано на эту дату", "date_conflict": "На эту дату уже есть назначение", "archive_period_invalid": "Назначение архивного подразделения должно закончиться до архивирования", "stale": "История изменилась. Обновите предварительный расчёт", "invalid_period": "Некорректный период", "analytics_forbidden": "Нет доступа к аналитике подразделения", "user_forbidden": "Нет доступа к сотруднику", "admin_required": "Доступ разрешён только администратору", "period_forbidden": "Нет доступа к сотруднику в выбранном периоде", "forbidden": "Нет доступа", "invalid_hours": "Некорректное количество часов", "entry_not_found": "Запись не найдена", "no_changes": "Нет изменений", "no_entries": "Нет записей", "invalid_entry": "Некорректная запись", "week_required": "Укажите сотрудника, проект и неделю", "unknown": "Не удалось выполнить действие", "history_required": "Измените подразделение через историю переводов с датой начала"};
+translations.en.departmentHistory.errors={"missing_assignment": "No department assignment exists for this date", "entries_forbidden": "You cannot access time entries for this department", "invalid_work_date": "Enter a valid work date", "user_unavailable": "The employee is unavailable", "project_not_found": "Project not found", "day_forbidden": "You cannot access this employee for this date", "project_unavailable": "The project is unavailable to the department on the work date", "invalid_operation": "Invalid operation", "user_not_found": "Employee not found", "protected_assignment": "The initial or system assignment cannot be changed", "department_required": "Select a department", "transfer_date_required": "Enter a valid transfer date", "department_not_found": "Department not found", "department_archived": "The department was already archived on this date", "date_conflict": "An assignment already exists for this date", "archive_period_invalid": "Assignment to an archived department must end by its archive date", "stale": "The history has changed. Refresh the recalculation preview", "invalid_period": "Enter a valid period", "analytics_forbidden": "You cannot access analytics for this department", "user_forbidden": "You cannot access this employee", "admin_required": "Only administrators can perform this action", "period_forbidden": "You cannot access this employee for the selected period", "forbidden": "Access denied", "invalid_hours": "Enter a valid number of hours", "entry_not_found": "Time entry not found", "no_changes": "There are no changes", "no_entries": "There are no time entries", "invalid_entry": "Invalid time entry", "week_required": "Select an employee, project and week", "unknown": "Could not complete the action", "history_required": "Change the department through transfer history with an effective date"};
+translations.ru.departmentHistory.loadingSelection='Загрузка подразделений';translations.en.departmentHistory.loadingSelection='Loading departments';
+translations.ru.departments.invalidStatus='Выберите корректный статус подразделения';translations.en.departments.invalidStatus='Select a valid department status';
+translations.ru.common.requestFailed='Не удалось выполнить запрос';translations.en.common.requestFailed='The request could not be completed';
+
+translations.ru.calendar={"title": "Календарь заполнения времени", "previousMonth": "Предыдущий месяц", "nextMonth": "Следующий месяц", "month": "Месяц", "year": "Год", "loadError": "Не удалось обновить календарь", "retry": "Повторить", "hours": {"one": "{{count}} час", "few": "{{count}} часа", "many": "{{count}} часов", "other": "{{count}} часа"}, "weekend": "{{date}} · {{hours}} · выходной", "overtime": "{{date}} · {{hours}} · на {{extra}} больше дневной нормы", "complete": "{{date}} · 8 часов · день заполнен", "partial": "{{date}} · {{count}} из 8 часов", "unavailable": "{{date}} · Недоступный период"};
+translations.en.calendar={"title": "Time completion calendar", "previousMonth": "Previous month", "nextMonth": "Next month", "month": "Month", "year": "Year", "loadError": "Could not refresh the calendar", "retry": "Retry", "hours": {"one": "{{count}} hour", "few": "{{count}} hours", "many": "{{count}} hours", "other": "{{count}} hours"}, "weekend": "{{date}} · {{hours}} · weekend", "overtime": "{{date}} · {{hours}} · {{extra}} above the daily target", "complete": "{{date}} · 8 hours · day completed", "partial": "{{date}} · {{count}} of 8 hours", "unavailable": "{{date}} · Unavailable period"};
+
+translations.ru.timeEntries.ui={"analyticsLabel": "Аналитика времени", "discardWeek": "Есть несохранённые изменения. Перейти к другой неделе без сохранения?", "savedAll": "Все изменения сохранены", "saveError": "Не удалось сохранить изменения", "unsaved": "Есть несохранённые изменения", "undo": "Отменить изменения", "saving": "Сохранение…", "saved": "Сохранено", "saveWeek": "Сохранить неделю", "searchProjects": "Поиск по коду, названию или категории", "noResults": "Ничего не найдено", "closedProject": "Закрытый проект доступен только для просмотра", "rowActions": "Действия со строкой", "changeProject": "Изменить проект", "deleteRow": "Удалить строку", "deleteProjectHours": "Удалить часы проекта?", "decrease": "Уменьшить часы за {{day}}", "increase": "Увеличить часы за {{day}}", "weeklyTarget": "Норма недели: {{days}} рабочих дней × 8 часов", "hoursShort": "ч", "deleteProjectHoursDescription": "Все сохранённые часы проекта «{{project}}» за выбранную неделю будут удалены."};
+translations.en.timeEntries.ui={"analyticsLabel": "Time analytics", "discardWeek": "There are unsaved changes. Change the week without saving?", "savedAll": "All changes saved", "saveError": "Could not save changes", "unsaved": "There are unsaved changes", "undo": "Undo changes", "saving": "Saving…", "saved": "Saved", "saveWeek": "Save week", "searchProjects": "Search by code, name or category", "noResults": "No results", "closedProject": "Closed project is read-only", "rowActions": "Row actions", "changeProject": "Change project", "deleteRow": "Delete row", "deleteProjectHours": "Delete project hours?", "decrease": "Decrease hours for {{day}}", "increase": "Increase hours for {{day}}", "weeklyTarget": "Weekly target: {{days}} working days × 8 hours", "hoursShort": "h", "deleteProjectHoursDescription": "All saved hours for project “{{project}}” for the selected week will be deleted."};
+
+translations.ru.projectFilters={"label": "Фильтры проектов", "departments": "Подразделения", "all": "Все проекты", "personal": "Мои проекты", "managed": "Я руководитель", "participated": "Я участвовал (-а)", "status": "Статус", "categories": "Категории", "budget": "Согласование бюджета", "pending": "Требуют моего решения · {{count}}", "unclassified": "Без категории", "extraCount": "Дополнительные фильтры: {{count}}"};
+
+translations.en.projectFilters={"label": "Project filters", "departments": "Departments", "all": "All projects", "personal": "My projects", "managed": "I manage", "participated": "I logged time", "status": "Status", "categories": "Categories", "budget": "Budget approval", "pending": "Awaiting my decision · {{count}}", "unclassified": "Uncategorized", "extraCount": "Additional filters: {{count}}"};
+
+translations.ru.productUpdate={departments:{title:'Выпущено новое обновление трекера времени по проектам Actionplan',intro:'В новой версии добавлена поддержка подразделений.',timeEntry:'Теперь пользователи видят только проекты своего подразделения — это сокращает список проектов при добавлении времени за неделю.',projects:'В каждом проекте можно указать несколько подразделений-участников, чтобы проект был доступен сотрудникам этих подразделений.',acknowledge:'Понятно',saveError:'Не удалось сохранить подтверждение. Попробуйте ещё раз.'}};
+translations.en.productUpdate={departments:{title:'A new update to the Actionplan project time tracker is here',intro:'The new version adds support for departments.',timeEntry:'Users now see only the projects available to their department, making the project list shorter when entering weekly hours.',projects:'Each project can include multiple departments, so employees in all of them can access it.',acknowledge:'Got it',saveError:'Could not save your acknowledgement. Please try again.'}};
