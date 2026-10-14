@@ -124,14 +124,20 @@ jobs:
               const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
               const backupPath = path.join(path.dirname(resolvedPath), `time_tracker.predeploy.${stamp}.db`);
               const db = new sqlite3.Database(sourcePath);
-              db.backup(backupPath, (backupError) => db.close((closeError) => {
+              const close = (backupError) => db.close((closeError) => {
                 if (backupError || closeError) {
                   console.error("SQLite backup failed", backupError || closeError);
                   process.exitCode = 1;
                 } else {
                   console.log(`SQLite backup saved: ${backupPath}`);
                 }
-              }));
+              });
+              const backup = db.backup(backupPath, (initError) => {
+                if (initError) return close(initError);
+                backup.step(-1, (stepError, completed) => {
+                  backup.finish((finishError) => close(stepError || finishError || (completed ? null : new Error("SQLite backup did not complete"))));
+                });
+              });
             '
 
             retry 5 20 docker compose pull
