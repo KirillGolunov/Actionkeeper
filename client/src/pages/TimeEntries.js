@@ -172,12 +172,13 @@ const matchesProjectSearch = (project, searchValue) => {
 };
 
 function EmbeddedTimeEntriesLayout({ children, editorNotice, footer, calendar, analytics }) {
+  const {t}=useTranslation();
   return (
     <Box role="tabpanel" id="home-mine-panel" aria-labelledby="home-mine-tab" sx={{ height: '100%', minHeight: 0, containerType: 'inline-size', containerName: 'mine-layout' }}>
       <Box sx={{ height: '100%', minHeight: 0, display: 'grid', gridTemplateRows: '232px minmax(0, 1fr)', gap: 1.5, '@media (max-width: 767px)': { gridTemplateRows: '480px minmax(0, 1fr)' } }}>
       <Box
         component="section"
-        aria-label="Аналитика времени"
+        aria-label={t('timeEntries.ui.analyticsLabel')}
         sx={{
           position: 'relative',
           minWidth: 0,
@@ -213,6 +214,8 @@ function EmbeddedTimeEntriesLayout({ children, editorNotice, footer, calendar, a
   );
 }
 
+const formatDateKey = date => { const d=new Date(date);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+
 function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange, selectedUserId, onDirtyChange }) {
   const navigate = useNavigate();
   const { t, locale } = useTranslation();
@@ -227,6 +230,7 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState('');
   const [selectedUser, setSelectedUser] = useState('');
+  const [dayPermissions,setDayPermissions]=useState({});
   const [savedWeeklySignature, setSavedWeeklySignature] = useState('[]');
   const [savedWeeklyProjects, setSavedWeeklyProjects] = useState([]);
   const [weeklyLoading, setWeeklyLoading] = useState(true);
@@ -284,10 +288,10 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
   }, [selectedUser, selectedUserId]);
 
   useEffect(() => {
-    if (currentUser && currentUser.role !== 'admin') {
+    if (currentUser && !selectedUserId && currentUser.role !== 'admin') {
       setSelectedUser(currentUser.id);
     }
-  }, [currentUser]);
+  }, [currentUser,selectedUserId]);
 
   useEffect(() => {
     if (selectedUser && weekStart) {
@@ -350,7 +354,7 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
       const params = {};
       if (embedded) {
         Object.assign(params, getHistoryRange(calendarMonth, weekStart));
-        if (currentUser?.role === 'admin') params.user_id = selectedUser;
+        params.user_id = selectedUser;
       }
       const response = await axios.get('/api/time-entries', { params });
       if (requestId !== historyRequestRef.current) return;
@@ -359,16 +363,16 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
     } catch (error) {
       if (requestId !== historyRequestRef.current) return;
       console.error('Error fetching time entries:', error);
-      if (embedded) setHistoryError(t('timeEntries.errors.fetchEntries'));
+      if (embedded) setHistoryError(getApiErrorMessage(error,t,'timeEntries.errors.fetchEntries'));
       else setSaveNotice({ severity: 'error', message: t('timeEntries.errors.fetchEntries') });
     } finally {
       if (embedded && requestId === historyRequestRef.current) setHistoryLoading(false);
     }
-  }, [calendarMonth, currentUser?.role, embedded, selectedUser, t, weekStart]);
+  }, [calendarMonth, embedded, selectedUser, t, weekStart]);
 
   const fetchProjects = useCallback(async () => {
     try {
-      const response = await axios.get('/api/projects');
+      const response = await axios.get('/api/projects', { params: { purpose: 'time-entry', user_id: selectedUser || currentUser?.id, startDate:formatDateKey(weekStart), endDate:formatDateKey(new Date(new Date(weekStart).getTime()+6*86400000)) } });
       console.log('Fetched projects:', response.data);
       const sortedProjects = [...response.data].sort((a, b) => {
         const categoryIndexA = PROJECT_CATEGORY_ORDER.indexOf(a.category || PROJECT_CATEGORY_TRANSITION.value);
@@ -381,7 +385,7 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
       console.error('Error fetching projects:', error);
       setSaveNotice({ severity: 'error', message: t('timeEntries.errors.fetchProjects') });
     }
-  }, [t]);
+  }, [t, selectedUser, currentUser?.id, weekStart]);
 
   useEffect(() => {
     fetchTimeEntries();
@@ -397,7 +401,8 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
   const projectTotals = weeklyProjects.map(entry =>
     daysOfWeek.reduce((sum, day) => sum + (parseFloat(entry.hours[day.key]?.value) || 0), 0)
   );
-  const requiredHoursTotal = WEEKLY_REQUIRED_HOURS;
+  const isScopedTimesheet = currentUser?.role!=='admin' && Number(selectedUser)!==Number(currentUser?.id);
+  const requiredHoursTotal = isScopedTimesheet ? daysOfWeek.slice(0,5).reduce((sum,_,index)=>sum+(dayPermissions[formatDateKey(new Date(weekStart.getTime()+index*86400000))]?.canEdit?8:0),0) : WEEKLY_REQUIRED_HOURS;
 
   const refreshWeeklyProjects = async () => {
     if (!selectedUser) return false;
@@ -581,7 +586,7 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
       setSaveNotice({
         severity: 'error',
         message: getApiErrorMessage(err, t, 'timeEntries.errors.submit'),
-        actionLabel: 'Повторить',
+        actionLabel: t('common.actions.retry'),
         action: 'retrySave',
       });
     } finally {
@@ -628,10 +633,13 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
         const dayOfWeek = date.getDay() === 0 ? 7 : date.getDay();
         return dayOfWeek === idx + 1;
       });
-      hours[day.key] = dayEntry ? dayEntry.hours[day.key]?.value : '0';
+      hours[day.key] = dayEntry ? dayEntry.hours : '0';
     });
     setEditWeekEntry({
       id: weekEntries[0]?.id,
+      project_name: entry.project_name,
+      existingDays: daysOfWeek.filter((day, i) => weekEntries.some(e => (new Date(e.date).getDay() + 6) % 7 === i)).map(day => day.key),
+      original_project_id: weekEntries[0]?.project_id,
       project_id: weekEntries[0]?.project_id || '',
       hours,
       date: entry.date,
@@ -660,7 +668,7 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
             const entryDate = new Date(e.date);
             return (
               e.date === editWeekEntry.date &&
-              e.project_name === groupedEntries.find(g => g.date === editWeekEntry.date && g.project_name === e.project_name)?.project_name &&
+              Number(e.project_id) === Number(editWeekEntry.original_project_id) &&
               entryDate.toDateString() === date.toDateString()
             );
           });
@@ -670,10 +678,7 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
                 const response = await axios.patch(`/api/time-entries/${dayEntry.id}`, {
                   project_id: editWeekEntry.project_id,
                   date: date.toISOString(),
-                  hours: {
-                    ...dayEntry.hours,
-                    [day.key]: hours,
-                  },
+                  hours,
                 });
                 return { payrollWarning: response.data?.payrollWarning || null, failedDay: null };
               } else {
@@ -681,10 +686,7 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
                   project_id: editWeekEntry.project_id,
                   user_id: editWeekEntry.user_id,
                   date: date.toISOString(),
-                  hours: {
-                    ...dayEntry.hours,
-                    [day.key]: hours,
-                  },
+                  hours,
                   description: '',
                 });
                 return { payrollWarning: response.data?.payrollWarning || null, failedDay: null };
@@ -790,7 +792,7 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
   const requestWeekChange = (nextWeek) => {
     const next = getMonday(new Date(nextWeek));
     if (next.toDateString() === getMonday(weekStart).toDateString()) return;
-    if (isDirty && !window.confirm('Есть несохранённые изменения. Перейти к другой неделе без сохранения?')) return;
+    if (isDirty && !window.confirm(t('timeEntries.ui.discardWeek'))) return;
     setSaveFeedback('idle');
     setRecentlySavedProjectIds([]);
     setWeeklyLoadError('');
@@ -968,14 +970,23 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
   const projectTextWidth = embedded ? 298 : 460;
   const totalColumnWidth = embedded ? 44 : 60;
   const actionColumnWidth = embedded ? 32 : 44;
+  useEffect(()=>{
+    if(!selectedUser||!weekStart)return;
+    let canceled=false;setDayPermissions({});
+    const first=new Date(calendarMonth.getFullYear(),calendarMonth.getMonth(),1);first.setDate(first.getDate()-(first.getDay()+6)%7);
+    const last=new Date(calendarMonth.getFullYear(),calendarMonth.getMonth()+1,0);last.setDate(last.getDate()+(7-last.getDay())%7);
+    const start=new Date(Math.min(first.getTime(),weekStart.getTime())),end=new Date(Math.max(last.getTime(),weekStart.getTime()+6*86400000));
+    const load=()=>axios.get('/api/time-entry-permissions',{params:{user_id:selectedUser,startDate:formatDateKey(start),endDate:formatDateKey(end)}}).then(r=>{if(!canceled)setDayPermissions(r.data.days);}).catch(()=>{if(!canceled)setDayPermissions({denied:true});});
+    load();const timer=setInterval(load,30000);return()=>{canceled=true;clearInterval(timer);};
+  },[selectedUser,weekStart,calendarMonth]);
   const editorDisabled = weeklyLoading || Boolean(weeklyLoadError);
   const footerStatus = firstValidationIssue?.message || (saveFeedback === 'saved'
-    ? 'Все изменения сохранены'
+    ? t('timeEntries.ui.savedAll')
     : saveFeedback === 'error'
-      ? 'Не удалось сохранить изменения'
+      ? t('timeEntries.ui.saveError')
       : isDirty
-        ? 'Есть несохранённые изменения'
-        : 'Все изменения сохранены');
+        ? t('timeEntries.ui.unsaved')
+        : t('timeEntries.ui.savedAll'));
   const footerStatusColor = firstValidationIssue
     ? '#B42318'
     : saveFeedback === 'error'
@@ -1051,6 +1062,7 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
           month={calendarMonth}
           selectedWeek={weekStart}
           entries={timeEntries}
+          dayPermissions={isScopedTimesheet?dayPermissions:undefined}
           loading={historyLoading}
           error={historyError}
           onMonthChange={(nextMonth) => setCalendarMonth(startOfMonth(nextMonth))}
@@ -1085,8 +1097,8 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
           >
             {t('timeEntries.addEntry')}
           </Button>
-          <Tooltip title="Норма недели: 5 рабочих дней × 8 часов" arrow>
-            <Typography sx={{ ml: { md: 'auto' }, fontSize: 13, fontWeight: 700, color: totalLogged > WEEKLY_REQUIRED_HOURS ? '#B42318' : '#1D2433', whiteSpace: 'nowrap' }}>{totalLogged} / {WEEKLY_REQUIRED_HOURS} ч</Typography>
+          <Tooltip title={t('timeEntries.ui.weeklyTarget',{days:requiredHoursTotal/8})} arrow>
+            <Typography sx={{ ml: { md: 'auto' }, fontSize: 13, fontWeight: 700, color: totalLogged > requiredHoursTotal ? '#B42318' : '#1D2433', whiteSpace: 'nowrap' }}>{Number(totalLogged).toLocaleString(locale==='ru'?'ru-RU':'en-US')} / {requiredHoursTotal} {t('timeEntries.ui.hoursShort')}</Typography>
           </Tooltip>
           <Tooltip title={footerStatus} disableHoverListener={footerStatus.length < 54} arrow>
             <Box
@@ -1113,10 +1125,10 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
             disabled={!isDirty || editorDisabled || isSubmitting}
             sx={{ color: '#4A68D9', textTransform: 'none', whiteSpace: 'nowrap' }}
           >
-            Отменить изменения
+            {t('timeEntries.ui.undo')}
           </Button>
           <Button variant="contained" size="small" onClick={handleWeeklySubmit} disabled={!isDirty || editorDisabled || isSubmitting} startIcon={isSubmitting ? <CircularProgress size={15} color="inherit" /> : undefined} sx={{ minWidth: 150, textTransform: 'none', bgcolor: '#4A69D9', '&:hover': { bgcolor: '#3857C4' } }}>
-            {isSubmitting ? 'Сохранение…' : saveFeedback === 'saved' ? 'Сохранено' : 'Сохранить неделю'}
+            {isSubmitting ? t('timeEntries.ui.saving') : saveFeedback === 'saved' ? t('timeEntries.ui.saved') : t('timeEntries.ui.saveWeek')}
           </Button>
         </Box>
       ) : null}
@@ -1125,7 +1137,7 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
         <Box role="alert" sx={{ height: '100%', display: 'grid', placeItems: 'center', p: 2, textAlign: 'center' }}>
           <Box>
             <Typography sx={{ fontSize: 14, color: '#B42318', mb: 1 }}>{weeklyLoadError}</Typography>
-            <Button size="small" onClick={refreshWeeklyProjects}>Повторить</Button>
+            <Button size="small" onClick={refreshWeeklyProjects}>{t('common.actions.retry')}</Button>
           </Box>
         </Box>
       ) : embedded && weeklyLoading && weeklyProjects.length === 0 ? (
@@ -1304,7 +1316,7 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
                                 return t('timeEntries.selectProject');
                               }
                               const selectedProject = projects.find((project) => project.id === selected);
-                              return selectedProject ? getProjectDisplay(selectedProject) : t('timeEntries.selectProject');
+                              return selectedProject ? getProjectDisplay(selectedProject) : entry.project_name || t('timeEntries.selectProject');
                             },
                             MenuProps: {
                               autoFocus: false,
@@ -1352,7 +1364,7 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
                               size="small"
                               fullWidth
                               autoFocus
-                              placeholder="Поиск по коду, названию или категории"
+                              placeholder={t('timeEntries.ui.searchProjects')}
                               value={projectSearchByEntry[entry.id] || ''}
                               onChange={(e) => {
                                 const value = e.target.value;
@@ -1382,6 +1394,7 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
                               }}
                             />
                           </ListSubheader>
+                          {entry.submitted && !projects.some(p => p.id === entry.project_id) && <MenuItem value={entry.project_id} disabled>{entry.project_name} · {t('departments.unavailable')}</MenuItem>}
                           {getSelectableProjectGroups(entry, idx).flatMap((group) => ([
                             <ListSubheader
                               key={`header-${group.categoryValue}`}
@@ -1455,7 +1468,7 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
                           ]))}
                           {getSelectableProjectGroups(entry, idx).length === 0 && (
                             <MenuItem disabled sx={{ fontSize: 13, color: '#8A96AD', py: 1.25 }}>
-                              Ничего не найдено
+                              {t('timeEntries.ui.noResults')}
                             </MenuItem>
                           )}
                           {/*
@@ -1487,7 +1500,7 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
                         </TextField>
                       ) : (
                         (() => {
-                          const selectedProject = projects.find((project) => project.id === entry.project_id);
+                          const selectedProject = projects.find((project) => project.id === entry.project_id) || { name: entry.project_name, category: entry.category };
                           const categoryMeta = getProjectCategoryMeta(selectedProject?.category);
                           return (
                             <Tooltip
@@ -1534,10 +1547,16 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
                       )}
                     </Box>
                   </Box>
+                  {!projects.some(p => p.id === entry.project_id) && entry.submitted && <Typography variant="caption" color="text.secondary">{t('departments.unavailable')}</Typography>}
                 </TableCell>
                 {daysOfWeek.map(day => {
                   const activeProject = projects.some((project) => project.id === entry.project_id && project.active !== 0);
-                  const rowReadOnly = Boolean(entry.submitted && !activeProject);
+                  const knownProject = projects.find(project => project.id === entry.project_id);
+                  const dateKey=formatDateKey(new Date(new Date(weekStart).getTime()+daysOfWeek.findIndex(item=>item.key===day.key)*86400000));
+                  const permission=dayPermissions[dateKey];
+                  const datedAccess=currentUser?.role==='admin'||(permission?.canEdit&&!dayPermissions.denied);
+                  const datedProject=currentUser?.role==='admin'||!!entry.hours[day.key]?.id||knownProject?.departments?.some(d=>d.id===permission?.departmentId);
+                  const rowReadOnly = !datedAccess || !datedProject || Boolean(entry.submitted && knownProject?.active === 0) || (!activeProject && currentUser?.role !== 'admin' && !entry.hours[day.key]?.id);
                   const savedEntry = savedWeeklyProjects.find((savedRow) => (
                     savedRow.id === entry.id
                     || savedRow.project_id === (entry.original_project_id || entry.project_id)
@@ -1553,8 +1572,8 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
                         disabled={editorDisabled || isSubmitting || rowReadOnly}
                         changed={changed}
                         invalid={rowIssues.some((issue) => issue.type === 'zeroHours' || (issue.type === 'invalidHours' && issue.dayKey === day.key))}
-                        decrementLabel={`Уменьшить часы за ${day.label}`}
-                        incrementLabel={`Увеличить часы за ${day.label}`}
+                        decrementLabel={t('timeEntries.ui.decrease',{day:day.label})}
+                        incrementLabel={t('timeEntries.ui.increase',{day:day.label})}
                       />
                     </TableCell>
                   );
@@ -1562,14 +1581,13 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
                 <TableCell align="center" sx={{ fontWeight: 'bold', width: totalColumnWidth, minWidth: totalColumnWidth, maxWidth: totalColumnWidth, px: 0, overflow: 'hidden' }}>{projectTotals[idx]}</TableCell>
                 <TableCell align="center" sx={{ width: actionColumnWidth, minWidth: actionColumnWidth, maxWidth: actionColumnWidth, p: 0 }}>
                   {(() => {
-                    const activeProject = projects.some((project) => project.id === entry.project_id && project.active !== 0);
-                    const actionsDisabled = Boolean(entry.submitted && !activeProject);
+                    const actionsDisabled = Boolean(entry.submitted && projects.some(project => project.id === entry.project_id && project.active === 0));
                     return (
-                      <Tooltip title={actionsDisabled ? 'Закрытый проект доступен только для просмотра' : 'Действия со строкой'} arrow>
+                      <Tooltip title={actionsDisabled ? t('timeEntries.ui.closedProject') : t('timeEntries.ui.rowActions')} arrow>
                         <span>
                           <IconButton
                             size="small"
-                            aria-label="Действия со строкой"
+                            aria-label={t('timeEntries.ui.rowActions')}
                             disabled={actionsDisabled}
                             onClick={(event) => { setRowMenuAnchor(event.currentTarget); setRowMenuIndex(idx); }}
                             sx={{ width: 32, height: 32 }}
@@ -1628,14 +1646,14 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
       >
         {rowMenuIndex !== null && weeklyProjects[rowMenuIndex]?.submitted ? [
           <MenuItem key="change-project" onClick={() => startProjectEdit(rowMenuIndex)}>
-            <ListItemIcon><EditIcon fontSize="small" /></ListItemIcon>Изменить проект
+            <ListItemIcon><EditIcon fontSize="small" /></ListItemIcon>{t('timeEntries.ui.changeProject')}
           </MenuItem>,
           <MenuItem key="delete" onClick={() => requestDeleteRow(rowMenuIndex)} sx={{ color: '#B42318' }}>
-            <ListItemIcon><Delete fontSize="small" color="error" /></ListItemIcon>Удалить
+            <ListItemIcon><Delete fontSize="small" color="error" /></ListItemIcon>{t('common.actions.delete')}
           </MenuItem>,
         ] : (
           <MenuItem onClick={() => requestDeleteRow(rowMenuIndex)} sx={{ color: '#B42318' }}>
-            <ListItemIcon><Delete fontSize="small" color="error" /></ListItemIcon>Удалить строку
+            <ListItemIcon><Delete fontSize="small" color="error" /></ListItemIcon>{t('timeEntries.ui.deleteRow')}
           </MenuItem>
         )}
       </Menu>
@@ -1665,6 +1683,7 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
         <SingleProjectWeekEditor
           entry={editWeekEntry || { project_id: '', hours: {} }}
           projects={projects}
+          canOverride={currentUser?.role === 'admin'}
           daysOfWeek={daysOfWeek}
           weekStart={getMonday(new Date(editWeekEntry?.date || new Date()))}
           onChange={setEditWeekEntry}
@@ -1677,8 +1696,8 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
 
       <ConfirmationDialog
         open={rowToDeleteIndex !== null}
-        title="Удалить часы проекта?"
-        content={rowToDeleteIndex !== null ? `Все сохранённые часы проекта «${projects.find((project) => project.id === weeklyProjects[rowToDeleteIndex]?.project_id)?.name || weeklyProjects[rowToDeleteIndex]?.project_name || ''}» за выбранную неделю будут удалены.` : ''}
+        title={t('timeEntries.ui.deleteProjectHours')}
+        content={rowToDeleteIndex !== null ? t('timeEntries.ui.deleteProjectHoursDescription',{project:projects.find((project)=>project.id===weeklyProjects[rowToDeleteIndex]?.project_id)?.name||weeklyProjects[rowToDeleteIndex]?.project_name||''}) : ''}
         onConfirm={confirmDeleteRow}
         onCancel={() => setRowToDeleteIndex(null)}
         confirmLabel={t('common.actions.delete')}
@@ -1727,7 +1746,7 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
                   {saveNotice.actionLabel}
                 </Button>
               )}
-              <IconButton size="small" aria-label="Закрыть уведомление" onClick={closeSaveNotice} sx={{ color: '#667085' }}>
+              <IconButton size="small" aria-label={t('common.actions.close')} onClick={closeSaveNotice} sx={{ color: '#667085' }}>
                 <Close sx={{ fontSize: 18 }} />
               </IconButton>
             </Box>

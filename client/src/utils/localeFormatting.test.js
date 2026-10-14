@@ -1,0 +1,2 @@
+import {formatDateOnly,formatDateTime} from './localeFormatting';
+test('formats display dates by language while preserving Moscow and the source ISO values',()=>{const date='2026-10-14';expect(formatDateOnly(date,'ru')).toBe('14.10.2026');expect(formatDateOnly(date,'en')).toBe('10/14/26');expect(formatDateTime('2026-10-13 23:30:00','en')).toContain('Oct 14');expect(formatDateOnly(date,'ru')).not.toBe(formatDateOnly(date,'en'));expect(date).toBe('2026-10-14');});

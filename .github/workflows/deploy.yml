@@ -10,6 +10,10 @@ permissions:
   contents: read
   packages: write
 
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
 env:
   REGISTRY: ghcr.io
 
@@ -107,6 +111,36 @@ jobs:
             if [ -f "$backup_dir/.env" ]; then cp "$backup_dir/.env" .env; fi
             rm -rf "$backup_dir"
 
+            # Take a SQLite online backup before the new container starts migrations.
+            docker exec timetracker-backend node -e '
+              const path = require("path");
+              const sqlite3 = require("sqlite3").verbose();
+              const sourcePath = process.env.DB_PATH || "./data/time_tracker.db";
+              const resolvedPath = path.resolve(sourcePath);
+              if (!resolvedPath.startsWith("/app/data/")) {
+                console.error("Refusing deployment: DB_PATH is outside the persistent /app/data volume");
+                process.exit(1);
+              }
+              const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+              const backupPath = path.join(path.dirname(resolvedPath), `time_tracker.predeploy.${stamp}.db`);
+              const db = new sqlite3.Database(sourcePath);
+              db.backup(backupPath, (backupError) => db.close((closeError) => {
+                if (backupError || closeError) {
+                  console.error("SQLite backup failed", backupError || closeError);
+                  process.exitCode = 1;
+                } else {
+                  console.log(`SQLite backup saved: ${backupPath}`);
+                }
+              }));
+            '
+
             retry 5 20 docker compose pull
             docker compose up -d --remove-orphans
+            for attempt in $(seq 1 12); do
+              if docker exec timetracker-backend node -e 'const http=require("http");const req=http.get("http://127.0.0.1:3001/api/setup-required",res=>{res.resume();if(res.statusCode!==200)process.exitCode=1;else console.log("Backend health check passed")});req.setTimeout(5000,()=>req.destroy(new Error("timeout")));req.on("error",err=>{console.error(err.message);process.exitCode=1});'; then
+                break
+              fi
+              if [ "$attempt" -eq 12 ]; then echo "Backend health check failed after deployment" >&2; exit 1; fi
+              sleep 10
+            done
             timeout 120 docker image prune -f || echo "docker image prune skipped or timed out"

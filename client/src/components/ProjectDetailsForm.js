@@ -1,11 +1,12 @@
+import ProjectDepartmentsMenuField from './ProjectDepartmentsMenuField';
+import ProjectManagerMenuField from './ProjectManagerMenuField';
 import React from 'react';
 import {
-  Autocomplete, Box, Button, CircularProgress, MenuItem, Paper, TextField, Typography,
+  Box, Button, CircularProgress, MenuItem, Paper, TextField, Typography,
 } from '@mui/material';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
-import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
-import { projectCardSurfaceSx, projectFieldInteractionSx } from '../utils/projectCardSurface';
+import { projectDialogSurfaceSx as projectCardSurfaceSx, projectFieldInteractionSx } from '../utils/projectCardSurface';
 
 function ReadOnlyValue({ label, value, fullWidth = false }) {
   return (
@@ -109,6 +110,14 @@ const InlineRow = React.forwardRef(function InlineRow({
       lineHeight: 1.45,
       overflow: multiline ? 'hidden !important' : undefined,
     },
+    '& .MuiSelect-select': {
+      display: 'flex',
+      alignItems: 'center',
+      boxSizing: 'border-box',
+      height: '34px !important',
+      minHeight: '0 !important',
+      py: 0,
+    },
   };
 
   const editControl = type === 'select' ? (
@@ -158,12 +167,12 @@ const InlineRow = React.forwardRef(function InlineRow({
             onClick={startEditing}
             sx={{
               width: '100%', height: controlHeight, minHeight: controlMinHeight, px: 1.1, py: multiline ? 0.65 : 0, textAlign: 'left',
-              border: '1px solid transparent', borderRadius: 2, background: editable ? '#FFFFFF' : '#F5F6F8',
+              border: '1px solid transparent', borderRadius: 2, background: '#F8F9FB',
               color: '#1D2433', cursor: editable ? 'text' : 'default', font: 'inherit',
               display: 'flex', alignItems: multiline ? 'flex-start' : 'center',
               transition: 'border-color .2s ease, box-shadow .2s ease, background .2s ease',
               '&:hover': editable ? { borderColor: 'rgba(173,188,228,0.95)', boxShadow: '0 6px 16px rgba(90,112,184,0.08)' } : {},
-              '&:focus-visible': { outline: '3px solid rgba(86,115,220,.22)', outlineOffset: 1 },
+              '&:focus-visible': { outline: '1px solid rgba(86,115,220,.22)', outlineOffset: 1 },
             }}
           >
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: multiline ? 'flex-start' : 'center', gap: 1, width: '100%', minWidth: 0 }}>
@@ -173,7 +182,6 @@ const InlineRow = React.forwardRef(function InlineRow({
             {state === 'saving' ? <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}><CircularProgress size={14} /><Typography sx={{ color: '#657083', fontSize: 10.5 }}>{savingLabel}</Typography></Box> : null}
             {state === 'saved' ? <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4 }}><CheckCircleOutlineIcon sx={{ color: '#2E8B57', fontSize: 17 }} /><Typography sx={{ color: '#2E8B57', fontSize: 10.5 }}>{savedLabel}</Typography></Box> : null}
             {state === 'error' ? <ErrorOutlineIcon sx={{ color: '#C43D36', fontSize: 18 }} /> : null}
-            {editable && state === 'idle' ? <EditOutlinedIcon sx={{ color: '#8290A5', fontSize: 17 }} /> : null}
             </Box>
           </Box>
         )}
@@ -198,10 +206,14 @@ const ProjectDetailsForm = React.forwardRef(function ProjectDetailsForm({
   onSaveField,
   clients,
   managerCandidates,
+  managedDepartmentIds = [],
   categoryOptions,
   labels,
   errors = {},
+  hideErrorText = false,
   currentManagerName = '',
+  departments = [],
+  onResponsibilityTransferred,
 }, ref) {
   const client = clients.find((item) => Number(item.id) === Number(value.client_id));
   const manager = managerCandidates.find((item) => Number(item.id) === Number(value.managerUserId));
@@ -219,6 +231,9 @@ const ProjectDetailsForm = React.forwardRef(function ProjectDetailsForm({
     },
     hasActive: () => Object.values(inlineRefs.current).some((item) => item?.isEditing?.()),
   }), []);
+
+  const departmentField = (beforeEdit) => <ProjectDepartmentsMenuField ref={node => { inlineRefs.current.departmentIds = node; }} departments={departments} value={value} canEdit={canEdit} inline={inline} onChange={onChange} onSave={onSaveField} onBeforeEdit={beforeEdit} onTransferred={onResponsibilityTransferred} validationError={hideErrorText ? undefined : errors.departmentIds} />;
+  const managerField = (beforeEdit) => <ProjectManagerMenuField ref={node => { inlineRefs.current.managerUserId = node; }} value={value.managerUserId} candidates={managerCandidates} departments={departments} managedDepartmentIds={managedDepartmentIds} editable={inline ? canEditManager : canEdit} inline={inline} onChange={managerUserId => onChange({ ...value, managerUserId })} onSave={onSaveField} onBeforeEdit={beforeEdit} label={labels.manager} unassigned={labels.unassigned} currentName={currentManagerName} />;
 
   if (inline) {
     const managerName = manager ? [manager.surname, manager.name].filter(Boolean).join(' ') : currentManagerName || labels.unassigned;
@@ -239,7 +254,8 @@ const ProjectDetailsForm = React.forwardRef(function ProjectDetailsForm({
         <Typography component="h3" sx={{ color: '#1D2433', fontSize: 17, fontWeight: 600, mb: 1.1 }}>{labels.sectionTitle}</Typography>
         <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 0.65 }}>
           {rows.map((row) => (
-            <InlineRow
+            <React.Fragment key={row.field}>
+              {row.field === 'managerUserId' ? managerField(beforeEdit) : <InlineRow
               key={row.field}
               ref={(node) => { inlineRefs.current[row.field] = node; }}
               {...row}
@@ -249,7 +265,9 @@ const ProjectDetailsForm = React.forwardRef(function ProjectDetailsForm({
               revertLabel={labels.revert}
               savingLabel={labels.saving}
               savedLabel={labels.saved}
-            />
+            />}
+            {row.field === 'client_id' && departmentField(beforeEdit)}
+            </React.Fragment>
           ))}
         </Box>
       </Paper>
@@ -270,6 +288,7 @@ const ProjectDetailsForm = React.forwardRef(function ProjectDetailsForm({
         <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1.15 }}>
           <ReadOnlyValue label={labels.category} value={category?.label} />
           <ReadOnlyValue label={labels.client} value={client?.name} />
+          {departmentField()}
           <ReadOnlyValue label={labels.name} value={value.name} />
           <ReadOnlyValue label={labels.code} value={value.code} />
           <ReadOnlyValue
@@ -296,24 +315,16 @@ const ProjectDetailsForm = React.forwardRef(function ProjectDetailsForm({
           gap: 1.05,
         }}
       >
-        <TextField required size="small" select fullWidth label={labels.category} value={value.category || ''} onChange={set('category')} error={!!errors.category} helperText={errors.category || undefined} sx={fieldSx}>
+        <TextField required size="small" select fullWidth label={labels.category} value={value.category || ''} onChange={set('category')} error={!!errors.category} helperText={hideErrorText ? undefined : errors.category || undefined} sx={fieldSx}>
           {categoryOptions.map((item) => <MenuItem key={item.value} value={item.value}>{item.label}</MenuItem>)}
         </TextField>
-        <TextField required size="small" select fullWidth label={labels.client} value={value.client_id || ''} onChange={set('client_id')} error={!!errors.client} helperText={errors.client || undefined} sx={fieldSx}>
+        <TextField required size="small" select fullWidth label={labels.client} value={value.client_id || ''} onChange={set('client_id')} error={!!errors.client} helperText={hideErrorText ? undefined : errors.client || undefined} sx={fieldSx}>
           {clients.map((item) => <MenuItem key={item.id} value={item.id}>{item.name} ({item.type})</MenuItem>)}
         </TextField>
-        <TextField required size="small" autoFocus fullWidth label={labels.name} value={value.name || ''} onChange={set('name')} error={!!errors.name} helperText={errors.name || undefined} sx={fieldSx} />
-        <TextField size="small" fullWidth label={labels.code} value={value.code || ''} onChange={set('code')} error={!!errors.code} helperText={errors.code || undefined} sx={fieldSx} />
-        <Autocomplete
-          size="small"
-          sx={fieldSx}
-          options={managerCandidates}
-          value={manager || null}
-          onChange={(_event, candidateValue) => onChange({ ...value, managerUserId: candidateValue?.id || null })}
-          isOptionEqualToValue={(option, selected) => option.id === selected.id}
-          getOptionLabel={(candidate) => `${[candidate.surname, candidate.name].filter(Boolean).join(' ')} · ${candidate.email}`}
-          renderInput={(params) => <TextField {...params} label={labels.manager} placeholder={labels.unassigned} />}
-        />
+        {departmentField()}
+        <TextField required size="small" autoFocus fullWidth label={labels.name} value={value.name || ''} onChange={set('name')} error={!!errors.name} helperText={hideErrorText ? undefined : errors.name || undefined} sx={fieldSx} />
+        <TextField size="small" fullWidth label={labels.code} value={value.code || ''} onChange={set('code')} error={!!errors.code} helperText={hideErrorText ? undefined : errors.code || undefined} sx={fieldSx} />
+        {managerField()}
         <TextField
           size="small"
           fullWidth

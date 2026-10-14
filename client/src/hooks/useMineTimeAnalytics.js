@@ -1,8 +1,11 @@
+import {getApiErrorMessage} from '../utils/apiErrorMessage';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {useTranslation} from '../i18n/I18nProvider';
 import axios from 'axios';
 import { getMineAnalyticsPeriod } from '../utils/mineTimeAnalytics';
 
 export default function useMineTimeAnalytics({ selectedWeek, range, currentUser, selectedUserId, scope = 'mine', clientType = '', revision = 0 }) {
+  const {t}=useTranslation();
   const period = useMemo(() => getMineAnalyticsPeriod(selectedWeek, range), [range, selectedWeek]);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -18,7 +21,7 @@ export default function useMineTimeAnalytics({ selectedWeek, range, currentUser,
     setLoading(true);
     setError('');
     const params = { scope, ...period };
-    if (scope === 'mine' && currentUser.role === 'admin') params.userId = selectedUserId;
+    if (scope === 'mine' && selectedUserId) params.userId = selectedUserId;
     if (clientType) params.clientType = clientType;
 
     axios.get('/api/dashboard', { params })
@@ -27,7 +30,7 @@ export default function useMineTimeAnalytics({ selectedWeek, range, currentUser,
       })
       .catch((requestError) => {
         if (requestId !== requestRef.current) return;
-        setError(requestError.response?.data?.error || 'Не удалось загрузить аналитику времени');
+        setError(getApiErrorMessage(requestError,t,'mineAnalytics.error'));
       })
       .finally(() => {
         if (requestId === requestRef.current) setLoading(false);
@@ -36,7 +39,7 @@ export default function useMineTimeAnalytics({ selectedWeek, range, currentUser,
     return () => {
       if (requestId === requestRef.current) requestRef.current += 1;
     };
-  }, [clientType, currentUser, period, reloadToken, revision, scope, selectedUserId]);
+  }, [clientType, currentUser, period, reloadToken, revision, scope, selectedUserId,t]);
 
   return { data, loading, error, period, reload };
 }

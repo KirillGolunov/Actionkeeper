@@ -96,7 +96,7 @@ function getProjectHours(projectHours, categoryOrder = DEFAULT_CATEGORY_ORDER) {
     ));
 }
 
-function buildTeamWeeklyOverview({ year, users = [], rows = [], todayKey = getTodayKey(), targetHours = WEEKLY_TARGET_HOURS, categoryOrder = DEFAULT_CATEGORY_ORDER, includeDetails = true }) {
+function buildTeamWeeklyOverview({ year, users = [], rows = [], todayKey = getTodayKey(), targetHours = WEEKLY_TARGET_HOURS, categoryOrder = DEFAULT_CATEGORY_ORDER, includeDetails = true, targets }) {
   const weeks = getIsoWeeks(year);
   const currentWeekStart = toDateKey(startOfIsoWeek(todayKey));
   const hoursByUserWeek = new Map();
@@ -133,13 +133,16 @@ function buildTeamWeeklyOverview({ year, users = [], rows = [], todayKey = getTo
     const createdDate = String(user.createdAt || user.created_at || '').slice(0, 10);
     const weekly = weeks.map((week) => {
       const hours = Number(hoursByUserWeek.get(`${userId}|${week.startDate}`) || 0);
+      const weekTarget = targets ? (targets[userId]?.[week.startDate] || 0) : targetHours;
       let status;
-      if (createdDate && week.startDate < createdDate && hours === 0) status = 'not_applicable';
+      if (targets && weekTarget === 0) status = 'not_applicable';
+      else if (createdDate && week.startDate < createdDate && hours === 0) status = 'not_applicable';
       else if (week.startDate > currentWeekStart) status = 'future';
       else if (week.startDate === currentWeekStart) status = 'in_progress';
-      else if (hours >= targetHours) status = 'complete';
+      else if (hours >= weekTarget) status = 'complete';
       else status = 'missing';
       const item = {
+        ...(targets ? { targetHours: weekTarget } : {}),
         weekStart: week.startDate,
         hours,
         status,

@@ -27,7 +27,7 @@ import {
   YAxis,
 } from 'recharts';
 import { useTranslation } from '../i18n/I18nProvider';
-import { projectCardSurfaceSx } from '../utils/projectCardSurface';
+import { projectDialogSurfaceSx as projectCardSurfaceSx } from '../utils/projectCardSurface';
 import {
   projectOverviewChartHeaderSx,
   projectOverviewChartSurfaceSx,

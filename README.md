@@ -174,5 +174,70 @@ This keeps the currently deployed instance behavior unchanged while allowing new
 
 - `.env` and `data/smtp_settings.json` are deployment-local files and should not be committed to git.
 - The production deploy workflow preserves `.env`; runtime SMTP settings remain in the persistent `data/` directory.
+- Before starting the new backend image, the GitHub Actions deploy workflow creates a SQLite online backup named `time_tracker.predeploy.<UTC timestamp>.db` in the persistent database directory. It retains the backup and checks the backend endpoint after startup.
 - For a new server, run `./install.sh` to generate `.env`; later SMTP changes can be made from the admin settings page.
 
+
+
+## Departments and project visibility
+
+Administrators manage the department directory at `/departments` and assign each employee one department. Creating or inviting an employee requires an explicit department selection. The system department “Без подразделения” remains selectable and cannot be renamed.
+
+Administrators and the assigned project manager choose one or more departments for a project. Employees see their department's projects and projects they manage in the catalog; managing a project does not grant permission to log new time against it. The time-entry picker uses the selected employee's department. Administrators retain the ability to correct any employee's entries.
+
+After an employee transfers or project access changes, their saved time remains visible and editable, including deletion. Empty days and new records require current project access. Company analytics, client records and settings retain their existing access rules.
+
+- `GET /api/departments`: department directory for authenticated users.
+- `POST /api/departments`, `PATCH /api/departments/:id`: administrator-only create/edit with `{ name, short_name, manager_user_id }`; both names are required on creation and the manager is nullable.
+- `DELETE /api/departments/:id`: administrator-only transactional removal, reassignment of employees and cleanup of project access.
+- User creation, invitations and administrator updates use numeric `department_id`.
+- Project creation and authorized updates accept a nonempty numeric `departmentIds` array; responses include `departments`.
+- `GET /api/projects?purpose=time-entry&user_id=<id>`: projects available for that employee. Only administrators may select another employee.
+- Session status includes current `user` data. Authorization reads current database membership and role, rather than stale JWT claims.
+
+### Deploying the department migration
+
+Before starting the updated server against an existing database, stop the application and make a backup of the SQLite file specified by `DB_PATH`. Keep the backup until deployment verification is complete. The server runs `departments_v1` transactionally once: it assigns every existing user (including invited/deleted users) and every existing project to “Без подразделения”. Subsequent starts preserve all assignments. New departments receive project access only when an administrator or manager explicitly selects them.
+
+Validate deployment by assigning two test employees to different departments, opening one shared project to both, and confirming each time-entry picker and historical corrections. If restoring a backup is necessary, stop the application before restoring the database and the previous application version together.
+
+### Управление подразделениями
+
+Администратор открывает «Подразделения» в меню по нажатию на своё имя.
+Полное и краткое наименования обязательны и уникальны без учёта регистра и пробелов по краям (до 120 символов).
+Руководитель выбирается из действующих пользователей, назначение необязательно и не добавляет прав.
+При удалении подразделения сотрудники, включая приглашённых и удалённых, переходят в «Без подразделения».
+Связи с проектами удаляются; только проекты без других подразделений назначаются «Без подразделения». История времени сохраняется.
+Системное подразделение нельзя редактировать или удалять. Миграция `departments_v2` сохраняет существующие назначения.
+
+Карточки проектов показывают краткие наименования подразделений; полные названия доступны в подсказках.
+«Без подразделения» выбирается отдельно от обычных подразделений. Миграция `project_departments_exclusive_unassigned` снимает системное назначение с проектов, у которых уже есть обычные подразделения.
+
+В секции «О проекте» поле «Подразделение» поддерживает множественный выбор с чекбоксами.
+Чипы имеют стабильный цвет по ID подразделения; системное подразделение отображается серым.
+Изменения существующего проекта сохраняются одним запросом при закрытии списка. При ошибке черновик остаётся доступным для повтора или отмены; пустой выбор не сохраняется.
+
+### Ответственное подразделение и права руководителей
+
+Миграция `project_governance_v1` добавляет ответственное подразделение и автора проекта. Старым проектам с единственным подразделением назначается оно; при нескольких требуется выбор администратором. Автор старых проектов не восстанавливается предположениями.
+Администраторы и действующие руководители подразделений могут создавать проекты и задавать первоначальный бюджет. Ответственное подразделение обязательно, руководитель проекта необязателен. При создании проекта кандидаты доступны из всех подразделений: только действующие, не приглашённые и не удалённые сотрудники. Смена руководителя существующего проекта доступна только администратору.
+Текущий руководитель ответственного подразделения рассматривает запросы бюджета, включая собственные. Прямое изменение действующего бюджета и административные действия остаются доступными администраторам.
+Передать ответственность может администратор или создатель, пока он руководит хотя бы одним подразделением. Передача открывает доступ новому подразделению и переключает полномочия рассмотрения незавершённых запросов без изменения руководителя проекта и бюджета.
+«Без подразделения» несовместимо с обычными назначениями. При передаче в системное подразделение, в том числе при удалении ответственного подразделения, обычные назначения снимаются; утверждение выполняет администратор.
+Создание принимает `responsibleDepartmentId`, `managerUserId`, `budget`, `budgetReason` в `POST /api/projects`. Кандидаты доступны через `GET /api/projects/creation-options`; передача — `POST /api/projects/:id/transfer-responsibility` с `departmentId`; история — `GET /api/projects/:id/responsibility-history`.
+Перед запуском обновлённого сервера сделайте резервную копию базы. Уведомления отправляются после коммита; отказ доставки не отменяет создание или передачу.
+
+Миграция `project_responsibility_notifications_v1` расширяет типы уведомлений о передаче ответственности, сохраняя существующие уведомления и индексы.
+
+### История подразделений и часы по дате работы
+
+Миграция `department_history_v1` сохраняет текущие назначения с даты миграции, а существующие часы относит к системному подразделению с отметкой неизвестной прежней принадлежности. Часы, проекты и описания сохраняются; старые переводы восстанавливаются администратором вручную.
+История переводов доступна на странице пользователей. Изменение требует даты начала и подтверждения периода и количества пересчитываемых записей. Будущие назначения применяются по дате Europe/Moscow; исходное назначение не удаляется.
+Подразделения архивируются вместо удаления: исторические назначения и часы остаются, текущие и будущие назначения архивируемого подразделения заменяются системным. Доступность и ответственность проектов обрабатываются по существующим правилам.
+Меню сотрудников на главной и в аналитике учитывают историческую принадлежность. Руководители работают только с днями и записями управляемых подразделений; нормы недели делятся по дням принадлежности. Административные и финансовые права не расширяются.
+Варианты выбора: `GET /api/user-selection` с `purpose`, `startDate`, `endDate`. Доступ по дням: `GET /api/time-entry-permissions` с `user_id`, `startDate`, `endDate`. История и предварительный пересчёт: `/api/admin/users/:userId/department-history` и `/preview`. Аналитика принимает `departmentId`; временные записи фильтруются по сохранённой принадлежности, а новые записи проверяют доступ проекта на дату работы.
+
+Статус подразделения меняется администратором через `PATCH /api/departments/:id` с `status: active` или `status: archived`. Изменение на архивный выполняет существующую обработку сотрудников и проектов одной транзакцией вместе с редактированием полей. Восстановление снимает архивный статус и возвращает подразделение в рабочие списки, не восстанавливая автоматически прежние назначения сотрудников или связи проектов. Архивные подразделения можно редактировать; системное подразделение защищено от изменения.
+
+Для руководителя без административной роли «Аналитика» начинает работу с первым активным управляемым подразделением в порядке меню, в режиме всех сотрудников. Выбор определяется актуальным каталогом; до его загрузки показывается индикатор, при ошибке доступен повтор. Администраторы и обычные сотрудники сохраняют общий командный обзор. Ручной выбор не сбрасывается при обновлении каталога, периода или языка.
+Новые сценарии используют RU/EN-каталоги интерфейса, отдельные коды ошибок `department_history.*` и локализованное форматирование отображаемых дат и чисел. Даты API остаются в ISO; даты переводов определяются по Europe/Moscow. Язык интерфейса берётся из `localStorage.locale`, язык писем — из настроек получателя.

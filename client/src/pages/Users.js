@@ -1,3 +1,6 @@
+import DepartmentHistoryDialog from '../components/DepartmentHistoryDialog';
+import { getDepartmentChipSx } from '../utils/departmentColors';
+import DepartmentSelect from '../components/DepartmentSelect';
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
@@ -44,6 +47,8 @@ import PageLayout, {
 
 function Users() {
   const { t, locale } = useTranslation();
+  const [departments, setDepartments] = useState([]);
+  useEffect(() => { axios.get('/api/departments').then(r => setDepartments(r.data)).catch(() => setError(t('departments.loadFailed'))); }, [t]);
   const [users, setUsers] = useState([]);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState(null);
@@ -51,7 +56,7 @@ function Users() {
     name: '',
     surname: '',
     email: '',
-    role: 'user',
+    role: 'user', department_id: '',
   });
   const [editOpen, setEditOpen] = useState(false);
   const [editUser, setEditUser] = useState(null);
@@ -62,7 +67,7 @@ function Users() {
   const [filters, setFilters] = useState({ active: false, deleted: false, user: false, admin: false });
   const [editingUserId, setEditingUserId] = useState(null);
   const [editUserDraft, setEditUserDraft] = useState(null);
-  const [addDraft, setAddDraft] = useState({ name: '', surname: '', email: '', role: 'user' });
+  const [addDraft, setAddDraft] = useState({ name: '', surname: '', email: '', role: 'user', department_id: '' });
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
   const [inviteLoading, setInviteLoading] = useState(false);
   const [resendDialogOpen, setResendDialogOpen] = useState(false);
@@ -77,6 +82,7 @@ function Users() {
   const [ratesLoading, setRatesLoading] = useState(false);
   const [rateSaving, setRateSaving] = useState(false);
   const [rateError, setRateError] = useState(null);
+  const [departmentHistoryUser,setDepartmentHistoryUser]=useState(null);
   const [rateDraft, setRateDraft] = useState({ rateRubPerHour: '', effectiveFrom: '' });
   const [editRateOpen, setEditRateOpen] = useState(false);
   const [editingRateId, setEditingRateId] = useState(null);
@@ -152,6 +158,7 @@ function Users() {
       setError(t('users.validation.emailInvalid'));
       return;
     }
+    if (!(newUser.department_id)) { setError(t('departments.required')); return; }
     setInviteDialogOpen(true);
   };
 
@@ -165,11 +172,12 @@ function Users() {
         name: newUser.name,
         surname: newUser.surname,
         role: newUser.role,
+        department_id: newUser.department_id,
       });
       fetchUsers();
       fetchInvitations();
-      setNewUser({ name: '', surname: '', email: '', role: 'user' });
-      setAddDraft({ name: '', surname: '', email: '', role: 'user' });
+      setNewUser({ name: '', surname: '', email: '', role: 'user', department_id: '' });
+      setAddDraft({ name: '', surname: '', email: '', role: 'user', department_id: '' });
       setInviteDialogOpen(false);
       setSnackbarMsg(t('users.invitationSent'));
       setSnackbarOpen(true);
@@ -208,7 +216,8 @@ function Users() {
         setError(t('users.validation.emailInvalid'));
         return;
       }
-      await axios.patch(`/api/users/${editUser.id}`, editUser);
+      const {department_id,...profile}=editUser;
+      await axios.patch(`/api/users/${editUser.id}`, profile);
       fetchUsers();
       handleEditClose();
     } catch (error) {
@@ -272,6 +281,7 @@ function Users() {
       setError(t('users.validation.emailInvalid'));
       return;
     }
+    if (!addDraft.department_id) { setError(t('departments.required')); return; }
     // Set newUser to addDraft and open the invite modal
     setNewUser({ ...addDraft });
     setInviteDialogOpen(true);
@@ -299,7 +309,8 @@ function Users() {
         setError(t('users.validation.emailInvalid'));
         return;
       }
-      await axios.patch(`/api/users/${editUserDraft.id}`, editUserDraft);
+      const { department_id, ...profile } = editUserDraft;
+      await axios.patch(`/api/users/${editUserDraft.id}`, profile);
       fetchUsers();
       setEditingUserId(null);
       setEditUserDraft(null);
@@ -314,11 +325,13 @@ function Users() {
   // Resend invitation logic
   const handleResendClick = (email) => {
     setResendEmail(email);
-    setResendDialogOpen(true);
+    setResendDialogOpen(true);
+
     setResendError(null);
   };
   const handleResendConfirm = async () => {
-    setResendLoading(true);
+    setResendLoading(true);
+
     setResendError(null);
     try {
       await axios.post('/api/invitations', { email: resendEmail, invited_by: null });
@@ -496,7 +509,7 @@ function Users() {
     },
   };
 
-  const userActionCellWidth = 248;
+  const userActionCellWidth = 200;
   const userActionBoxSx = {
     display: 'flex',
     justifyContent: 'flex-end',
@@ -558,24 +571,28 @@ function Users() {
         </Alert>
       )}
 
-      <TableContainer component={Paper} sx={{ mb: 3, border: '1px solid #E2E4E9', borderRadius: '12px', boxShadow: '1', overflowX: 'hidden', width: '100%' }}>
-        <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
+      <TableContainer component={Paper} sx={{ mb: 3, border: '1px solid #E2E4E9', borderRadius: '12px', boxShadow: '1', overflowX: 'auto', width: '100%' }}>
+        <Table size="small" sx={{ tableLayout: 'fixed', width: '100%', minWidth: 1164 }}>
+          <colgroup>
+            {[140, 120, 240, 132, 112, 220, userActionCellWidth].map((width, index) => <col key={index} style={{ width }} />)}
+          </colgroup>
           <TableHead>
             <TableRow sx={{ height: 40, minHeight: 40 }}>
-              <TableCell sx={{ ...userTableHeadCellSx, width: '16%' }}>{t('users.surname')}</TableCell>
-              <TableCell sx={{ ...userTableHeadCellSx, width: '14%' }}>{t('users.name')}</TableCell>
-              <TableCell sx={{ ...userTableHeadCellSx, width: '25%' }}>{t('users.email')}</TableCell>
-              <TableCell sx={{ ...userTableHeadCellSx, width: 132 }}>{t('users.role')}</TableCell>
-              <TableCell sx={{ ...userTableHeadCellSx, width: 128 }}>{t('users.status')}</TableCell>
+              <TableCell sx={{ ...userTableHeadCellSx }}>{t('users.surname')}</TableCell>
+              <TableCell sx={{ ...userTableHeadCellSx }}>{t('users.name')}</TableCell>
+              <TableCell sx={{ ...userTableHeadCellSx }}>{t('users.email')}</TableCell>
+              <TableCell sx={{ ...userTableHeadCellSx }}>{t('users.role')}</TableCell>
+              <TableCell sx={{ ...userTableHeadCellSx }}>{t('users.status')}</TableCell>
+              <TableCell sx={userTableHeadCellSx}>{t('departments.employeeField')}</TableCell>
               {currentUser?.role === 'admin' && (
-                <TableCell align="right" sx={{ ...userTableHeadCellSx, width: userActionCellWidth }}>{t('users.actions')}</TableCell>
+                <TableCell align="right" sx={{ ...userTableHeadCellSx }}>{t('users.actions')}</TableCell>
               )}
             </TableRow>
           </TableHead>
           <TableBody>
             {currentUser?.role === 'admin' && (
               <TableRow>
-                <TableCell sx={{ ...userTableCellSx, width: '16%' }}>
+                <TableCell sx={{ ...userTableCellSx }}>
                   <TextField
                     size="small"
                     fullWidth
@@ -585,7 +602,7 @@ function Users() {
                     sx={userTableInputSx}
                   />
                 </TableCell>
-                <TableCell sx={{ ...userTableCellSx, width: '14%' }}>
+                <TableCell sx={{ ...userTableCellSx }}>
                   <TextField
                     size="small"
                     fullWidth
@@ -595,7 +612,7 @@ function Users() {
                     sx={userTableInputSx}
                   />
                 </TableCell>
-                <TableCell sx={{ ...userTableCellSx, width: '25%' }}>
+                <TableCell sx={{ ...userTableCellSx }}>
                   <TextField
                     size="small"
                     fullWidth
@@ -605,7 +622,7 @@ function Users() {
                     sx={userTableInputSx}
                   />
                 </TableCell>
-                <TableCell sx={{ ...userTableCellSx, width: 132 }}>
+                <TableCell sx={{ ...userTableCellSx }}>
                   <TextField
                     select
                     size="small"
@@ -619,8 +636,9 @@ function Users() {
                     <MenuItem value="admin">{t('users.admin')}</MenuItem>
                   </TextField>
                 </TableCell>
-                <TableCell sx={{ ...userTableCellSx, width: 128 }}></TableCell>
-                <TableCell align="right" sx={{ ...userTableCellSx, width: userActionCellWidth }}>
+                <TableCell sx={{ ...userTableCellSx }}></TableCell>
+                <TableCell sx={userTableCellSx}><DepartmentSelect chips compact departments={departments} value={addDraft.department_id} onChange={department_id => setAddDraft(d => ({ ...d, department_id }))} /></TableCell>
+                <TableCell align="right" sx={{ ...userTableCellSx }}>
                   <Button size="small" variant="contained" onClick={handleAddUser}
                     sx={{
                       minWidth: 76,
@@ -647,7 +665,7 @@ function Users() {
               const isEditing = editingUserId === user.id;
               return (
                 <TableRow key={user.id} sx={user.deleted ? { color: '#bdbdbd', '& td': { color: '#bdbdbd' } } : {}}>
-                  <TableCell sx={{ ...userTableCellSx, width: '16%' }}>
+                  <TableCell sx={{ ...userTableCellSx }}>
                     {isEditing ? (
                       <TextField
                         size="small"
@@ -662,7 +680,7 @@ function Users() {
                       </Tooltip>
                     )}
                   </TableCell>
-                  <TableCell sx={{ ...userTableCellSx, width: '14%' }}>
+                  <TableCell sx={{ ...userTableCellSx }}>
                     {isEditing ? (
                       <TextField
                         size="small"
@@ -677,7 +695,7 @@ function Users() {
                       </Tooltip>
                     )}
                   </TableCell>
-                  <TableCell sx={{ ...userTableCellSx, width: '25%' }}>
+                  <TableCell sx={{ ...userTableCellSx }}>
                     {isEditing ? (
                       <TextField
                         size="small"
@@ -692,7 +710,7 @@ function Users() {
                       </Tooltip>
                     )}
                   </TableCell>
-                  <TableCell sx={{ ...userTableCellSx, width: 132 }}>
+                  <TableCell sx={{ ...userTableCellSx }}>
                     {isEditing ? (
                       <TextField
                         select
@@ -747,7 +765,7 @@ function Users() {
                       />
                     )}
                   </TableCell>
-                  <TableCell sx={{ ...userTableCellSx, width: 128 }}>
+                  <TableCell sx={{ ...userTableCellSx }}>
                     {isEditing ? (
                       <TextField
                         select
@@ -771,8 +789,14 @@ function Users() {
                       )
                     )}
                   </TableCell>
+                  <TableCell sx={{ ...userTableCellSx, overflowWrap: 'anywhere' }}>
+                    <Chip size="small" label={departments.find(d=>d.id===user.department_id)?.is_system?t('departments.unassigned'):departments.find(d=>d.id===user.department_id)?.short_name||user.department_name||t('departments.unassigned')}
+                      onClick={currentUser?.role==='admin'?()=>setDepartmentHistoryUser(user):undefined}
+                      aria-label={currentUser?.role==='admin'?t('departmentHistory.changeDepartment'):undefined}
+                      sx={{...getDepartmentChipSx(departments.find(d=>d.id===user.department_id)||{id:user.department_id}),maxWidth:'100%',height:28,borderRadius:'6px',fontSize:12,justifyContent:'flex-start','& .MuiChip-label':{textAlign:'left',overflow:'hidden',textOverflow:'ellipsis'},'&:hover':{filter:'brightness(.97)'}}}/>
+                  </TableCell>
                   {currentUser?.role === 'admin' && (
-                    <TableCell align="right" sx={{ ...userTableCellSx, width: userActionCellWidth }}>
+                    <TableCell align="right" sx={{ ...userTableCellSx }}>
                       {isEditing ? (
                         <Box sx={userActionBoxSx}>
                           <Tooltip title={t('common.actions.save')}>
@@ -907,6 +931,7 @@ function Users() {
                 : ''
             }
           />
+          <DepartmentSelect chips departments={departments} value={newUser.department_id} onChange={department_id => setNewUser({ ...newUser, department_id })} />
           <TextField
             select
             fullWidth
@@ -1015,6 +1040,7 @@ function Users() {
             <MenuItem value="admin">Admin</MenuItem>
           </TextField>
         </DialogContent>
+        <Button fullWidth variant="outlined" onClick={()=>setDepartmentHistoryUser(editUser)} sx={{textTransform:'none'}}>{departments.find(d=>d.id===editUser?.department_id)?.name||t('departments.unassigned')}</Button>
         <DialogActions>
           <Button onClick={handleEditClose}
             variant="outlined"
@@ -1061,6 +1087,7 @@ function Users() {
         </DialogActions>
       </Dialog>
 
+      <DepartmentHistoryDialog user={departmentHistoryUser} onClose={()=>setDepartmentHistoryUser(null)} onChanged={async()=>{await fetchUsers();const response=await axios.get(`/api/users/${departmentHistoryUser.id}`);if(editUser?.id===departmentHistoryUser.id)setEditUser({...editUser,department_id:response.data.department_id});if(editingUserId===departmentHistoryUser.id)setEditUserDraft(d=>({...d,department_id:response.data.department_id}));}}/>
       <Dialog open={ratesOpen} onClose={handleRatesClose} maxWidth="md" fullWidth>
         <DialogTitle>{rateText('title', { name: formatUserName(ratesUser) })}</DialogTitle>
         <DialogContent sx={{ pt: 2.5 }}>
@@ -1415,4 +1442,4 @@ function Users() {
   );
 }
 
-export default Users; 
+export default Users;

@@ -1,3 +1,4 @@
+import {getApiErrorMessage} from '../utils/apiErrorMessage';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Box, Button, CircularProgress, Tooltip, Typography, useMediaQuery,
@@ -132,7 +133,7 @@ function LegendItem({ colors, label, swatchKey, marker = false }) {
   </Box>;
 }
 
-export default function TeamWeeklyOverview({ onOpenTimesheet, year: controlledYear }) {
+export default function TeamWeeklyOverview({ onOpenTimesheet, selectedSubject = 'team', year: controlledYear }) {
   const { t, locale } = useTranslation();
   const theme = useTheme();
   const dateLocale = locale === 'ru' ? ru : enUS;
@@ -157,11 +158,11 @@ export default function TeamWeeklyOverview({ onOpenTimesheet, year: controlledYe
   const load = useCallback(() => {
     setLoading(true);
     setError('');
-    axios.get('/api/dashboard/team-weekly', { params: { year } })
+    axios.get('/api/dashboard/team-weekly', { params: { year, ...(String(selectedSubject).startsWith('department:')?{departmentId:String(selectedSubject).split(':')[1]}:selectedSubject!=='team'?{userId:selectedSubject}:{}) } })
       .then((response) => setData(response.data))
-      .catch((requestError) => setError(requestError.response?.data?.error || t('teamWeekly.errors.fetch')))
+      .catch((requestError) => setError(getApiErrorMessage(requestError,t,'teamWeekly.errors.fetch')))
       .finally(() => setLoading(false));
-  }, [t, year]);
+  }, [t, year, selectedSubject]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
@@ -262,12 +263,12 @@ export default function TeamWeeklyOverview({ onOpenTimesheet, year: controlledYe
     setSelectedDetail(null);
     setDetailError('');
     setDetailLoading(true);
-    axios.get('/api/dashboard/team-weekly/detail', { params: { userId: selectedCell.user.id, weekStart: selectedCell.week.weekStart } })
+    axios.get('/api/dashboard/team-weekly/detail', { params: { userId: selectedCell.user.id, weekStart: selectedCell.week.weekStart, ...(String(selectedSubject).startsWith('department:')?{departmentId:String(selectedSubject).split(':')[1]}:{}) } })
       .then((response) => { if (!ignore) setSelectedDetail(response.data?.week ? response.data : { week: selectedCell.week, canOpenTimesheet: true }); })
-      .catch((requestError) => { if (!ignore) setDetailError(requestError.response?.data?.error || t('teamWeekly.errors.detail')); })
+      .catch((requestError) => { if (!ignore) setDetailError(getApiErrorMessage(requestError,t,'teamWeekly.errors.detail')); })
       .finally(() => { if (!ignore) setDetailLoading(false); });
     return () => { ignore = true; };
-  }, [selectedCell, t]);
+  }, [selectedCell, selectedSubject, t]);
 
   const moveFocus = (event, row, column, user, week) => {
     if (event.key === 'Enter' || event.key === ' ') {
@@ -362,7 +363,7 @@ export default function TeamWeeklyOverview({ onOpenTimesheet, year: controlledYe
                 const separatorColor = columnActive ? columnBackground : '#D0D5DD';
                 const monthSeparatorSx = monthStart ? { position: 'relative', '&::after': { content: '""', position: 'absolute', zIndex: 2, pointerEvents: 'none', left: '-1px', top: 0, bottom: 0, width: '1px', bgcolor: separatorColor } } : {};
                 if (!week) return <Box data-week-column={column} data-month-group={weekMonthGroupIndexes[column]} data-month-start={monthStart ? 'true' : 'false'} data-column-highlighted={columnActive ? 'true' : 'false'} data-pointer-highlighted="false" data-pointer-intersection="false" key={meta.startDate} sx={{ minWidth: 0, bgcolor: columnBackground, ...monthSeparatorSx, boxShadow: columnActive ? `0 -1px 0 ${columnBackground}, 0 1px 0 ${columnBackground}` : 'none', '&[data-pointer-highlighted="true"]': { bgcolor: '#E9EEFB', '&::after': { bgcolor: '#E9EEFB' }, boxShadow: '0 -1px 0 #E9EEFB, 0 1px 0 #E9EEFB' }, '&[data-pointer-intersection="true"]': { bgcolor: '#DDE6FA', '&::after': { bgcolor: '#DDE6FA' }, boxShadow: '0 -1px 0 #DDE6FA, 0 1px 0 #DDE6FA' } }} />;
-                const colors = getWeekVisual(week.status, week.hours, data.weeklyTargetHours, week.dominantCategory);
+                const colors = getWeekVisual(week.status, week.hours, week.targetHours ?? data.weeklyTargetHours, week.dominantCategory);
                 const weekLabel = formatWeek(meta);
                 const dominantCategoryText = week.dominantCategory ? t('teamWeekly.dominantCategory', { category: categoryLabel(week.dominantCategory) }) : '';
                 const ariaLabel = [t('teamWeekly.cellAria', { user: user.label, week: weekLabel, hours: formatHours(week.hours), status: statusLabel(week.status) }), dominantCategoryText].filter(Boolean).join(', ');
@@ -405,7 +406,7 @@ export default function TeamWeeklyOverview({ onOpenTimesheet, year: controlledYe
       {detailError ? <Alert severity="error">{detailError}</Alert> : selectedCell && selectedWeek && detailWeek && <Box sx={{ minWidth: 0, display: 'grid', gap: 1.5 }}>
         {detailLoading ? <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}><CircularProgress size={18} /></Box> : null}
         <Box sx={{ px: 1.25, py: 1, borderRadius: 1.5, bgcolor: '#F5F7FA' }}>
-          <Typography sx={{ color: '#344054', fontSize: 14, fontWeight: 500 }}>{t('teamWeekly.dialog.total', { hours: formatHours(detailWeek.hours), target: data.weeklyTargetHours, status: statusLabel(detailWeek.status) })}</Typography>
+          <Typography sx={{ color: '#344054', fontSize: 14, fontWeight: 500 }}>{t('teamWeekly.dialog.total', { hours: formatHours(detailWeek.hours), target: detailWeek.targetHours ?? data.weeklyTargetHours, status: statusLabel(detailWeek.status) })}</Typography>
         </Box>
         <Box sx={{ minWidth: 0, display: 'grid', gap: 1 }}>
           <Typography sx={{ fontSize: 13, fontWeight: 600, color: '#344054' }}>{t('teamWeekly.dialog.categoryHours')}</Typography>

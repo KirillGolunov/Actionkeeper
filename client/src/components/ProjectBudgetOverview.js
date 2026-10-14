@@ -6,7 +6,7 @@ import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import { useTranslation } from '../i18n/I18nProvider';
 import { calculateBudgetDraft } from './ProjectBudgetSection';
 import ProjectBudgetLaborChart from './ProjectBudgetLaborChart';
-import { projectCardSurfaceSx } from '../utils/projectCardSurface';
+import { projectDialogSurfaceSx as projectCardSurfaceSx } from '../utils/projectCardSurface';
 import {
   projectOverviewContentSx,
   projectOverviewHeaderSx,
@@ -106,6 +106,7 @@ export default function ProjectBudgetOverview({
   applyDisabled = false,
   applyVisible = true,
   isAdmin = false,
+  canReview = false,
   isManager = false,
   restricted = false,
 }) {
@@ -168,8 +169,8 @@ export default function ProjectBudgetOverview({
   const tone = used >= 100 ? 'danger' : used >= threshold ? 'warning' : 'default';
   const hasPendingRequest = Boolean(status?.activeRequest);
   const settingsLabel = hasPendingRequest
-    ? isAdmin ? t('projects.budget.overview.showProposal') : isManager ? t('projects.budget.overview.showRequest') : t('projects.budget.overview.changeSettings')
-    : budget ? t('projects.budget.overview.changeSettings') : t('projects.budget.overview.configure');
+    ? (isAdmin || canReview) ? t('projects.budget.overview.showProposal') : isManager ? t('projects.budget.overview.showRequest') : t('projects.budget.overview.changeSettings')
+    : canReview && !isAdmin && !isManager ? t('governance.budgetHistory') : budget ? t('projects.budget.overview.changeSettings') : t('projects.budget.overview.configure');
 
   const actualLaborCost = Number(summary?.totalLaborCostRub || 0);
   const previewExceeded = previewActive ? Math.max(0, actualLaborCost - preview.payroll) : 0;
@@ -271,7 +272,7 @@ export default function ProjectBudgetOverview({
             ) : null}
           </Stack>
         ) : (
-          <Badge badgeContent={hasPendingRequest && isAdmin ? 1 : 0} invisible={!hasPendingRequest || !isAdmin} overlap="rectangular" sx={{ '& .MuiBadge-badge': { background: '#E77142', color: '#FFFFFF' } }}>
+          <Badge badgeContent={hasPendingRequest && (isAdmin || canReview) ? 1 : 0} invisible={!hasPendingRequest || !(isAdmin || canReview)} overlap="rectangular" sx={{ '& .MuiBadge-badge': { background: '#E77142', color: '#FFFFFF' } }}>
             <Button startIcon={<SettingsOutlinedIcon />} variant="outlined" size="small" onClick={onSettings} sx={{ flexShrink: 0, alignSelf: { xs: 'flex-start', sm: 'auto' }, borderRadius: 2, borderColor: hasPendingRequest ? '#E77142' : '#D0D5DD', color: hasPendingRequest ? '#E77142' : '#475467', textTransform: 'none', '&:hover': { borderColor: hasPendingRequest ? '#C95425' : '#98A2B3', background: hasPendingRequest ? '#FFF5F2' : '#F2F4F7' } }}>
               {isPreview && !previewActive ? t('projects.budget.overview.configure') : settingsLabel}
             </Button>

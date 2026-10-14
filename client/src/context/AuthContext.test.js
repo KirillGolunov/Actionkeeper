@@ -63,3 +63,15 @@ test('does not authenticate from a stored JWT until the server confirms its sess
 
   act(() => root.unmount());
 });
+
+
+test('uses current server membership and role instead of stale JWT claims', async () => {
+  localStorage.setItem('jwt', 'stored-token');
+  jwtDecode.mockReturnValue({ id: 7, role: 'admin', exp: Math.floor(Date.now() / 1000) + 3600 });
+  axios.get.mockResolvedValue({ data: { user: { id: 7, role: 'user', department_id: 3 } } });
+  const states = []; const host = document.createElement('div'); const root = createRoot(host);
+  await act(async () => { root.render(<AuthProvider><AuthProbe onState={state => states.push(state)} /></AuthProvider>); });
+  expect(states.at(-1).user.role).toBe('user');
+  expect(states.at(-1).user.department_id).toBe(3);
+  act(() => root.unmount());
+});

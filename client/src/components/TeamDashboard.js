@@ -1,3 +1,4 @@
+import {getApiErrorMessage} from '../utils/apiErrorMessage';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -367,7 +368,8 @@ function TeamAnalyticsDashboard({ currentUser, selectedSubject, range, anchor, o
   const [selectedClient, setSelectedClient] = useState(null);
   const requestRef = useRef(0);
   const period = useMemo(() => getPeriod(range, anchor), [anchor, range]);
-  const scope = selectedSubject === 'team' ? 'company' : 'mine';
+  const departmentId=String(selectedSubject).startsWith('department:')?Number(String(selectedSubject).split(':')[1]):null;
+  const scope = selectedSubject === 'team' ? 'company' : departmentId?'department':'mine';
   const selectedUserId = selectedSubject === 'team' ? '' : selectedSubject;
 
   const load = useCallback(() => {
@@ -376,12 +378,13 @@ function TeamAnalyticsDashboard({ currentUser, selectedSubject, range, anchor, o
     setLoading(true);
     setError('');
     const params = { scope, ...period, bucket: getTimeSeriesBucket(range) };
-    if (scope === 'mine' && currentUser.role === 'admin') params.userId = selectedUserId;
+    if (scope === 'mine') params.userId = selectedUserId;
+    if(departmentId)params.departmentId=departmentId;
     axios.get('/api/dashboard', { params })
       .then((response) => { if (requestId === requestRef.current) setData(response.data); })
-      .catch((requestError) => { if (requestId === requestRef.current) setError(requestError.response?.data?.error || t('analytics.dashboardLoadError')); })
+      .catch((requestError) => { if (requestId === requestRef.current) setError(getApiErrorMessage(requestError,t,'analytics.dashboardLoadError')); })
       .finally(() => { if (requestId === requestRef.current) setLoading(false); });
-  }, [currentUser, period, range, scope, selectedUserId, t]);
+  }, [currentUser, period, range, scope, selectedUserId, departmentId, t]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
@@ -414,12 +417,13 @@ function TeamAnalyticsDashboard({ currentUser, selectedSubject, range, anchor, o
   </Box>;
 }
 
-export default function TeamDashboard({ currentUser, selectedSubject, teamView = 'analytics', onTeamViewChange, onOpenTimesheet, onOpenProject }) {
+export default function TeamDashboard({ currentUser, selectedSubject, teamView = 'analytics', onTeamViewChange, onOpenTimesheet, onOpenProject, onPeriodChange }) {
   const { t, locale } = useTranslation();
   const [range, setRange] = useState('month');
   const [anchor, setAnchor] = useState(new Date());
   const [completionYear, setCompletionYear] = useState(new Date().getFullYear());
   const completionActive = teamView === 'completion';
+  React.useEffect(()=>{onPeriodChange?.(completionActive?{startDate:`${completionYear}-01-01`,endDate:`${completionYear}-12-31`}:getPeriod(range,anchor));},[completionActive,completionYear,range,anchor,onPeriodChange]);
   const nextDisabled = completionActive
     ? completionYear >= new Date().getFullYear()
     : range === 'all' || moveAnchor(anchor, range, 1) > new Date();
@@ -446,7 +450,7 @@ export default function TeamDashboard({ currentUser, selectedSubject, teamView =
       <Box data-product-tour="team-view" sx={{ justifySelf: 'end' }}><SegmentedCapsule value={teamView} onChange={onTeamViewChange} options={viewOptions} ariaLabel={t('teamWeekly.views.aria')} idPrefix="team-view" sx={{ width: 320, height: 32, p: '2px', flexShrink: 0, justifySelf: 'end', '& .MuiToggleButton-root': { height: 28, fontSize: 11 } }} /></Box>
     </Box>
     {completionActive
-      ? <TeamWeeklyOverview year={completionYear} onOpenTimesheet={onOpenTimesheet} currentUser={currentUser} />
+      ? <TeamWeeklyOverview selectedSubject={selectedSubject} year={completionYear} onOpenTimesheet={onOpenTimesheet} currentUser={currentUser} />
       : <TeamAnalyticsDashboard currentUser={currentUser} selectedSubject={selectedSubject} range={range} anchor={anchor} onOpenProject={onOpenProject} />}
   </Box>;
 }

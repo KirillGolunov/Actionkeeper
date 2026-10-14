@@ -101,3 +101,13 @@ test('literal t() calls reference keys present in both catalogs', () => {
   assert.deepEqual(missing, [], `Missing literal translation keys:\n${missing.join('\n')}`);
 });
 
+
+test('department history API error codes have RU and EN translations',()=>{
+ const catalog=loadTranslations();let count=0;
+ for(const file of ['departmentHistory.js','departmentHistoryRoutes.js','server.js']){
+  const source=fs.readFileSync(path.join(rootDir,file),'utf8');
+  const codes=[...source.matchAll(/(?:history\.fail|departmentHistory\.fail|(?<![\w.])fail)\(\d+,\s*'[^']*',\s*'([^']+)'\)/g)].map(match=>match[1]);
+  for(const code of codes){for(const language of ['ru','en'])assert.ok(catalog[language].departmentHistory.errors[code],`${language}: ${code}`);count++;}
+ }
+ assert.ok(count>20);
+});

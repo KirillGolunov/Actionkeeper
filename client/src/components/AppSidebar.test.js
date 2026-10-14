@@ -25,6 +25,13 @@ test('places Analytics between notifications and projects in sidebar navigation'
   const labels = [...host.querySelectorAll('button')].map((button) => button.textContent.trim());
   expect(labels.indexOf('Уведомления')).toBeLessThan(labels.indexOf('Аналитика'));
   expect(labels.indexOf('Аналитика')).toBeLessThan(labels.indexOf('Проекты'));
+  expect(labels).not.toContain('Подразделения');
+  const profileButton = [...host.querySelectorAll('button')].find(button => button.textContent.includes('Админ'));
+  act(() => profileButton.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+  const departmentItem = [...document.querySelectorAll('[role="menuitem"]')].find(item => item.textContent === 'Подразделения');
+  expect(departmentItem).toBeTruthy();
+  act(() => departmentItem.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+  expect(host.querySelector('output').textContent).toBe('/departments');
   act(() => root.unmount());
   host.remove();
   localStorage.removeItem('locale');

@@ -21,6 +21,7 @@ export function AuthProvider({ children }) {
     try {
       const response = await axios.get('/api/auth/session-status');
       setSessionStatus(response.data);
+      if (response.data.user) setUser(response.data.user);
       return response.data;
     } catch (error) {
       setSessionStatus(null);
@@ -62,7 +63,7 @@ export function AuthProvider({ children }) {
         if (cancelled) return;
 
         setSessionStatus(response.data);
-        setUser(decoded);
+        setUser(response.data.user || decoded);
         setIsAuthenticated(true);
         setAuthError(null);
       } catch (error) {
@@ -93,7 +94,7 @@ export function AuthProvider({ children }) {
       }
       const response = await axios.get('/api/auth/session-status');
       setSessionStatus(response.data);
-      setUser(decoded);
+      setUser(response.data.user || decoded);
       setIsAuthenticated(true);
       setAuthError(null);
     } catch (error) {
