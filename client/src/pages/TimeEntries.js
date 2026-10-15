@@ -1753,4 +1753,3 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
 }
 
 export default TimeEntries; 
-
