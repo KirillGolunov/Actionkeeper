@@ -49,6 +49,7 @@ import EmbeddedWeekTableHeading from '../components/EmbeddedWeekTableHeading';
 import HourInput from '../components/HourInput';
 import useMineTimeAnalytics from '../hooks/useMineTimeAnalytics';
 import { buildPayrollSaveNotice, buildWeeklyValidationIssues } from '../utils/timeEntryNotices';
+import { getWeekDateRange, toLocalDateKey } from '../utils/timeEntryDates';
 
 const WEEKLY_REQUIRED_HOURS = 40;
 
@@ -92,16 +93,8 @@ const cloneWeeklyEntry = (entry) => ({
 
 // Return the selected Monday-Sunday range for API queries.
 function getWeekRange(date) {
-  // Returns [monday, sunday] as ISO strings
-  const d = new Date(date);
-  const day = d.getDay();
-  const monday = new Date(d);
-  monday.setDate(d.getDate() - ((day + 6) % 7));
-  monday.setHours(0, 0, 0, 0);
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
-  sunday.setHours(23, 59, 59, 999);
-  return [monday.toISOString(), sunday.toISOString()];
+  // Work dates are calendar dates; UTC serialization shifts local midnight into the prior day.
+  return getWeekDateRange(date);
 }
 
 function getHistoryRange(month, selectedWeek) {
@@ -117,7 +110,7 @@ function getHistoryRange(month, selectedWeek) {
 
 // Helper to get a unique key for project order in localStorage
 function getOrderStorageKey(userId, weekStart) {
-  return `weeklyProjectOrder_${userId}_${new Date(weekStart).toISOString().slice(0,10)}`;
+  return `weeklyProjectOrder_${userId}_${toLocalDateKey(weekStart)}`;
 }
 
 function setSavedProjectOrder(userId, weekStart, rows) {
@@ -320,7 +313,7 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
       const sunday = new Date(monday);
       sunday.setDate(monday.getDate() + 6);
       function toYMD(date) {
-        return date.toISOString().slice(0, 10);
+        return toLocalDateKey(date);
       }
       const mondayYMD = toYMD(monday);
       const sundayYMD = toYMD(sunday);
@@ -333,15 +326,15 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
       // Sum all hours for this week
       const logged = weekEntries.reduce((sum, e) => sum + (parseFloat(e.hours) || 0), 0);
       weeks.push({
-        start: monday.toISOString(),
-        end: sunday.toISOString(),
+        start: toLocalDateKey(monday),
+        end: toLocalDateKey(sunday),
         loggedHours: logged,
         isCurrent: getMonday(today).toDateString() === monday.toDateString(),
         isSelected: getMonday(weekStart).toDateString() === monday.toDateString(),
       });
     }
     // Only include weeks up to and including the current week
-    const filteredWeeks = weeks.filter(w => new Date(w.start) <= currentMonday);
+    const filteredWeeks = weeks.filter(w => new Date(`${w.start}T00:00:00`) <= currentMonday);
     setAllWeeks(filteredWeeks);
   }, [selectedUser, weekStart, timeEntries, weeksToShow]);
 
@@ -677,7 +670,7 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
               if (dayEntry) {
                 const response = await axios.patch(`/api/time-entries/${dayEntry.id}`, {
                   project_id: editWeekEntry.project_id,
-                  date: date.toISOString(),
+                  date: toLocalDateKey(date),
                   hours,
                 });
                 return { payrollWarning: response.data?.payrollWarning || null, failedDay: null };
@@ -685,7 +678,7 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
                 const response = await axios.post('/api/time-entries', {
                   project_id: editWeekEntry.project_id,
                   user_id: editWeekEntry.user_id,
-                  date: date.toISOString(),
+                  date: toLocalDateKey(date),
                   hours,
                   description: '',
                 });
@@ -912,7 +905,7 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
           await axios.post('/api/time-entries/bulk-delete', {
             user_id: userForDelete,
             project_id: entry.project_id,
-            week_start: weekStart.toISOString(),
+            week_start: toLocalDateKey(weekStart),
           });
         }
       }
@@ -1760,3 +1753,4 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
 }
 
 export default TimeEntries; 
+
