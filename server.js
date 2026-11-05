@@ -36,17 +36,16 @@ const governance = createProjectGovernance({ runDb, getDb, allDb });
 const { createDepartmentHistory } = require('./departmentHistory');
 const departmentHistory = createDepartmentHistory({ runDb, getDb, allDb });
 departments.useHistory(departmentHistory);
-let projectMutationQueue = Promise.resolve();
-function serializeProjectMutation(handler) {
-  return (req,res,next)=>{
-    const job=projectMutationQueue.then(()=>new Promise((resolve,reject)=>{
-      const done=()=>{res.removeListener('finish',done);res.removeListener('close',done);resolve();};
-      res.once('finish',done);res.once('close',done);
-      (async()=>{if(req.user?.id){const current=await getDb('SELECT * FROM users WHERE id=? AND deleted=0',[req.user.id]);if(!current)return sendApiError(res,401,'authUserNotFound');req.user={...req.user,...current};}return handler(req,res,next);})().catch(reject);
-    }));
-    projectMutationQueue=job.catch(()=>{});return job.catch(next);
-  };
-}
+const { createRequestQueue } = require('./requestQueue');
+const serializeProjectMutation = createRequestQueue({
+  before: async (req, res) => {
+    if (!req.user?.id) return true;
+    const current = await getDb('SELECT * FROM users WHERE id=? AND deleted=0', [req.user.id]);
+    if (!current) { sendApiError(res, 401, 'authUserNotFound'); return false; }
+    req.user = { ...req.user, ...current };
+    return true;
+  },
+});
 const app = express();
 app.set('trust proxy', true);
 let setupRequired = false;
@@ -3113,7 +3112,8 @@ app.get('/api/projects', authenticateJWT, serializeProjectMutation(async (req, r
   try { target = await getDb('SELECT department_id FROM users WHERE id = ? AND deleted = 0', [targetId]); } catch (err) { return res.status(500).json({ error: err.message }); }
   if (!target) return sendApiError(res, 404, 'usersNotFound');
   target.department_id=await departmentHistory.at(targetId,departmentHistory.today());
-  db.all(
+  try {
+  const rows = await allDb(
     `SELECT p.*, c.name AS client_name,
             manager.name AS manager_name, manager.surname AS manager_surname,
             CASE
@@ -3138,13 +3138,8 @@ app.get('/api/projects', authenticateJWT, serializeProjectMutation(async (req, r
      LEFT JOIN clients c ON p.client_id = c.id
      LEFT JOIN users manager ON manager.id = p.manager_user_id
      ORDER BY p.category, p.name`,
-    [req.user.id, req.user.id, req.user.id, req.user.role, req.user.id],
-    async (err, rows) => {
-    if (err) {
-      res.status(500).json({ error: err.message });
-      return;
-    }
-    try {
+    [req.user.id, req.user.id, req.user.id, req.user.role, req.user.id]
+  );
       const decorated = await governance.decorate(req.user, await departments.decorate(rows));
       const accessibleDepartments = new Set();
       const start = req.query.startDate || departmentHistory.today();
@@ -3156,8 +3151,6 @@ app.get('/api/projects', authenticateJWT, serializeProjectMutation(async (req, r
         return req.query.purpose === 'time-entry' ? project.departments.some(d=>accessibleDepartments.has(d.id)) : req.user.role === 'admin' || project.permissions.canReviewBudget || available || Number(project.manager_user_id) === Number(req.user.id);
       }));
     } catch (error) { res.status(500).json({ error: error.message }); }
-    }
-  );
 }));
 
 app.get('/api/projects/creation-options', authenticateJWT, async (req, res) => {
