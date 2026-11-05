@@ -17,3 +17,4 @@ require('./departmentHistory.test');
 require('./departmentHistoryApi.test');
 
 require('./projectCatalogFiltersApi.test');
+require('./requestQueue.test');
