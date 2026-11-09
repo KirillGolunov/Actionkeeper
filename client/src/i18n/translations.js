@@ -1027,3 +1027,6 @@ translations.en.projectFilters={"label": "Project filters", "departments": "Depa
 
 translations.ru.productUpdate={departments:{title:'Выпущено новое обновление трекера времени по проектам Actionplan',intro:'В новой версии добавлена поддержка подразделений.',timeEntry:'Теперь пользователи видят только проекты своего подразделения — это сокращает список проектов при добавлении времени за неделю.',projects:'В каждом проекте можно указать несколько подразделений-участников, чтобы проект был доступен сотрудникам этих подразделений.',acknowledge:'Понятно',saveError:'Не удалось сохранить подтверждение. Попробуйте ещё раз.'}};
 translations.en.productUpdate={departments:{title:'A new update to the Actionplan project time tracker is here',intro:'The new version adds support for departments.',timeEntry:'Users now see only the projects available to their department, making the project list shorter when entering weekly hours.',projects:'Each project can include multiple departments, so employees in all of them can access it.',acknowledge:'Got it',saveError:'Could not save your acknowledgement. Please try again.'}};
+
+translations.ru.departmentHistory.refreshError = 'Не удалось обновить подразделения. Показаны последние загруженные данные.';
+translations.en.departmentHistory.refreshError = 'Could not refresh departments. Showing the last loaded data.';
