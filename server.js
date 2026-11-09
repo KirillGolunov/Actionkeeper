@@ -51,6 +51,22 @@ app.set('trust proxy', true);
 let setupRequired = false;
 const port = process.env.PORT || 3001;
 
+// Safe request diagnostics: never record credentials, query strings or bodies.
+app.use((req, res, next) => {
+  const id = crypto.randomUUID();
+  const started = Date.now();
+  res.setHeader('X-Request-ID', id);
+  let recorded = false;
+  const record = () => {
+    if (recorded) return;
+    recorded = true;
+    console.info('[HttpRequest]', JSON.stringify({ id, method: req.method, path: req.path, status: res.statusCode, durationMs: Date.now() - started, completed: res.writableFinished }));
+  };
+  res.once('finish', record);
+  res.once('close', record);
+  next();
+});
+
 // Middleware
 app.use(cors());
 app.use(bodyParser.json());
@@ -1368,7 +1384,7 @@ async function buildSessionStatus(user) {
 
 // JWT verification middleware
 function authenticateJWT(req, res, next) {
-  console.log('[JWT] Checking Authorization for', req.path, req.headers['authorization']);
+  console.log('[JWT] Checking Authorization for', req.path);
   const authHeader = req.headers['authorization'];
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     console.log('[JWT] Missing or invalid Authorization header');
@@ -4419,12 +4435,19 @@ app.post('/api/setup', async (req, res) => {
 // Start the server after ensuring tables are created
 loadFixtures().then(async () => {
   await checkFirstRun();
-  app.listen(port, () => {
+  const server = app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
     if (setupRequired) {
       console.log('Initial setup required. Visit /setup to configure admin and SMTP.');
     }
   });
+  server.on('clientError', (error, socket) => {
+    console.warn('[HttpParser]', JSON.stringify({ id: crypto.randomUUID(), code: /^HPE_[A-Z_]+$/.test(error.code || '') ? error.code : 'HTTP_CLIENT_ERROR' }));
+    if (!socket.writable || socket.destroyed) return;
+    const status = error.code === 'HPE_HEADER_OVERFLOW' ? '431 Request Header Fields Too Large' : '400 Bad Request';
+    socket.end(`HTTP/1.1 ${status}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
+  });
+
 });
 
 const uploadDir = path.join(__dirname, 'client', 'public', 'avatars');
