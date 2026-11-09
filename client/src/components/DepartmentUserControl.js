@@ -6,17 +6,22 @@ import ProjectMenu, { ProjectMenuRadioIcon } from './ProjectMenu';
 import { useTranslation } from '../i18n/I18nProvider';
 import {getApiErrorMessage} from '../utils/apiErrorMessage';
 import ProductErrorToast from './ProductErrorToast';
+import { createRefreshLoader } from '../utils/refreshLoader';
 
 export default function DepartmentUserControl({ currentUser, purpose='timesheet', value, onChange, startDate, endDate, onOptionsLoaded }) {
   const { t } = useTranslation();
   const [data,setData]=useState({departments:[],managedDepartmentIds:[]}),[anchor,setAnchor]=useState(null),[error,setError]=useState(''),[loadFailed,setLoadFailed]=useState(false);
-  const ref=useRef(null),loadedRef=useRef(onOptionsLoaded),retryRef=useRef(null);
+  const ref=useRef(null),loadedRef=useRef(onOptionsLoaded),retryRef=useRef(null),hasDataRef=useRef(false);
   loadedRef.current=onOptionsLoaded;
   useEffect(()=>{
-    let canceled=false;
-    const load=()=>axios.get('/api/user-selection',{params:{purpose,startDate,endDate}}).then(r=>{if(!canceled){setData(r.data);setError('');setLoadFailed(false);loadedRef.current?.(r.data);}}).catch(e=>{if(!canceled){setLoadFailed(true);setError(getApiErrorMessage(e,t,'departmentHistory.loadError'));}});
-    retryRef.current=load;load();const timer=setInterval(load,30000);
-    return()=>{canceled=true;clearInterval(timer);retryRef.current=null;};
+    const loader = createRefreshLoader({
+      request: signal => axios.get('/api/user-selection', { params: { purpose, startDate, endDate }, signal }),
+      onSuccess: r => { hasDataRef.current = true; setData(r.data); setError(''); setLoadFailed(false); loadedRef.current?.(r.data); },
+      onError: e => { setLoadFailed(true); setError(getApiErrorMessage(e, t, hasDataRef.current ? 'departmentHistory.refreshError' : 'departmentHistory.loadError')); },
+    });
+    retryRef.current = loader.retry;
+    loader.start();
+    return () => { loader.stop(); retryRef.current = null; };
   },[purpose,startDate,endDate,t,currentUser?.id]);
   const dirs=data.departments||[],mine=data.managedDepartmentIds||[];
   const userName=u=>[u?.surname,u?.name].filter(Boolean).join(' ');
