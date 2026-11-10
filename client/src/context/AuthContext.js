@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { jwtDecode } from 'jwt-decode';
 import axios from 'axios';
 import { translations } from '../i18n/translations';
@@ -16,18 +16,25 @@ export function AuthProvider({ children }) {
   const [authError, setAuthError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [sessionStatus, setSessionStatus] = useState(null);
+  const sessionFlight = useRef(null);
 
-  const refreshSessionStatus = async () => {
+  const refreshSessionStatus = useCallback(async ({signal} = {}) => {
+    const sessionToken = localStorage.getItem('jwt');
+    if (sessionFlight.current?.token === sessionToken) return sessionFlight.current.promise;
+    const work = (async () => {
     try {
-      const response = await axios.get('/api/auth/session-status');
+      const response = await axios.get('/api/auth/session-status', {signal, timeout:15000});
+      if (signal?.aborted || sessionToken !== localStorage.getItem('jwt')) return;
       setSessionStatus(response.data);
       if (response.data.user) setUser(response.data.user);
       return response.data;
     } catch (error) {
-      setSessionStatus(null);
       throw error;
     }
-  };
+    })();
+    sessionFlight.current = {token:sessionToken,promise:work};
+    try { return await work; } finally { if (sessionFlight.current?.promise === work) sessionFlight.current = null; }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;

@@ -1030,3 +1030,9 @@ translations.en.productUpdate={departments:{title:'A new update to the Actionpla
 
 translations.ru.departmentHistory.refreshError = 'Не удалось обновить подразделения. Показаны последние загруженные данные.';
 translations.en.departmentHistory.refreshError = 'Could not refresh departments. Showing the last loaded data.';
+
+translations.ru.timeEntries.permissionsUnavailable = 'Проверяем права на редактирование. При сбое соединения изменения временно недоступны.';
+translations.en.timeEntries.permissionsUnavailable = 'Checking editing permissions. Changes are temporarily unavailable during connection failures.';
+
+translations.ru.backgroundRefresh = {failed:'Не удалось обновить данные. Повторим автоматически после восстановления соединения.'};
+translations.en.backgroundRefresh = {failed:'Could not refresh data. We will retry automatically when the connection recovers.'};
