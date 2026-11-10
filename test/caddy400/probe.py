@@ -16,5 +16,5 @@ for name,raw in [('nul_header',b'GET /api/user-selection HTTP/1.1\r\nHost: local
             if not chunk:break
             data+=chunk
     results.append({'case':name,'response':data.decode('ascii',errors='replace')})
-    assert b'400 Bad Request' in data
+    assert data == b'HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain; charset=utf-8\r\nConnection: close\r\n\r\n400 Bad Request'
 print(json.dumps(results,indent=2))
