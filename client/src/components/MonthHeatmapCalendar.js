@@ -293,7 +293,7 @@ export default function MonthHeatmapCalendar({
           const key = toDateKey(day);
           const hours = Number(hoursByDay[key] || 0);
           const weekend = day.getDay() === 0 || day.getDay() === 6;
-          const accessible = !dayPermissions || !!dayPermissions[key]?.canEdit;
+          const accessible = !dayPermissions || (!dayPermissions.denied && !!dayPermissions[key]?.canEdit);
           const status = accessible ? getDayStatus(hours, weekend) : 'unavailable';
           const inSelectedWeek = day >= selectedStart && day <= selectedEnd;
           const currentMonth = isSameMonth(day, month);

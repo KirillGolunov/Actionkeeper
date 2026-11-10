@@ -1,3 +1,4 @@
+import { createPermissionRefresh } from '../utils/permissionRefresh';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Box,
@@ -223,7 +224,7 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState('');
   const [selectedUser, setSelectedUser] = useState('');
-  const [dayPermissions,setDayPermissions]=useState({});
+  const [dayPermissions,setDayPermissions]=useState({denied:true});
   const [savedWeeklySignature, setSavedWeeklySignature] = useState('[]');
   const [savedWeeklyProjects, setSavedWeeklyProjects] = useState([]);
   const [weeklyLoading, setWeeklyLoading] = useState(true);
@@ -467,6 +468,7 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
   };
 
   const handleWeeklySubmit = async () => {
+    if (dayPermissions.denied) return;
     setSaveNotice(null);
     setValidationAttempted(true);
     const issues = buildWeeklyValidationIssues({
@@ -649,6 +651,7 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
   };
 
   const handleEditSave = async () => {
+    if (dayPermissions.denied) return;
     setEditLoading(true);
     setEditError('');
     try {
@@ -742,6 +745,7 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
   };
 
   const handleConfirmDelete = async () => {
+    if (dayPermissions.denied) return;
     if (!entryToDelete) return;
     try {
       // Find all time entries for this project and submission time
@@ -810,6 +814,7 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
   };
 
   const confirmDeleteRow = async () => {
+    if (dayPermissions.denied) return;
     if (rowToDeleteIndex === null) return;
     const index = rowToDeleteIndex;
     setRowToDeleteIndex(null);
@@ -889,6 +894,7 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
 
   // Delete a project row
   const handleDeleteProject = async idx => {
+    if (dayPermissions.denied) return;
     const entry = weeklyProjects[idx];
     try {
       if (entry.submitted) {
@@ -965,15 +971,19 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
   const actionColumnWidth = embedded ? 32 : 44;
   useEffect(()=>{
     if(!selectedUser||!weekStart)return;
-    let canceled=false;setDayPermissions({});
+    setDayPermissions({denied:true});
     const first=new Date(calendarMonth.getFullYear(),calendarMonth.getMonth(),1);first.setDate(first.getDate()-(first.getDay()+6)%7);
     const last=new Date(calendarMonth.getFullYear(),calendarMonth.getMonth()+1,0);last.setDate(last.getDate()+(7-last.getDay())%7);
     const start=new Date(Math.min(first.getTime(),weekStart.getTime())),end=new Date(Math.max(last.getTime(),weekStart.getTime()+6*86400000));
-    const load=()=>axios.get('/api/time-entry-permissions',{params:{user_id:selectedUser,startDate:formatDateKey(start),endDate:formatDateKey(end)}}).then(r=>{if(!canceled)setDayPermissions(r.data.days);}).catch(()=>{if(!canceled)setDayPermissions({denied:true});});
-    load();const timer=setInterval(load,30000);return()=>{canceled=true;clearInterval(timer);};
+    const loader = createPermissionRefresh({
+      request: signal => axios.get('/api/time-entry-permissions', { params: { user_id: selectedUser, startDate: formatDateKey(start), endDate: formatDateKey(end) }, signal }),
+      onPermissions: setDayPermissions,
+    });
+    loader.start();
+    return () => loader.stop();
   },[selectedUser,weekStart,calendarMonth]);
-  const editorDisabled = weeklyLoading || Boolean(weeklyLoadError);
-  const footerStatus = firstValidationIssue?.message || (saveFeedback === 'saved'
+  const editorDisabled = weeklyLoading || Boolean(weeklyLoadError) || Boolean(dayPermissions.denied);
+  const footerStatus = dayPermissions.denied ? t('timeEntries.permissionsUnavailable') : firstValidationIssue?.message || (saveFeedback === 'saved'
     ? t('timeEntries.ui.savedAll')
     : saveFeedback === 'error'
       ? t('timeEntries.ui.saveError')
@@ -1055,7 +1065,7 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
           month={calendarMonth}
           selectedWeek={weekStart}
           entries={timeEntries}
-          dayPermissions={isScopedTimesheet?dayPermissions:undefined}
+          dayPermissions={dayPermissions}
           loading={historyLoading}
           error={historyError}
           onMonthChange={(nextMonth) => setCalendarMonth(startOfMonth(nextMonth))}
@@ -1547,7 +1557,7 @@ function TimeEntries({ embedded = false, onDataChanged, weekAnchor, onWeekChange
                   const knownProject = projects.find(project => project.id === entry.project_id);
                   const dateKey=formatDateKey(new Date(new Date(weekStart).getTime()+daysOfWeek.findIndex(item=>item.key===day.key)*86400000));
                   const permission=dayPermissions[dateKey];
-                  const datedAccess=currentUser?.role==='admin'||(permission?.canEdit&&!dayPermissions.denied);
+                  const datedAccess=!dayPermissions.denied && (currentUser?.role==='admin'||permission?.canEdit);
                   const datedProject=currentUser?.role==='admin'||!!entry.hours[day.key]?.id||knownProject?.departments?.some(d=>d.id===permission?.departmentId);
                   const rowReadOnly = !datedAccess || !datedProject || Boolean(entry.submitted && knownProject?.active === 0) || (!activeProject && currentUser?.role !== 'admin' && !entry.hours[day.key]?.id);
                   const savedEntry = savedWeeklyProjects.find((savedRow) => (

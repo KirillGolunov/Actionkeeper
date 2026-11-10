@@ -1,4 +1,7 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import ProductErrorToast from './ProductErrorToast';
+import { useTranslation } from '../i18n/I18nProvider';
+import { createRefreshLoader } from '../utils/refreshLoader';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { Box, IconButton, useMediaQuery } from '@mui/material';
 import MenuRoundedIcon from '@mui/icons-material/MenuRounded';
 import axios from 'axios';
@@ -12,6 +15,9 @@ const SIDEBAR_KEY = 'timeTracker.sidebarCollapsed';
 
 export default function AppShell({ children }) {
   const { user } = useAuth();
+  const userId = user?.id;
+  const { t } = useTranslation();
+  const [refreshError, setRefreshError] = useState(null);
   const navigate = useNavigate();
   const mobile = useMediaQuery('(max-width:767.95px)');
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(SIDEBAR_KEY) === 'true');
@@ -21,32 +27,39 @@ export default function AppShell({ children }) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [nextCursor, setNextCursor] = useState(null);
   const [loading, setLoading] = useState(false);
+  const notificationRefresh = useRef(null);
+  const notificationFlight = useRef(null);
 
-  const fetchNotifications = useCallback(async ({ append = false, before = null } = {}) => {
-    if (!user) return;
+  const fetchNotifications = useCallback(async ({ append = false, before = null, signal } = {}) => {
+    if (!userId) return;
+    if (notificationFlight.current) return notificationFlight.current;
     setLoading(true);
+    const work = (async () => {
     try {
-      const response = await axios.get('/api/notifications', { params: { limit: 20, ...(before ? { before } : {}) } });
+      const response = await axios.get('/api/notifications', { signal, timeout:15000, params: { limit: 20, ...(before ? { before } : {}) } });
+      if (signal?.aborted) return;
       setItems((current) => append ? [...current, ...(response.data.items || [])] : (response.data.items || []));
       setUnreadCount(response.data.unreadCount || 0);
       setNextCursor(response.data.nextCursor || null);
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
-  }, [user]);
+    })();
+    notificationFlight.current = work;
+    try { return await work; } finally { if (notificationFlight.current === work) notificationFlight.current = null; }
+  }, [userId]);
 
   useEffect(() => {
-    fetchNotifications().catch(() => {});
-    const id = window.setInterval(() => fetchNotifications().catch(() => {}), 60000);
-    const refresh = () => fetchNotifications().catch(() => {});
-    window.addEventListener('focus', refresh);
+    const loader = createRefreshLoader({
+      request: signal => fetchNotifications({signal}),
+      onSuccess: () => setRefreshError(null), onError: () => setRefreshError(t('backgroundRefresh.failed')), intervalMs:60000,
+    });
+    notificationRefresh.current = loader.retry;
+    loader.start();
+    const refresh = () => loader.retry();
     window.addEventListener('notifications:refresh', refresh);
-    return () => {
-      window.clearInterval(id);
-      window.removeEventListener('focus', refresh);
-      window.removeEventListener('notifications:refresh', refresh);
-    };
-  }, [fetchNotifications]);
+    return () => { loader.stop(); notificationRefresh.current = null; window.removeEventListener('notifications:refresh', refresh); };
+  }, [fetchNotifications, t]);
 
   const toggleCollapsed = () => {
     setCollapsed((current) => {
@@ -57,7 +70,7 @@ export default function AppShell({ children }) {
   const openNotifications = () => {
     setNotificationsOpen(true);
     setMobileOpen(false);
-    fetchNotifications().catch(() => {});
+    notificationRefresh.current?.();
   };
   const readAll = async () => {
     await axios.post('/api/notifications/read-all');
@@ -103,6 +116,7 @@ export default function AppShell({ children }) {
       <Box sx={{ height: '100dvh', ml: mobile ? 0 : `${collapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_EXPANDED_WIDTH}px`, minWidth: 0, minHeight: 0, overflow: 'hidden', transition: 'margin-left 200ms ease' }}>
         {children}
       </Box>
+      <ProductErrorToast message={refreshError} onClose={() => setRefreshError(null)} />
       <NotificationPanel
         open={notificationsOpen}
         collapsed={collapsed}

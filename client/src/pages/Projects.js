@@ -1,3 +1,4 @@
+import { createRefreshLoader } from '../utils/refreshLoader';
 import ProductErrorToast from '../components/ProductErrorToast';
 import ProjectFilterControl from '../components/ProjectFilterControl';
 import { defaultProjectFilters, filterProjectCatalog } from '../utils/projectFilters';
@@ -104,13 +105,18 @@ function Projects({ modalOnly = false, initialProjectId = null, onModalClose }) 
   const [projectActionsAnchorEl, setProjectActionsAnchorEl] = useState(null);
   const [deletingProject, setDeletingProject] = useState(false);
   const [pendingBudgetRequests, setPendingBudgetRequests] = useState([]);
+  const pendingFlight = useRef(null);
+  const [pendingRefreshError, setPendingRefreshError] = useState(null);
   const [filters, setFilters] = useState(defaultProjectFilters);
   const { user: currentUser, refreshSessionStatus } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [departments, setDepartments] = useState([]);
   useEffect(() => { axios.get('/api/departments').then(r => { setDepartments(r.data); setDepartmentsLoaded(true); }).catch(() => setError(t('departments.loadFailed'))); }, [t]);
-  useEffect(() => { const refresh = () => refreshSessionStatus?.()?.catch(() => {}); window.addEventListener('focus', refresh); const timer = window.setInterval(refresh, 30000); return () => { window.removeEventListener('focus', refresh); window.clearInterval(timer); }; }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const loader = createRefreshLoader({request: signal => refreshSessionStatus?.({signal}), onSuccess: () => {}, onError: () => {}});
+    loader.start(); return () => loader.stop();
+  }, [refreshSessionStatus]);
   const canEdit = currentUser?.role === 'admin';
   const canCreateProjects = canEdit || !!currentUser?.canCreateProjects;
   const canReviewProjects = canEdit || !!currentUser?.managedDepartmentIds?.length;
@@ -123,15 +129,21 @@ function Projects({ modalOnly = false, initialProjectId = null, onModalClose }) 
   const isEditProjectManager = Number(editProject?.manager_user_id) === Number(currentUser?.id);
   const canReviewEditProject = canEdit || !!currentUser?.managedDepartmentIds?.includes(editProject?.responsible_department_id);
   const canViewEditProjectFinance = Boolean(canEdit || isEditProjectManager || (canReviewEditProject && editProject?.permissions?.canViewBudget));
-  const fetchPendingBudgetRequests = useCallback(async () => {
+  const fetchPendingBudgetRequests = useCallback(async ({signal} = {}) => {
     if (currentUser?.role !== 'admin' && !currentUser?.managedDepartmentIds?.length) {
       setPendingBudgetRequests([]);
       return;
     }
     try {
-      const response = await axios.get('/api/admin/project-budget-change-requests?status=pending');
-      setPendingBudgetRequests(response.data || []);
+      if (!pendingFlight.current) {
+        const flight = axios.get('/api/admin/project-budget-change-requests?status=pending', {signal, timeout:15000});
+        pendingFlight.current = flight;
+        flight.finally(() => { if (pendingFlight.current === flight) pendingFlight.current = null; }).catch(() => {});
+      }
+      const response = await pendingFlight.current;
+      if (!signal?.aborted) setPendingBudgetRequests(response.data || []);
     } catch (fetchError) {
+      if (signal) throw fetchError;
       console.error('Error fetching pending budget requests:', fetchError);
     }
   }, [currentUser?.role, currentUser?.managedDepartmentIds]);
@@ -227,14 +239,13 @@ function Projects({ modalOnly = false, initialProjectId = null, onModalClose }) 
     fetchProjects();
     fetchClients();
     fetchManagerCandidates();
-    fetchPendingBudgetRequests();
   }, [fetchProjects, fetchClients, fetchManagerCandidates, fetchPendingBudgetRequests]);
 
   useEffect(() => {
     if (!canReviewProjects) return undefined;
-    const intervalId = window.setInterval(fetchPendingBudgetRequests, 30000);
-    return () => window.clearInterval(intervalId);
-  }, [canReviewProjects, fetchPendingBudgetRequests]);
+    const loader = createRefreshLoader({request: signal => fetchPendingBudgetRequests({signal}), onSuccess: () => setPendingRefreshError(null), onError: () => setPendingRefreshError(t('backgroundRefresh.failed'))});
+    loader.start(); return () => loader.stop();
+  }, [canReviewProjects, fetchPendingBudgetRequests, t]);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -613,7 +624,7 @@ function Projects({ modalOnly = false, initialProjectId = null, onModalClose }) 
             {canCreateProjects && <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpen} sx={{ ...pageActionButtonSx, flexShrink: 0 }}>{t('projects.addProject')}</Button>}
           </Box>
           <Box sx={{ minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}>
-      <ProductErrorToast message={error} onClose={() => setError(null)} />
+      <ProductErrorToast message={error || pendingRefreshError} onClose={() => { setError(null); setPendingRefreshError(null); }} />
       <Snackbar
         open={Boolean(notice)}
         autoHideDuration={8000}
