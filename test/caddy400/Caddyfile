@@ -1,0 +1,15 @@
+{
+    admin off
+    auto_https off
+}
+:8080 {
+    log {
+        output stdout
+        format json
+    }
+    header X-Lab-Handler reached
+    header Etag `"lab-etag"`
+    @cached header If-None-Match `"lab-etag"`
+    respond @cached 304
+    respond "ok" 200
+}

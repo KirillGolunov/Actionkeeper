@@ -1,0 +1,33 @@
+name: Caddy 2.11.9 HTTP 400 reproduction
+on:
+  push:
+    branches: [codex/investigate-caddy-400]
+    paths: ['test/caddy400/**', '.github/workflows/caddy400-lab.yml']
+permissions:
+  contents: read
+jobs:
+  reproduce:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start isolated Caddy
+        run: |
+          docker run -d --name caddy400-lab -p 127.0.0.1:18080:8080 -v "$PWD/test/caddy400/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.11.9
+          docker exec caddy400-lab caddy version
+          for n in $(seq 1 20); do curl -fsS http://127.0.0.1:18080/ && break; sleep 1; done
+      - name: Probe conditional requests, idle reuse and invalid HTTP
+        run: python3 test/caddy400/probe.py | tee caddy400-results.json
+      - name: Save parser comparison logs
+        if: always()
+        run: docker logs caddy400-lab > caddy400-access.log 2>&1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: caddy400-lab-results
+          path: |
+            caddy400-results.json
+            caddy400-access.log
+      - name: Cleanup
+        if: always()
+        run: docker rm -f caddy400-lab
