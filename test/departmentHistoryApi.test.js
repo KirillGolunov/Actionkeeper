@@ -29,6 +29,15 @@ test('dated department APIs enforce historical editing, atomic batches, split-we
   await api('GET','/api/users',ta,undefined,403);await api('GET','/api/time-entries?user_id=2',employee,undefined,403);
   const weeklyA=await api('GET',`/api/dashboard/team-weekly?year=2026&departmentId=${a.id}`,ta);const weekA=weeklyA.users.find(u=>u.id===4).weeks.find(w=>w.weekStart==='2026-01-05');assert.equal(weekA.targetHours,24);assert.equal(weekA.hours,6);
   const weeklyB=await api('GET',`/api/dashboard/team-weekly?year=2026&departmentId=${b.id}`,tb);assert.equal(weeklyB.users.find(u=>u.id===4).weeks.find(w=>w.weekStart==='2026-01-05').targetHours,16);
+  const dashboardQuery='startDate=2026-01-01&endDate=2026-01-31&bucket=week';
+  const hours=dashboard=>dashboard.timeSeries.periods.reduce((sum,period)=>sum+period.totalHours,0);
+  const dashboardA=await api('GET',`/api/dashboard?scope=department&departmentId=${a.id}&${dashboardQuery}`,ta);
+  const dashboardB=await api('GET',`/api/dashboard?scope=department&departmentId=${b.id}&${dashboardQuery}`,tb);
+  assert.equal(hours(dashboardA),6);assert.equal(hours(dashboardB),3);
+  assert.equal(dashboardA.timeSeries.periods.find(p=>p.startDate==='2026-01-05').categories.find(c=>c.key==='internal_project').hours,6);
+  assert.equal(hours(await api('GET',`/api/dashboard?scope=company&${dashboardQuery}`,admin)),9);
+  assert.equal(hours(await api('GET',`/api/dashboard?scope=mine&userId=4&${dashboardQuery}`,admin)),9);
+  assert.equal(hours(await api('GET',`/api/dashboard?scope=department&departmentId=${a.id}&startDate=2026-02-01&endDate=2026-02-28`,ta)),0);
   await api('GET',`/api/dashboard?scope=department&departmentId=${a.id}&startDate=2026-01-01&endDate=2026-01-31`,tb,undefined,403);
   await api('DELETE',`/api/departments/${a.id}`,admin);assert.ok((await get('SELECT archived_at FROM departments WHERE id=?',[a.id])).archived_at);assert.equal((await get('SELECT department_id FROM time_entries WHERE id=?',[old.id])).department_id,a.id);
   assert.ok(!(await api('GET','/api/departments',admin)).some(d=>d.id===a.id));assert.ok((await api('GET','/api/departments?includeArchived=1',admin)).some(d=>d.id===a.id));

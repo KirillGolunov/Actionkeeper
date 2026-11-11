@@ -3687,7 +3687,7 @@ app.get('/api/dashboard', authenticateJWT, serializeProjectMutation(async (req, 
     );
     const contractComparisonProjects = buildContractComparisonProjects(contractComparisonRows);
     let timeSeries;
-    if (scope === 'mine' || scope === 'company') {
+    if (scope === 'mine' || scope === 'company' || scope === 'department') {
       const timeSeriesConditions = [
         'substr(t.date, 1, 10) >= ?',
         'substr(t.date, 1, 10) <= ?',
@@ -3696,6 +3696,10 @@ app.get('/api/dashboard', authenticateJWT, serializeProjectMutation(async (req, 
       if (scope === 'mine') {
         timeSeriesConditions.push('t.user_id = ?');
         timeSeriesParams.push(targetUserId);
+      }
+      if (scope === 'department') {
+        timeSeriesConditions.push(`t.department_id IN (${departmentScope.map(() => '?').join(',')})`);
+        timeSeriesParams.push(...departmentScope);
       }
       if (clientType) {
         timeSeriesConditions.push('c.type = ?');
